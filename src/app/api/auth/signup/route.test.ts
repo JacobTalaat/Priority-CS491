@@ -47,6 +47,7 @@ describe("POST /api/auth/signup", () => {
     const body = await res.json();
     expect(typeof body.token).toBe("string");
     expect(body.token.length).toBeGreaterThan(0);
+    expect(body.expiresAt).toBeTruthy();
     expect(body.user).toEqual({ id: "user-1", email: "student@example.com" });
   });
 

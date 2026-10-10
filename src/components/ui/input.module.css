@@ -1,0 +1,53 @@
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--foreground);
+  /* 16px stops iOS Safari from zooming in when the field gets focus. */
+  font-size: 16px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.input::placeholder {
+  color: var(--muted);
+}
+
+.input:hover {
+  border-color: color-mix(in srgb, var(--foreground) 25%, transparent);
+}
+
+.input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  outline: none;
+}
+
+.invalid,
+.invalid:hover {
+  border-color: var(--danger);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+}

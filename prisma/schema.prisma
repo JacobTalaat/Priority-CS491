@@ -20,7 +20,14 @@ model User {
   passwordHash String
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
-  sessions     Session[]
+  canvasTokenCipher String?
+  canvasTokenIv     String?
+  canvasTokenTag    String?
+  canvasBaseUrl     String?
+  canvasCheckedAt   DateTime?
+  lastSyncedAt      DateTime?
+  sessions          Session[]
+  courses           Course[]
 }
 
 model Session {
@@ -31,4 +38,71 @@ model Session {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Course {
+  id           String    @id @default(cuid())
+  userId       String
+  canvasId     String
+  name         String
+  courseCode   String?
+  term         String?
+  termEndsAt   DateTime?
+  isCurrent    Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignmentGroups AssignmentGroup[]
+  assignments      Assignment[]
+
+  @@unique([userId, canvasId])
+}
+
+model AssignmentGroup {
+  id          String   @id @default(cuid())
+  courseId    String
+  canvasId    String
+  name        String
+  groupWeight Float?
+  position    Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+
+  @@unique([courseId, canvasId])
+}
+
+model Assignment {
+  id                String   @id @default(cuid())
+  courseId          String
+  assignmentGroupId String?
+  canvasId          String
+  title             String
+  dueAt             DateTime?
+  hasDueDate        Boolean
+  pointsPossible    Float
+  htmlUrl           String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assignmentGroup AssignmentGroup? @relation(fields: [assignmentGroupId], references: [id], onDelete: SetNull)
+  grade           Grade?
+
+  @@unique([courseId, canvasId])
+  @@index([courseId, dueAt])
+}
+
+model Grade {
+  id           String    @id @default(cuid())
+  assignmentId String    @unique
+  score        Float?
+  gradedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 }

@@ -1,0 +1,150 @@
+.shell {
+  width: min(100%, 1200px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 var(--page-gutter);
+}
+
+.topbar {
+  display: grid;
+  min-height: 72px;
+  grid-template-areas: "brand tabs account";
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.wordmark {
+  grid-area: brand;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
+.mark {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.08em;
+}
+
+.tabs {
+  grid-area: tabs;
+  align-self: stretch;
+  justify-self: end;
+}
+
+.account {
+  grid-area: account;
+}
+
+.tabList {
+  display: flex;
+  height: 100%;
+  gap: 8px;
+  list-style: none;
+}
+
+.tabItem {
+  display: flex;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  color: var(--secondary);
+  font-size: 14px;
+  transition: color 160ms ease;
+}
+
+.tab:hover {
+  color: var(--foreground);
+}
+
+.tabActive,
+.tabActive:hover {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tabActive::after {
+  position: absolute;
+  right: 14px;
+  bottom: -1px;
+  left: 14px;
+  height: 2px;
+  background: var(--accent);
+  content: "";
+}
+
+.content {
+  padding: 56px 0 80px;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    grid-template-areas:
+      "brand account"
+      "tabs tabs";
+    grid-template-columns: 1fr auto;
+    gap: 8px 0;
+    padding-top: 12px;
+  }
+
+  .tabs {
+    justify-self: stretch;
+  }
+
+  .tabList {
+    gap: 0;
+  }
+
+  .tabItem {
+    flex: 1;
+  }
+
+  .tab {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+    padding: 0 4px;
+  }
+
+  .tabActive::after {
+    right: 8px;
+    left: 8px;
+  }
+
+  .content {
+    padding: 32px 0 56px;
+  }
+}
+
+@media (max-width: 360px) {
+  .tab {
+    font-size: 13px;
+  }
+}
+
+.checking {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}

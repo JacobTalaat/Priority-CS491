@@ -1,5 +1,5 @@
-import PriorityDashboard from "./priority-dashboard";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return <PriorityDashboard />;
+  redirect("/today");
 }

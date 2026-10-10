@@ -1,15 +1,29 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createSession, getUserFromRequest } from "./auth";
+import {
+  createSession,
+  deleteSession,
+  getSessionFromRequest,
+  getUserFromRequest,
+  rotateSession,
+} from "./auth";
 
-const { mockSessionCreate, mockSessionFindUnique } = vi.hoisted(() => ({
-  mockSessionCreate: vi.fn(),
-  mockSessionFindUnique: vi.fn(),
-}));
+const { mockSessionCreate, mockSessionFindUnique, mockSessionDelete, mockTransaction } =
+  vi.hoisted(() => ({
+    mockSessionCreate: vi.fn(),
+    mockSessionFindUnique: vi.fn(),
+    mockSessionDelete: vi.fn(),
+    mockTransaction: vi.fn(),
+  }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { create: mockSessionCreate, findUnique: mockSessionFindUnique },
+    session: {
+      create: mockSessionCreate,
+      findUnique: mockSessionFindUnique,
+      delete: mockSessionDelete,
+    },
+    $transaction: mockTransaction,
   },
 }));
 
@@ -28,14 +42,88 @@ describe("createSession", () => {
 
   it("returns a token and stores only its sha256 hash", async () => {
     mockSessionCreate.mockResolvedValue({});
-    const token = await createSession("user-1");
+    const { token, expiresAt } = await createSession("user-1");
     expect(token).toBeTruthy();
+    expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
     expect(mockSessionCreate).toHaveBeenCalledTimes(1);
     const data = mockSessionCreate.mock.calls[0][0].data;
     expect(data.tokenHash).toBe(createHash("sha256").update(token).digest("hex"));
     expect(data.tokenHash).not.toBe(token);
     expect(data.userId).toBe("user-1");
     expect(data.expiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+});
+
+describe("rotateSession", () => {
+  beforeEach(() => {
+    mockSessionDelete.mockReset();
+    mockSessionCreate.mockReset();
+    mockTransaction.mockReset();
+  });
+
+  it("deletes the old session and creates a new one with a different token hash", async () => {
+    mockSessionCreate.mockResolvedValue({});
+    const old = await createSession("user-1");
+    const oldHash = mockSessionCreate.mock.calls[0][0].data.tokenHash;
+    mockSessionDelete.mockReset();
+    mockSessionCreate.mockReset();
+    mockSessionDelete.mockResolvedValue({});
+    mockSessionCreate.mockResolvedValue({});
+    mockTransaction.mockImplementation(async (operations: Promise<unknown>[]) => {
+      return Promise.all(operations);
+    });
+    await rotateSession("session-1", "user-1");
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+    expect(mockSessionDelete).toHaveBeenCalledWith({ where: { id: "session-1" } });
+    expect(mockSessionCreate).toHaveBeenCalledTimes(1);
+    const data = mockSessionCreate.mock.calls[0][0].data;
+    expect(data.tokenHash).not.toBe(oldHash);
+    expect(data.tokenHash).not.toBe(old.token);
+    expect(data.userId).toBe("user-1");
+    expect(data.expiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("stores only a sha256 hash and never the raw token", async () => {
+    mockSessionDelete.mockResolvedValue({});
+    mockSessionCreate.mockResolvedValue({});
+    mockTransaction.mockImplementation(async (operations: Promise<unknown>[]) => {
+      return Promise.all(operations);
+    });
+    const { token } = await rotateSession("session-1", "user-1");
+    expect(token).toBeTruthy();
+    const data = mockSessionCreate.mock.calls[0][0].data;
+    expect(data.tokenHash).toBe(createHash("sha256").update(token).digest("hex"));
+    expect(data.tokenHash).not.toBe(token);
+  });
+});
+
+describe("deleteSession", () => {
+  beforeEach(() => {
+    mockSessionDelete.mockReset();
+  });
+
+  it("deletes the session by id", async () => {
+    mockSessionDelete.mockResolvedValue({});
+    await deleteSession("session-1");
+    expect(mockSessionDelete).toHaveBeenCalledTimes(1);
+    expect(mockSessionDelete).toHaveBeenCalledWith({ where: { id: "session-1" } });
+  });
+});
+
+describe("getSessionFromRequest", () => {
+  beforeEach(() => {
+    mockSessionFindUnique.mockReset();
+  });
+
+  it("returns the session id and expiresAt for a valid token", async () => {
+    const expiresAt = new Date(Date.now() + 60 * 1000);
+    mockSessionFindUnique.mockResolvedValue({
+      id: "session-1",
+      expiresAt,
+      user: { id: "user-1", email: "student@example.com" },
+    });
+    const session = await getSessionFromRequest(requestWithToken("valid-token"));
+    expect(session).toEqual({ id: "session-1", expiresAt, user: { id: "user-1", email: "student@example.com" } });
   });
 });
 

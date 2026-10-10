@@ -1,0 +1,74 @@
+.section {
+  display: grid;
+  gap: 16px;
+  padding: 28px 0 32px;
+  border-top: 1px solid var(--divider);
+}
+
+.sectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionTitle {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.sectionNote {
+  max-width: 560px;
+  color: var(--secondary);
+}
+
+.badge {
+  padding: 4px 10px;
+  border: 1px solid var(--divider);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.badgeOn {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+
+.loading {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.details dt {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.form {
+  display: grid;
+  max-width: 520px;
+  gap: 18px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.rest {
+  margin-top: 8px;
+}

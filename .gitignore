@@ -46,3 +46,7 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# generated agent instruction files
+AGENTS.md
+CLAUDE.md

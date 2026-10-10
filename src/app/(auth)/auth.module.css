@@ -1,0 +1,83 @@
+.shell {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding: 56px var(--page-gutter);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
+.mark {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.08em;
+}
+
+.panel {
+  width: min(100%, 420px);
+}
+
+.heading {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.title {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  line-height: 1.05;
+}
+
+.subtitle {
+  color: var(--secondary);
+}
+
+.form {
+  display: grid;
+  gap: 18px;
+}
+
+.switch {
+  margin-top: 24px;
+  color: var(--secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+.switch a {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.switch a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 720px) {
+  .shell {
+    gap: 32px;
+    padding-top: 32px;
+  }
+
+  .title {
+    font-size: 30px;
+  }
+}

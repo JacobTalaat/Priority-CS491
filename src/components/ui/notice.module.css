@@ -1,0 +1,20 @@
+.notice {
+  padding: 12px 14px;
+  border: 1px solid;
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.error {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  border-left-color: var(--danger);
+  color: var(--danger);
+}
+
+.success {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  border-left-color: var(--accent);
+  color: var(--accent);
+}

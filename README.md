@@ -5,7 +5,7 @@ Priority tracker built with Next.js, Prisma, and PostgreSQL.
 ## Prerequisites
 
 - Node.js LTS
-- PostgreSQL 16 installed on your machine
+- PostgreSQL, either installed locally or provided by a hosted database service
 
 ## Setup
 
@@ -15,29 +15,7 @@ Priority tracker built with Next.js, Prisma, and PostgreSQL.
    cp .env.example .env
    ```
 
-2. Create the database user and database (only the first time):
-
-   On macOS, install and start PostgreSQL with Homebrew if you don't have it yet:
-
-   ```bash
-   brew install postgresql@16
-   brew services start postgresql@16
-   ```
-
-   On Ubuntu:
-
-   ```bash
-   sudo apt install -y postgresql
-   ```
-
-   Then create the user and database that match `.env.example`:
-
-   ```bash
-   psql postgres -c "CREATE USER priority WITH PASSWORD 'priority' CREATEDB;"
-   psql postgres -c "CREATE DATABASE priority OWNER priority;"
-   ```
-
-   On Ubuntu, run those two commands with `sudo -u postgres` in front.
+2. Create a PostgreSQL database, then edit `.env` so `DATABASE_URL` points to that database. The URL should include the host, port, database name, and credentials required by your PostgreSQL instance.
 
 3. Install dependencies (this also generates the Prisma client):
 
@@ -56,6 +34,19 @@ Priority tracker built with Next.js, Prisma, and PostgreSQL.
    ```bash
    npm run dev
    ```
+
+## Environment
+
+Real values live only in `.env` on each laptop and in the server's own environment, never in the repo. The repo carries `.env.example` with placeholders only:
+
+- `DATABASE_URL` — PostgreSQL connection string for Prisma.
+- `CANVAS_TOKEN_ENCRYPTION_KEY` — base64 key that decodes to exactly 32 bytes (AES-256), used to encrypt Canvas tokens. Generate one with:
+
+  ```bash
+  openssl rand -base64 32
+  ```
+
+- `CANVAS_BASE_URL` — optional Canvas host, defaults to `https://canvas.instructure.com`.
 
 ## Check that it works
 

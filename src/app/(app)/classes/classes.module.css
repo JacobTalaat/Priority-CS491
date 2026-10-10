@@ -1,0 +1,21 @@
+.status {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.emptyState {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+.emptyTitle {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.emptyDescription {
+  max-width: 480px;
+  color: var(--secondary);
+}

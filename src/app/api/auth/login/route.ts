@@ -35,6 +35,6 @@ export async function POST(request: Request) {
   if (!user || !verifyPassword(credentials.password, user.passwordHash)) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
-  const token = await createSession(user.id);
-  return NextResponse.json({ token, user: { id: user.id, email: user.email } });
+  const { token, expiresAt } = await createSession(user.id);
+  return NextResponse.json({ token, expiresAt, user: { id: user.id, email: user.email } });
 }

@@ -1,0 +1,36 @@
+.page {
+  display: grid;
+  max-width: 520px;
+  gap: 14px;
+}
+
+.title {
+  font-size: clamp(32px, 5vw, 48px);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  line-height: 1.02;
+}
+
+.description {
+  color: var(--secondary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.footnote {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Used by pages that render outside the tab layout (unmatched URLs, root errors). */
+.standalone {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 56px var(--page-gutter);
+}
