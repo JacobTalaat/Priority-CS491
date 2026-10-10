@@ -25,6 +25,9 @@ model User {
   canvasTokenTag    String?
   canvasBaseUrl     String?
   canvasCheckedAt   DateTime?
+  canvasCalendarFeedCipher String?
+  canvasCalendarFeedIv     String?
+  canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
   sessions          Session[]
   courses           Course[]
