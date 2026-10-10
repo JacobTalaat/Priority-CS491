@@ -94,7 +94,7 @@ export function CalendarFeed() {
           spellCheck={false}
           value={feedUrl}
           onChange={(event) => setFeedUrl(event.target.value)}
-          hint="Copy the calendar feed link from Canvas Calendar. Treat this private link like a password."
+          hint="In Canvas, open Calendar and choose Calendar Feed. Treat the private link like a password."
           required
         />
         <div className={styles.actions}>
