@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Priority wireframes</title>
+<style>
+  :root {
+    --bg: #f4f4f2; --paper: #ffffff; --ink: #1d1f20; --mid: #6b7073; --line: #c9cccd;
+    --fill: #e6e7e7; --fill-2: #d6d8d9; --tag: #2f6f60; --tag-bg: #e3efeb; --warn: #a8382b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; padding: 40px 24px 64px; }
+  .intro { max-width: 1100px; margin: 0 auto 40px; }
+  .intro h1 { font-size: 28px; letter-spacing: -0.02em; }
+  .intro p { color: var(--mid); margin-top: 8px; max-width: 720px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; color: var(--mid); font-size: 12px; }
+  .screen { max-width: 1100px; margin: 0 auto 56px; display: grid; grid-template-columns: 380px 1fr; gap: 40px; align-items: start; }
+  .screen + .screen { padding-top: 56px; border-top: 1px dashed var(--line); }
+  .screen h2 { font-size: 22px; letter-spacing: -0.02em; }
+  .screen .stories { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .notes { margin-top: 18px; display: grid; gap: 10px; color: var(--ink); }
+  .notes li { list-style: none; padding-left: 14px; position: relative; }
+  .notes li::before { content: ""; position: absolute; left: 0; top: 9px; width: 6px; height: 1px; background: var(--mid); }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; background: var(--tag-bg); color: var(--tag); font: 600 11px/1.6 ui-monospace, Menlo, monospace; white-space: nowrap; }
+  .tbd { background: #f6e6e3; color: var(--warn); }
+
+  /* phone frame */
+  .phone { width: 380px; border: 2px solid var(--ink); border-radius: 28px; background: var(--paper); padding: 14px 14px 22px; }
+  .bar { height: 6px; width: 90px; border-radius: 3px; background: var(--fill-2); margin: 0 auto 12px; }
+  .top { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; }
+  .mark { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 1.5px solid var(--ink); border-radius: 3px; margin-right: 6px; font-size: 11px; letter-spacing: 0; }
+  .tabs { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 10px; border-bottom: 1px solid var(--line); font-size: 12px; text-align: center; color: var(--mid); }
+  .tabs span { padding: 8px 0; }
+  .tabs .on { color: var(--ink); font-weight: 700; box-shadow: inset 0 -2px 0 var(--ink); }
+  .eyebrow { margin-top: 16px; font-size: 9px; letter-spacing: 0.16em; color: var(--mid); text-transform: uppercase; }
+  .h { font-size: 26px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.1; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .box { border: 1.5px solid var(--line); border-radius: 6px; padding: 10px; margin-top: 10px; position: relative; }
+  .box.dashed { border-style: dashed; }
+  .btn { display: inline-block; padding: 5px 10px; border: 1.5px solid var(--ink); border-radius: 3px; font-size: 11px; font-weight: 700; }
+  .btn.solid { background: var(--ink); color: var(--paper); }
+  .btn.off { border-color: var(--line); color: var(--line); }
+  .line { height: 8px; border-radius: 4px; background: var(--fill); }
+  .line.dark { background: var(--fill-2); }
+  .small { font-size: 11px; color: var(--mid); }
+  .chk { width: 16px; height: 16px; border: 1.5px solid var(--ink); border-radius: 50%; flex: none; }
+  .rank { font: 700 11px ui-monospace, Menlo, monospace; color: var(--mid); width: 18px; flex: none; }
+  .flag { font-size: 10px; font-weight: 700; color: var(--warn); }
+  .field { border: 1.5px solid var(--line); border-radius: 3px; height: 28px; margin-top: 4px; }
+  .pin { position: absolute; right: -8px; top: -9px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .card { border: 1.5px solid var(--line); border-radius: 6px; padding: 8px; position: relative; }
+  .bar-h { height: 6px; background: var(--fill); border-radius: 3px; overflow: hidden; }
+  .bar-h i { display: block; height: 100%; background: var(--fill-2); }
+  .toast { margin-top: 12px; padding: 8px 10px; border-radius: 6px; background: var(--ink); color: var(--paper); font-size: 11px; display: flex; justify-content: space-between; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+  td { padding: 4px 2px; border-bottom: 1px solid var(--fill); }
+
+  @media (max-width: 900px) { .screen { grid-template-columns: 1fr; } .phone { width: 100%; max-width: 380px; } }
+  body.single .intro, body.single .screen:not(.shown) { display: none; }
+  body.single .screen.shown { margin-bottom: 0; padding-top: 0; border-top: 0; }
+</style>
+</head>
+<body>
+
+<header class="intro">
+  <h1>Priority wireframes</h1>
+  <p>Low-fidelity layouts for the four tabs, so we agree on structure before building. Each box is tagged with the Jira story that builds it. Colors, fonts, and spacing come from the website theme, not from these sketches.</p>
+  <div class="legend"><span><span class="tag">PR-092</span> story that builds this part</span><span><span class="tag tbd">TBD</span> placement still open</span><span>Phone width shown (375px). On a laptop the same blocks sit in a wider column.</span></div>
+</header>
+
+<!-- TODAY -->
+<section class="screen" id="today">
+  <div class="phone" aria-label="Today wireframe">
+    <div class="bar"></div>
+    <div class="top"><span><span class="mark">P.</span>PRIORITY</span><span class="small">Log out</span></div>
+    <div class="tabs"><span class="on">Today</span><span>Classes</span><span>Weights</span><span>Settings</span></div>
+    <div class="eyebrow">Due soon</div>
+    <div class="row"><div class="h">Today</div><span class="btn">Sync now</span></div>
+    <div class="small">Last synced 5 minutes ago</div>
+
+    <div class="box"><span class="tag pin">PR-094</span>
+      <div class="row"><span class="small">I have</span><span class="field" style="width:54px;height:24px;margin:0"></span><span class="small">hours tonight</span><span class="btn">Apply</span></div>
+    </div>
+
+    <div class="box"><span class="tag pin">PR-092</span>
+      <div class="row" style="align-items:flex-start">
+        <span class="rank">01</span><span class="chk" title="PR-093"></span>
+        <div style="flex:1">
+          <b>Sprint 2 demo</b><div class="small">CS 490 · due tonight 11:59 PM · 8% of grade</div>
+          <div class="small">Biggest share of your grade due this week.</div>
+          <div class="flag">Could drop you below an A-</div>
+        </div>
+        <span class="btn">Plan</span>
+      </div>
+    </div>
+    <div class="box">
+      <div class="row" style="align-items:flex-start">
+        <span class="rank">02</span><span class="chk"></span>
+        <div style="flex:1"><b>Quiz 4</b><div class="small">CS 431 · due Thu · 3% of grade</div><div class="small">Short, and the quiz average is low.</div></div>
+        <span class="btn">Plan</span>
+      </div>
+    </div>
+    <div class="box">
+      <div class="row"><span class="rank">03</span><span class="chk"></span><div style="flex:1"><div class="line dark" style="width:70%"></div><div class="line" style="width:50%;margin-top:6px"></div></div><span class="btn">Plan</span></div>
+    </div>
+
+    <div class="toast"><span>Marked "Lab 3" done</span><b>Undo</b></div>
+
+    <div class="box dashed"><span class="tag pin tbd">PR-135 · TBD</span>
+      <div class="small">Ask my classes</div>
+      <div class="field" style="margin-top:6px"></div>
+    </div>
+  </div>
+  <div>
+    <h2>Today</h2>
+    <div class="stories"><span class="tag">PR-092</span><span class="tag">PR-093</span><span class="tag">PR-094</span><span class="tag">PR-101</span><span class="tag">PR-136</span><span class="tag">PR-022</span><span class="tag tbd">PR-135</span></div>
+    <ul class="notes">
+      <li><span class="tag">PR-092</span> Ranked list. Each row: rank, title, course, due date, weight share, a one-line reason, and a boundary flag when the item could move a letter grade.</li>
+      <li><span class="tag">PR-093</span> The circle marks it done. The row disappears and an Undo toast shows for a few seconds.</li>
+      <li><span class="tag">PR-094</span> Hours filter at the top trims the list to what fits tonight and is remembered for the evening.</li>
+      <li><span class="tag">PR-101</span> Tapping a row opens details: weight share, due date, reason, and an Open in Canvas link (sheet on phone, side panel on laptop).</li>
+      <li><span class="tag">PR-136</span> Plan on any row opens editable steps.</li>
+      <li><span class="tag">PR-022</span> Sync now and last-synced time sit in the page header.</li>
+      <li><span class="tag tbd">PR-135</span> Ask my classes could live here or on its own tab. Team to decide.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- CLASSES -->
+<section class="screen" id="classes">
+  <div class="phone" aria-label="Classes wireframe">
+    <div class="bar"></div>
+    <div class="top"><span><span class="mark">P.</span>PRIORITY</span><span class="small">Log out</span></div>
+    <div class="tabs"><span>Today</span><span class="on">Classes</span><span>Weights</span><span>Settings</span></div>
+    <div class="eyebrow">Fall 2026</div>
+    <div class="row"><div class="h">Classes</div><span class="btn">Sync now</span></div>
+
+    <div class="grid2" style="margin-top:12px">
+      <div class="card"><span class="tag pin">PR-062</span><b>CS 490</b><div class="small">Guided Design</div><div style="font-size:20px;font-weight:800;margin-top:6px">A- <span class="small">91.2%</span></div><div class="small">Next: Sprint 2 demo · tonight</div><div class="small" style="color:var(--tag)">✓ Confirmed</div></div>
+      <div class="card"><b>CS 431</b><div class="small">Database Design</div><div style="font-size:20px;font-weight:800;margin-top:6px">B+ <span class="small">88.0%</span></div><div class="small">Next: Quiz 4 · Thu</div><div class="small" style="color:var(--warn)">Needs setup</div></div>
+      <div class="card"><b>MATH 333</b><div class="small">Probability</div><div style="font-size:16px;font-weight:800;margin-top:6px;color:var(--mid)">Unsupported</div><div class="small">Next: HW 5 · Fri</div><div class="small" style="color:var(--warn)">Needs setup</div></div>
+      <div class="card"><b>HUM 211</b><div class="small">Ethics</div><div style="font-size:20px;font-weight:800;margin-top:6px">A <span class="small">94.5%</span></div><div class="small">Nothing due</div><div class="small" style="color:var(--tag)">✓ Confirmed</div></div>
+    </div>
+
+    <div class="box"><span class="tag pin">PR-063</span>
+      <div class="small">Class page (tap a card)</div>
+      <b>CS 490 · A- (91.2%)</b>
+      <div class="small" style="margin-top:6px">Projects 60%</div><div class="bar-h"><i style="width:92%"></i></div>
+      <div class="small" style="margin-top:4px">Quizzes 40%</div><div class="bar-h"><i style="width:90%"></i></div>
+      <table><tr><td>Quiz 3</td><td>18 / 20</td></tr><tr><td>Sprint 1 demo</td><td>— / 100</td></tr></table>
+      <div class="small" style="margin-top:6px">Office hours · Late policy · Contacts</div>
+      <div class="box dashed"><span class="tag pin">PR-095</span><b>Final exam</b><div class="small">You need 82% on the final for an A-. An A is out of reach.</div></div>
+    </div>
+
+    <div class="box dashed"><span class="tag pin">PR-021</span><div class="small">Empty state: "Connect Canvas in Settings to see your classes." + button</div></div>
+  </div>
+  <div>
+    <h2>Classes</h2>
+    <div class="stories"><span class="tag">PR-021</span><span class="tag">PR-062</span><span class="tag">PR-063</span><span class="tag">PR-095</span><span class="tag">PR-022</span></div>
+    <ul class="notes">
+      <li><span class="tag">PR-021</span> Every current course gets a row/card. Empty state links to Settings when Canvas isn't connected.</li>
+      <li><span class="tag">PR-062</span> One card per class: name, current grade (or "Unsupported"), next due item, and whether its setup is confirmed. Two columns on a phone, three or four on a laptop.</li>
+      <li><span class="tag">PR-063</span> Class page: category breakdown, assignments with grades, then office hours, late policy, and contacts.</li>
+      <li><span class="tag">PR-095</span> Final exam tool at the bottom of the class page, with a clear message when an A is out of reach.</li>
+      <li>"Needs setup" on a card links to that class on the Weights tab.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- WEIGHTS -->
+<section class="screen" id="weights">
+  <div class="phone" aria-label="Weights wireframe">
+    <div class="bar"></div>
+    <div class="top"><span><span class="mark">P.</span>PRIORITY</span><span class="small">Log out</span></div>
+    <div class="tabs"><span>Today</span><span>Classes</span><span class="on">Weights</span><span>Settings</span></div>
+    <div class="eyebrow">Grade weights</div>
+    <div class="h">Weights</div>
+
+    <div class="box"><span class="tag pin">PR-055</span>
+      <div class="small">Course</div><div class="field"></div>
+      <div class="small" style="margin-top:8px">Syllabus PDF</div><div class="field" style="border-style:dashed;height:40px;display:grid;place-items:center" ><span class="small">Choose a PDF</span></div>
+      <div class="small" style="margin-top:6px">ⓘ AI reads your syllabus. Check everything before you confirm.</div>
+      <div class="row" style="margin-top:8px"><span class="btn solid">Read syllabus</span><span class="small">or <u>enter by hand</u> <span class="tag">PR-061</span></span></div>
+    </div>
+
+    <div class="box"><span class="tag pin">PR-056</span>
+      <b>Confirm: CS 431</b>
+      <table>
+        <tr><td>Homework</td><td>30%</td><td>✕</td></tr>
+        <tr><td>Midterm</td><td>30%</td><td>✕</td></tr>
+        <tr><td>Final</td><td>35%</td><td>✕</td></tr>
+        <tr><td colspan="3" class="small">+ Add category</td></tr>
+      </table>
+      <div class="row small" style="margin-top:4px"><span>Total</span><b style="color:var(--warn)">95% of 100%</b></div>
+    </div>
+    <div class="box"><span class="tag pin">PR-057</span><div class="small">Assignment mapping: each Canvas assignment → category (dropdowns)</div><div class="line" style="margin-top:6px"></div><div class="line" style="margin-top:6px;width:80%"></div></div>
+    <div class="box"><span class="tag pin">PR-058</span><div class="small">Final exam weight + letter grade cutoffs (A ≥ 93, A- ≥ 90 …)</div></div>
+    <div class="box"><span class="tag pin">PR-059</span><div class="small">Class details: office hours, late policy, contacts</div></div>
+    <div class="row" style="margin-top:12px"><span class="btn off">Confirm setup</span><span class="tag">PR-060</span></div>
+    <div class="small">Disabled until weights total 100% and every assignment has a category.</div>
+  </div>
+  <div>
+    <h2>Weights</h2>
+    <div class="stories"><span class="tag">PR-055</span><span class="tag">PR-056</span><span class="tag">PR-057</span><span class="tag">PR-058</span><span class="tag">PR-059</span><span class="tag">PR-060</span><span class="tag">PR-061</span><span class="tag">PR-066</span></div>
+    <ul class="notes">
+      <li><span class="tag">PR-055</span> Pick a course and a PDF, see the AI disclosure, then a loading state while the syllabus is read.</li>
+      <li><span class="tag">PR-056</span> Edit, add, and remove categories with a running total that turns red until it reaches 100%.</li>
+      <li><span class="tag">PR-057</span> <span class="tag">PR-058</span> <span class="tag">PR-059</span> The rest of the confirm screen, stacked as sections in one scrolling page.</li>
+      <li><span class="tag">PR-060</span> Confirm stays disabled until the rules pass. The reason sits right under the button.</li>
+      <li><span class="tag">PR-061</span> Manual entry uses the same confirm screen with empty rows, and is the default when there's no syllabus and no Canvas weights.</li>
+      <li><span class="tag">PR-066</span> A confirmed class reopens this same screen with its saved values.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section class="screen" id="settings">
+  <div class="phone" aria-label="Settings wireframe">
+    <div class="bar"></div>
+    <div class="top"><span><span class="mark">P.</span>PRIORITY</span><span class="small">Log out</span></div>
+    <div class="tabs"><span>Today</span><span>Classes</span><span>Weights</span><span class="on">Settings</span></div>
+    <div class="eyebrow">Account</div>
+    <div class="h">Settings</div>
+
+    <div class="box"><span class="tag pin">PR-020</span>
+      <div class="row"><b>Canvas</b><span class="small" style="color:var(--tag)">● Connected</span></div>
+      <div class="small">njit.instructure.com · checked Oct 9, 4:09 PM</div>
+      <div class="row" style="margin-top:8px;justify-content:flex-start;gap:6px"><span class="btn">Sync now</span><span class="small">Last synced just now</span><span class="tag">PR-022</span></div>
+      <div class="row" style="margin-top:8px;justify-content:flex-start;gap:6px"><span class="btn">Test</span><span class="btn">Replace token</span><span class="small">Disconnect</span></div>
+    </div>
+    <div class="box"><span class="tag pin">PR-024</span>
+      <b>Calendar feed</b>
+      <div class="small">Backup if your token stops working. In Canvas: Calendar → Calendar Feed → copy the link.</div>
+      <div class="field"></div><div style="margin-top:6px"><span class="btn">Save feed</span></div>
+    </div>
+    <div class="box"><span class="tag pin">PR-096</span>
+      <b>Notifications</b><div class="small">Get a reminder before high-impact items are due.</div><div style="margin-top:6px"><span class="btn">Turn on</span></div>
+    </div>
+    <div class="box"><span class="tag pin">PR-018</span>
+      <b>Account</b><div class="small">student@njit.edu</div><div style="margin-top:6px"><span class="btn">Log out</span></div>
+    </div>
+  </div>
+  <div>
+    <h2>Settings</h2>
+    <div class="stories"><span class="tag">PR-020</span><span class="tag">PR-022</span><span class="tag">PR-024</span><span class="tag">PR-096</span><span class="tag">PR-018</span></div>
+    <ul class="notes">
+      <li><span class="tag">PR-020</span> Canvas connection (built): token form when not connected; address, last checked, Test, Replace, Disconnect when connected.</li>
+      <li><span class="tag">PR-022</span> Sync now with last-synced time inside the Canvas section.</li>
+      <li><span class="tag">PR-024</span> Calendar feed link with a one-line "where to find it" note, and success or error under the field.</li>
+      <li><span class="tag">PR-096</span> Notification permission prompt starts from here, never on first page load.</li>
+      <li><span class="tag">PR-018</span> Account section shows the signed-in email and a second Log out button (the header one stays).</li>
+    </ul>
+  </div>
+</section>
+
+<script>
+  // Open with #today, #classes, #weights, or #settings to show one screen, for image exports.
+  if (location.hash) {
+    const target = document.querySelector(location.hash);
+    if (target) {
+      document.body.classList.add("single");
+      target.classList.add("shown");
+    }
+  }
+</script>
+</body>
+</html>
