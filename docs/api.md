@@ -806,4 +806,56 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 
 ---
 
+### `GET /api/courses/grade-setups`
+
+Returns the authenticated student's current courses, their Canvas assignment-group weights and assignments, and any saved confirmed grade setup. Courses are included whether or not the Canvas token is currently connected.
+
+- **Method**: `GET`
+- **Path**: `/api/courses/grade-setups`
+
+**Request**
+
+No body.
+
+```bash
+curl -i http://localhost:3000/api/courses/grade-setups \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — current courses and setup data:
+
+```json
+{
+  "courses": [
+    {
+      "id": "course-id",
+      "name": "Algorithms",
+      "courseCode": "CS-341",
+      "term": "Fall 2026",
+      "assignmentGroups": [{ "name": "Homework", "groupWeight": 30 }],
+      "assignments": [
+        {
+          "id": "assignment-id",
+          "title": "Project 1",
+          "assignmentGroup": { "name": "Homework", "groupWeight": 30 }
+        }
+      ],
+      "gradeSetup": null
+    }
+  ]
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
 When you add a route, copy the section above and fill in the new route: keep the section heading in the same `METHOD /path` backticked form, and give it a **Method** line, a **Path** line, a **Request** part, and a **Response** part with a JSON example for every status code it returns.
