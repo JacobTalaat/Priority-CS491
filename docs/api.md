@@ -733,4 +733,77 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 ---
 
+### `POST /api/courses/[courseId]/grade-setup`
+
+Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
+
+- **Method**: `POST`
+- **Path**: `/api/courses/[courseId]/grade-setup`
+
+**Request**
+
+JSON body with:
+
+- `categories` — non-empty array of `{ "name": string, "weight": number }`; names must be unique and weights must be from 0 to 100.
+- `assignmentMappings` — array of `{ "assignmentId": string, "category": string }` using assignment IDs belonging to this course.
+- `finalExamWeight` — number from 0 to 100. Together with category weights it must total 100.
+- `cutoffs` — object mapping grade labels to percentage cutoffs from 0 to 100.
+- `classDetails` — object mapping detail names to text, numbers, or `null`.
+
+```bash
+curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categories": [
+      { "name": "Homework", "weight": 30 },
+      { "name": "Exams", "weight": 50 }
+    ],
+    "assignmentMappings": [
+      { "assignmentId": "assignment-id", "category": "Homework" }
+    ],
+    "finalExamWeight": 20,
+    "cutoffs": { "A": 90, "B": 80, "C": 70 },
+    "classDetails": { "instructor": "Professor Example", "section": "02" }
+  }'
+```
+
+**Response**
+
+`200` — the setup was saved:
+
+```json
+{
+  "confirmed": true,
+  "courseId": "course-id",
+  "confirmedAt": "2026-10-11T18:30:00.000Z"
+}
+```
+
+`400` — invalid setup, weights do not total 100, or assignment mappings are incomplete or refer to another course:
+
+```json
+{
+  "error": "Category weights and the final exam weight must add up to 100."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
+
+---
+
 When you add a route, copy the section above and fill in the new route: keep the section heading in the same `METHOD /path` backticked form, and give it a **Method** line, a **Path** line, a **Request** part, and a **Response** part with a JSON example for every status code it returns.
