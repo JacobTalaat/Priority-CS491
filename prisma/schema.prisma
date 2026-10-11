@@ -25,6 +25,9 @@ model User {
   canvasTokenTag    String?
   canvasBaseUrl     String?
   canvasCheckedAt   DateTime?
+  canvasCalendarFeedCipher String?
+  canvasCalendarFeedIv     String?
+  canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
   sessions          Session[]
   courses           Course[]
@@ -48,6 +51,7 @@ model Course {
   courseCode   String?
   term         String?
   termEndsAt   DateTime?
+  isCurrent    Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

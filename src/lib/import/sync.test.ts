@@ -8,6 +8,8 @@ const {
   mockImportAssignmentGroups,
   mockImportAssignments,
   mockImportGrades,
+  mockImportCalendarAssignments,
+  mockGetCalendarFeedUrl,
 } = vi.hoisted(() => ({
   mockFindMany: vi.fn(),
   mockUserUpdate: vi.fn(),
@@ -16,6 +18,8 @@ const {
   mockImportAssignmentGroups: vi.fn(),
   mockImportAssignments: vi.fn(),
   mockImportGrades: vi.fn(),
+  mockImportCalendarAssignments: vi.fn(),
+  mockGetCalendarFeedUrl: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -29,6 +33,10 @@ vi.mock("@/lib/canvas-credentials", () => ({
   getCanvasToken: mockGetCanvasToken,
 }));
 
+vi.mock("@/lib/calendar-feed-credentials", () => ({
+  getCalendarFeedUrl: mockGetCalendarFeedUrl,
+}));
+
 vi.mock("./courses", () => ({ importCourses: mockImportCourses }));
 
 vi.mock("./assignment-groups", () => ({ importAssignmentGroups: mockImportAssignmentGroups }));
@@ -37,6 +45,10 @@ vi.mock("./assignments", () => ({ importAssignments: mockImportAssignments }));
 
 vi.mock("./grades", () => ({ importGrades: mockImportGrades }));
 
+vi.mock("./calendar-assignments", () => ({ importCalendarAssignments: mockImportCalendarAssignments }));
+
+import { CanvasError } from "@/lib/canvas";
+import { CalendarFeedError } from "@/lib/calendar-feed";
 import { syncUser } from "./sync";
 
 const USER_ID = "user-1";
@@ -58,6 +70,9 @@ describe("syncUser", () => {
     mockImportAssignmentGroups.mockReset();
     mockImportAssignments.mockReset();
     mockImportGrades.mockReset();
+    mockImportCalendarAssignments.mockReset();
+    mockGetCalendarFeedUrl.mockReset();
+    mockGetCalendarFeedUrl.mockResolvedValue(null);
     vi.setSystemTime(new Date(CLOCKS_AT));
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -162,6 +177,43 @@ describe("syncUser", () => {
     await expect(syncUser(USER_ID)).rejects.toThrow("Canvas not connected");
     expect(mockImportCourses).not.toHaveBeenCalled();
     expect(mockFindMany).not.toHaveBeenCalled();
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("uses the saved calendar feed when Canvas credentials are unavailable", async () => {
+    mockGetCanvasToken.mockResolvedValue(null);
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    mockImportCalendarAssignments.mockResolvedValue({ imported: 3, skipped: 1, courses: 2 });
+    await expect(syncUser(USER_ID)).resolves.toEqual({
+      lastSyncedAt: new Date(CLOCKS_AT),
+      courses: 2,
+      assignmentGroups: 0,
+      assignments: 3,
+      grades: 0,
+    });
+    expect(mockImportCalendarAssignments).toHaveBeenCalledWith(
+      USER_ID,
+      "https://canvas.example.edu/feed.ics",
+    );
+    expect(mockImportCourses).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the calendar feed when a Canvas request fails", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("unauthorized", "Canvas rejected the token", 401));
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 2 });
+    await expect(syncUser(USER_ID)).resolves.toMatchObject({ assignments: 2, courses: 2 });
+    expect(mockImportCalendarAssignments).toHaveBeenCalledWith(
+      USER_ID,
+      "https://canvas.example.edu/feed.ics",
+    );
+  });
+
+  it("propagates a clear feed error and does not mark a failed fallback as synced", async () => {
+    mockGetCanvasToken.mockResolvedValue(null);
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    mockImportCalendarAssignments.mockRejectedValue(new CalendarFeedError());
+    await expect(syncUser(USER_ID)).rejects.toThrow("Could not read the Canvas calendar feed");
     expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 });

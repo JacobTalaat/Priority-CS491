@@ -60,11 +60,15 @@ export async function importCourses(
     };
     const row = await prisma.course.upsert({
       where: { userId_canvasId: { userId, canvasId } },
-      create: { userId, canvasId, ...data },
-      update: { ...data },
+      create: { userId, canvasId, ...data, isCurrent: true },
+      update: { ...data, isCurrent: true },
     });
     courseIds.push(row.id);
     imported += 1;
   }
+  await prisma.course.updateMany({
+    where: courseIds.length > 0 ? { userId, id: { notIn: courseIds } } : { userId },
+    data: { isCurrent: false },
+  });
   return { imported, skipped: courses.length - imported, courseIds };
 }

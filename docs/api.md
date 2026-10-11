@@ -436,6 +436,179 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
 
 ---
 
+### `GET /api/canvas/courses`
+
+Returns the current-term courses imported for the authenticated student. Courses are returned only while Canvas is connected.
+
+- **Method**: `GET`
+- **Path**: `/api/canvas/courses`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/canvas/courses \
+  -H "Authorization: ******"
+```
+
+**Response**
+
+`200` — current connection state and imported current-term courses:
+
+```json
+{
+  "connected": true,
+  "courses": [
+    {
+      "id": "course-id",
+      "name": "Introduction to Computer Science",
+      "courseCode": "CS-100",
+      "term": "Fall 2026",
+      "termEndsAt": "2026-12-22T05:00:00.000Z"
+    }
+  ]
+}
+```
+
+When Canvas is not connected, the response is `{"connected":false,"courses":[]}`.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
+### `GET /api/canvas/calendar-feed`
+
+Reports whether a private Canvas calendar feed link is saved for the authenticated student. The feed URL is never returned because it grants access to calendar data.
+
+- **Method**: `GET`
+- **Path**: `/api/canvas/calendar-feed`
+
+**Request**
+
+No body.
+
+```bash
+curl -i http://localhost:3000/api/canvas/calendar-feed \
+  -H "Authorization: ******"
+```
+
+**Response**
+
+`200` — feed configuration state:
+
+```json
+{
+  "configured": true
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
+### `POST /api/canvas/calendar-feed`
+
+Saves or replaces the student's Canvas calendar feed link. Only public HTTPS links are accepted. The private link is encrypted at rest and is not returned after saving.
+
+- **Method**: `POST`
+- **Path**: `/api/canvas/calendar-feed`
+
+**Request**
+
+JSON body with `feedUrl` (string), copied from Canvas Calendar:
+
+```bash
+curl -i -X POST http://localhost:3000/api/canvas/calendar-feed \
+  -H "Authorization: ******" \
+  -H "Content-Type: application/json" \
+  -d '{"feedUrl":"https://canvas.example.edu/feeds/calendar.ics?token=******"}'
+```
+
+**Response**
+
+`200` — link saved:
+
+```json
+{
+  "configured": true
+}
+```
+
+`400` — invalid request body or an invalid/non-HTTPS feed link:
+
+```json
+{
+  "error": "Use a public HTTPS Canvas calendar feed link."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`502` — feed link is unavailable or does not return valid iCalendar data:
+
+```json
+{
+  "error": "Could not read the Canvas calendar feed. Check that the link is current and publicly accessible."
+}
+```
+
+---
+
+### `DELETE /api/canvas/calendar-feed`
+
+Removes the saved Canvas calendar feed link.
+
+- **Method**: `DELETE`
+- **Path**: `/api/canvas/calendar-feed`
+
+**Request**
+
+No body.
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/canvas/calendar-feed \
+  -H "Authorization: ******"
+```
+
+**Response**
+
+`200` — feed link removed:
+
+```json
+{
+  "configured": false
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
 ### `GET /api/canvas/sync`
 
 Reports when the student's Canvas data was last fully synced, so clients can show a "last synced" time without triggering a sync.
@@ -474,7 +647,7 @@ curl -i http://localhost:3000/api/canvas/sync \
 
 ### `POST /api/canvas/sync`
 
-Runs the full Canvas import for the student right away: courses, then assignment groups, assignments, and grades for every stored course. All writes are idempotent upserts so repeating a sync is safe. The last-synced time is saved only when the whole run completes, so a partial failure leaves the old value and the next sync retries everything.
+Runs the Canvas import for the student right away. When the Canvas API is available, it imports courses, assignment groups, assignments, and grades. If the token is unavailable or a Canvas request fails and a calendar feed is saved, it instead imports dated assignment events from that feed for the student's already imported current courses. All writes are idempotent upserts. The last-synced time is saved only when the selected import completes successfully.
 
 - **Method**: `POST`
 - **Path**: `/api/canvas/sync`
@@ -539,6 +712,14 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 ```json
 {
   "error": "Canvas request failed"
+}
+```
+
+`502` — the saved calendar feed is unavailable or does not contain valid iCalendar data:
+
+```json
+{
+  "error": "Could not read the Canvas calendar feed. Check that the link is current and publicly accessible."
 }
 ```
 
