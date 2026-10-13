@@ -18,6 +18,7 @@ vi.mock("@/lib/import/sync", () => ({
 }));
 
 import { CanvasError } from "@/lib/canvas";
+import { CalendarFeedError } from "@/lib/calendar-feed";
 
 import { GET, POST } from "./route";
 
@@ -107,6 +108,16 @@ describe("POST /api/canvas/sync", () => {
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(502);
     await expect(res.json()).resolves.toEqual({ error: "Canvas request failed" });
+  });
+
+  it("returns a clear error when the saved calendar feed cannot be read", async () => {
+    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockSyncUser.mockRejectedValue(new CalendarFeedError());
+    const res = await POST(syncRequest("POST"));
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({
+      error: "Could not read the Canvas calendar feed. Check that the link is current and publicly accessible.",
+    });
   });
 
   it("returns 500 and does not blame Canvas when the failure is not a Canvas error", async () => {

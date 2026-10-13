@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     default: "Priority",
     template: "%s · Priority",
   },
-  description: "Priority tracker",
+  description: "A little clarity goes a long way. Make room for what matters.",
 };
 
 export const viewport: Viewport = {

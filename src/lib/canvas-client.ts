@@ -12,6 +12,23 @@ export type CanvasStatus = {
   checkedAt: string | null;
 };
 
+export type CalendarFeedStatus = {
+  configured: boolean;
+};
+
+export type ImportedCourse = {
+  id: string;
+  name: string;
+  courseCode: string | null;
+  term: string | null;
+  termEndsAt: string | null;
+};
+
+export type ImportedCoursesResponse = {
+  connected: boolean;
+  courses: ImportedCourse[];
+};
+
 export type CanvasUser = {
   id: number;
   name: string;
@@ -60,6 +77,26 @@ export function testCanvasConnection() {
 
 export function disconnectCanvas() {
   return apiRequest<{ connected: false }>("/api/canvas/token", { method: "DELETE", token: getToken() });
+}
+
+export function getCalendarFeedStatus() {
+  return apiRequest<CalendarFeedStatus>("/api/canvas/calendar-feed", { token: getToken() });
+}
+
+export function saveCalendarFeed(feedUrl: string) {
+  return apiRequest<CalendarFeedStatus>("/api/canvas/calendar-feed", {
+    method: "POST",
+    token: getToken(),
+    body: { feedUrl: feedUrl.trim() },
+  });
+}
+
+export function clearCalendarFeed() {
+  return apiRequest<CalendarFeedStatus>("/api/canvas/calendar-feed", { method: "DELETE", token: getToken() });
+}
+
+export function getImportedCourses() {
+  return apiRequest<ImportedCoursesResponse>("/api/canvas/courses", { token: getToken() });
 }
 
 // Shows the API's own message (e.g. "Canvas rejected this token"), except for an expired

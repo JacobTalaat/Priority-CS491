@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockUpsert, mockGetCanvasToken } = vi.hoisted(() => ({
+const { mockUpsert, mockUpdateMany, mockGetCanvasToken } = vi.hoisted(() => ({
   mockUpsert: vi.fn(),
+  mockUpdateMany: vi.fn(),
   mockGetCanvasToken: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    course: { upsert: mockUpsert },
+    course: { upsert: mockUpsert, updateMany: mockUpdateMany },
   },
 }));
 
@@ -70,6 +71,7 @@ describe("importCourses", () => {
   beforeEach(() => {
     mockUpsert.mockReset();
     mockUpsert.mockImplementation(({ create }) => ({ id: `local-${create.canvasId}` }));
+    mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
     mockGetCanvasToken.mockReset();
     mockGetCanvasToken.mockResolvedValue({ baseUrl: BASE_URL, token: TOKEN });
     vi.setSystemTime(new Date(CLOCKS_AT));
@@ -170,12 +172,14 @@ describe("importCourses", () => {
       courseCode: "CS-42",
       term: "Fall 2026",
       termEndsAt: new Date("2028-12-22T05:00:00Z"),
+      isCurrent: true,
     });
     expect(args.update).toEqual({
       name: "Intro",
       courseCode: "CS-42",
       term: "Fall 2026",
       termEndsAt: new Date("2028-12-22T05:00:00Z"),
+      isCurrent: true,
     });
   });
 
@@ -204,5 +208,39 @@ describe("importCourses", () => {
     await importCourses(USER_ID);
     const canvasId = mockUpsert.mock.calls[0][0].where.userId_canvasId.canvasId;
     expect(typeof canvasId).toBe("string");
+  });
+
+  it("clears the current marker from older courses after a successful import", async () => {
+    vi.stubGlobal("fetch", singlePage([course(42, "Intro", 380)]));
+    await importCourses(USER_ID);
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { userId: USER_ID, id: { notIn: ["local-42"] } },
+      data: { isCurrent: false },
+    });
+  });
+
+  it("clears all current markers when Canvas has no current-term courses", async () => {
+    vi.stubGlobal("fetch", singlePage([]));
+    await importCourses(USER_ID);
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { userId: USER_ID },
+      data: { isCurrent: false },
+    });
+  });
+
+  it("leaves current markers alone when courses came back but no term has started", async () => {
+    vi.stubGlobal("fetch", singlePage([course(42, "Intro", 1)]));
+    await expect(importCourses(USER_ID)).resolves.toMatchObject({ imported: 0 });
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("leaves current markers alone when the only started-term course is malformed", async () => {
+    const fall2026 = TERMS.find((t) => t.id === 380)!;
+    vi.stubGlobal("fetch", singlePage([
+      { id: 77, course_code: "CS-77", term: { id: fall2026.id, name: fall2026.name, start_at: fall2026.start_at, end_at: fall2026.end_at } },
+    ]));
+    await expect(importCourses(USER_ID)).resolves.toMatchObject({ imported: 0 });
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 });

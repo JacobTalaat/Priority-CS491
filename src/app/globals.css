@@ -32,7 +32,6 @@ html[data-theme="light"] {
 
 html {
   min-height: 100%;
-  /* Stop iOS from enlarging text when the phone turns sideways. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -44,7 +43,6 @@ body {
   font-family: var(--font-archivo), Arial, Helvetica, sans-serif;
   font-size: 15px;
   line-height: 1.5;
-  /* Long course names, emails, and Canvas links wrap instead of widening the page. */
   overflow-wrap: anywhere;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -97,4 +95,3 @@ video {
     --page-gutter: 12px;
   }
 }
-

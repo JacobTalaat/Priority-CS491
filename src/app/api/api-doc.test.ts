@@ -24,7 +24,7 @@ function routeKey(route: Route): string {
 function findRouteMethods(): Route[] {
   const routes: Route[] = [];
   for (const entry of readdirSync(apiDir, { recursive: true, encoding: "utf8" })) {
-    const segments = entry.split("/");
+    const segments = entry.split(/[\\/]/);
     if (segments[segments.length - 1] !== "route.ts") continue;
     const path = `/api${segments.length > 1 ? `/${segments.slice(0, -1).join("/")}` : ""}`;
     const source = readFileSync(join(apiDir, entry), "utf8");

@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_CANVAS_URL,
   canvasErrorMessage,
+  clearCalendarFeed,
   connectCanvas,
   disconnectCanvas,
   formatLastSynced,
+  getCalendarFeedStatus,
   getCanvasStatus,
+  getImportedCourses,
   getLastSynced,
+  saveCalendarFeed,
   syncNow,
   syncSummary,
   testCanvasConnection,
@@ -61,10 +65,23 @@ describe("Canvas requests", () => {
   it("tests and disconnects with the right methods", async () => {
     await testCanvasConnection();
     await disconnectCanvas();
+    await getImportedCourses();
+    await syncNow();
+    await getCalendarFeedStatus();
+    await saveCalendarFeed(" https://canvas.example.edu/feed.ics ");
+    await clearCalendarFeed();
     expect(fetchMock.mock.calls.map(([path, init]) => [path, init.method])).toEqual([
       ["/api/canvas/token/test", "POST"],
       ["/api/canvas/token", "DELETE"],
+      ["/api/canvas/courses", "GET"],
+      ["/api/canvas/sync", "POST"],
+      ["/api/canvas/calendar-feed", "GET"],
+      ["/api/canvas/calendar-feed", "POST"],
+      ["/api/canvas/calendar-feed", "DELETE"],
     ]);
+    expect(fetchMock.mock.calls[5][1]).toMatchObject({
+      body: JSON.stringify({ feedUrl: "https://canvas.example.edu/feed.ics" }),
+    });
   });
 
   it("returns the API error for a bad token", async () => {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { CanvasError } from "@/lib/canvas";
+import { CalendarFeedError } from "@/lib/calendar-feed";
 import { syncUser } from "@/lib/import/sync";
 import { prisma } from "@/lib/prisma";
 
@@ -17,6 +18,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Error && error.message === "Canvas not connected") {
       return NextResponse.json({ error: "Canvas not connected" }, { status: 409 });
+    }
+    if (error instanceof CalendarFeedError) {
+      return NextResponse.json({ error: error.message }, { status: 502 });
     }
     if (error instanceof CanvasError && error.kind === "unauthorized") {
       return NextResponse.json({ error: "Canvas rejected this token" }, { status: 400 });

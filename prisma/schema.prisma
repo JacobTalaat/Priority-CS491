@@ -25,6 +25,9 @@ model User {
   canvasTokenTag    String?
   canvasBaseUrl     String?
   canvasCheckedAt   DateTime?
+  canvasCalendarFeedCipher String?
+  canvasCalendarFeedIv     String?
+  canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
   sessions          Session[]
   courses           Course[]
@@ -48,14 +51,31 @@ model Course {
   courseCode   String?
   term         String?
   termEndsAt   DateTime?
+  isCurrent    Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   assignmentGroups AssignmentGroup[]
   assignments      Assignment[]
+  gradeSetup       CourseGradeSetup?
 
   @@unique([userId, canvasId])
+}
+
+model CourseGradeSetup {
+  id                 String   @id @default(cuid())
+  courseId           String   @unique
+  categories         Json
+  assignmentMappings Json
+  finalExamWeight    Float
+  cutoffs            Json
+  classDetails       Json
+  confirmedAt        DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 }
 
 model AssignmentGroup {

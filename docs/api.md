@@ -436,6 +436,179 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
 
 ---
 
+### `GET /api/canvas/courses`
+
+Returns the current-term courses imported for the authenticated student. Courses are returned only while Canvas is connected.
+
+- **Method**: `GET`
+- **Path**: `/api/canvas/courses`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/canvas/courses \
+  -H "Authorization: ******"
+```
+
+**Response**
+
+`200` — current connection state and imported current-term courses:
+
+```json
+{
+  "connected": true,
+  "courses": [
+    {
+      "id": "course-id",
+      "name": "Introduction to Computer Science",
+      "courseCode": "CS-100",
+      "term": "Fall 2026",
+      "termEndsAt": "2026-12-22T05:00:00.000Z"
+    }
+  ]
+}
+```
+
+When Canvas is not connected, the response is `{"connected":false,"courses":[]}`.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
+### `GET /api/canvas/calendar-feed`
+
+Reports whether a private Canvas calendar feed link is saved for the authenticated student. The feed URL is never returned because it grants access to calendar data.
+
+- **Method**: `GET`
+- **Path**: `/api/canvas/calendar-feed`
+
+**Request**
+
+No body.
+
+```bash
+curl -i http://localhost:3000/api/canvas/calendar-feed \
+  -H "Authorization: ******"
+```
+
+**Response**
+
+`200` — feed configuration state:
+
+```json
+{
+  "configured": true
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
+### `POST /api/canvas/calendar-feed`
+
+Saves or replaces the student's Canvas calendar feed link. Only public HTTPS links are accepted. The private link is encrypted at rest and is not returned after saving.
+
+- **Method**: `POST`
+- **Path**: `/api/canvas/calendar-feed`
+
+**Request**
+
+JSON body with `feedUrl` (string), copied from Canvas Calendar:
+
+```bash
+curl -i -X POST http://localhost:3000/api/canvas/calendar-feed \
+  -H "Authorization: ******" \
+  -H "Content-Type: application/json" \
+  -d '{"feedUrl":"https://canvas.example.edu/feeds/calendar.ics?token=******"}'
+```
+
+**Response**
+
+`200` — link saved:
+
+```json
+{
+  "configured": true
+}
+```
+
+`400` — invalid request body or an invalid/non-HTTPS feed link:
+
+```json
+{
+  "error": "Use a public HTTPS Canvas calendar feed link."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`502` — feed link is unavailable or does not return valid iCalendar data:
+
+```json
+{
+  "error": "Could not read the Canvas calendar feed. Check that the link is current and publicly accessible."
+}
+```
+
+---
+
+### `DELETE /api/canvas/calendar-feed`
+
+Removes the saved Canvas calendar feed link.
+
+- **Method**: `DELETE`
+- **Path**: `/api/canvas/calendar-feed`
+
+**Request**
+
+No body.
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/canvas/calendar-feed \
+  -H "Authorization: ******"
+```
+
+**Response**
+
+`200` — feed link removed:
+
+```json
+{
+  "configured": false
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
 ### `GET /api/canvas/sync`
 
 Reports when the student's Canvas data was last fully synced, so clients can show a "last synced" time without triggering a sync.
@@ -474,7 +647,7 @@ curl -i http://localhost:3000/api/canvas/sync \
 
 ### `POST /api/canvas/sync`
 
-Runs the full Canvas import for the student right away: courses, then assignment groups, assignments, and grades for every stored course. All writes are idempotent upserts so repeating a sync is safe. The last-synced time is saved only when the whole run completes, so a partial failure leaves the old value and the next sync retries everything.
+Runs the Canvas import for the student right away. When the Canvas API is available, it imports courses, assignment groups, assignments, and grades. If no token is saved, or Canvas is unreachable or returns a server error, and a calendar feed is saved, it instead imports dated assignment events from that feed for the student's already imported current courses. A token that Canvas rejects is never hidden behind the feed: it returns `400` so the student knows to reconnect. All writes are idempotent upserts. The last-synced time is saved only when the selected import completes successfully.
 
 - **Method**: `POST`
 - **Path**: `/api/canvas/sync`
@@ -542,11 +715,144 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 }
 ```
 
+`502` — the saved calendar feed is unavailable or does not contain valid iCalendar data:
+
+```json
+{
+  "error": "Could not read the Canvas calendar feed. Check that the link is current and publicly accessible."
+}
+```
+
 `500` — the sync failed for a reason that is not Canvas, for example the database was unreachable:
 
 ```json
 {
   "error": "Sync failed"
+}
+```
+
+---
+
+### `POST /api/courses/[courseId]/grade-setup`
+
+Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
+
+- **Method**: `POST`
+- **Path**: `/api/courses/[courseId]/grade-setup`
+
+**Request**
+
+JSON body with:
+
+- `categories` — non-empty array of `{ "name": string, "weight": number }`; names must be unique and weights must be from 0 to 100.
+- `assignmentMappings` — array of `{ "assignmentId": string, "category": string }` using assignment IDs belonging to this course.
+- `finalExamWeight` — number from 0 to 100. Together with category weights it must total 100.
+- `cutoffs` — object mapping grade labels to percentage cutoffs from 0 to 100.
+- `classDetails` — object mapping detail names to text, numbers, or `null`.
+
+```bash
+curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categories": [
+      { "name": "Homework", "weight": 30 },
+      { "name": "Exams", "weight": 50 }
+    ],
+    "assignmentMappings": [
+      { "assignmentId": "assignment-id", "category": "Homework" }
+    ],
+    "finalExamWeight": 20,
+    "cutoffs": { "A": 90, "B": 80, "C": 70 },
+    "classDetails": { "instructor": "Professor Example", "section": "02" }
+  }'
+```
+
+**Response**
+
+`200` — the setup was saved:
+
+```json
+{
+  "confirmed": true,
+  "courseId": "course-id",
+  "confirmedAt": "2026-10-11T18:30:00.000Z"
+}
+```
+
+`400` — invalid setup, weights do not total 100, or assignment mappings are incomplete or refer to another course:
+
+```json
+{
+  "error": "Category weights and the final exam weight must add up to 100."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
+
+---
+
+### `GET /api/courses/grade-setups`
+
+Returns the authenticated student's current courses, their Canvas assignment-group weights and assignments, and any saved confirmed grade setup. Courses are included whether or not the Canvas token is currently connected.
+
+- **Method**: `GET`
+- **Path**: `/api/courses/grade-setups`
+
+**Request**
+
+No body.
+
+```bash
+curl -i http://localhost:3000/api/courses/grade-setups \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — current courses and setup data:
+
+```json
+{
+  "courses": [
+    {
+      "id": "course-id",
+      "name": "Algorithms",
+      "courseCode": "CS-341",
+      "term": "Fall 2026",
+      "assignmentGroups": [{ "name": "Homework", "groupWeight": 30 }],
+      "assignments": [
+        {
+          "id": "assignment-id",
+          "title": "Project 1",
+          "assignmentGroup": { "name": "Homework", "groupWeight": 30 }
+        }
+      ],
+      "gradeSetup": null
+    }
+  ]
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
 }
 ```
 
