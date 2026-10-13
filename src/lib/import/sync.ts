@@ -1,5 +1,5 @@
 import { CanvasError } from "@/lib/canvas";
-import { getCanvasToken } from "@/lib/canvas-credentials";
+import { getCanvasStatus, getCanvasToken } from "@/lib/canvas-credentials";
 import { getCalendarFeedUrl } from "@/lib/calendar-feed-credentials";
 import { prisma } from "@/lib/prisma";
 import { importAssignmentGroups } from "./assignment-groups";
@@ -33,6 +33,11 @@ export async function syncUser(userId: string): Promise<{
 }> {
   const credentials = await getCanvasToken(userId);
   if (!credentials) {
+    // a token we hold but cannot read is a broken credential, not an absent one
+    const status = await getCanvasStatus(userId);
+    if (status.connected) {
+      throw new CanvasError("unauthorized", "Stored Canvas credentials could not be read");
+    }
     const feedUrl = await getCalendarFeedUrl(userId);
     if (!feedUrl) {
       throw new Error("Canvas not connected");
@@ -59,10 +64,15 @@ export async function syncUser(userId: string): Promise<{
     await prisma.user.update({ where: { id: userId }, data: { lastSyncedAt } });
     return { lastSyncedAt, courses: coursesImported.imported, assignmentGroups, assignments, grades };
   } catch (error) {
-    if (!(error instanceof CanvasError) && !(error instanceof Error && error.message === "Canvas not connected")) {
+    if (!(error instanceof CanvasError) || error.kind === "unauthorized") {
       throw error;
     }
-    const feedUrl = await getCalendarFeedUrl(userId);
+    let feedUrl: string | null;
+    try {
+      feedUrl = await getCalendarFeedUrl(userId);
+    } catch {
+      throw error;
+    }
     if (!feedUrl) {
       throw error;
     }

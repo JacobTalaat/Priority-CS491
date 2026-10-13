@@ -4,6 +4,7 @@ const {
   mockFindMany,
   mockUserUpdate,
   mockGetCanvasToken,
+  mockGetCanvasStatus,
   mockImportCourses,
   mockImportAssignmentGroups,
   mockImportAssignments,
@@ -14,6 +15,7 @@ const {
   mockFindMany: vi.fn(),
   mockUserUpdate: vi.fn(),
   mockGetCanvasToken: vi.fn(),
+  mockGetCanvasStatus: vi.fn(),
   mockImportCourses: vi.fn(),
   mockImportAssignmentGroups: vi.fn(),
   mockImportAssignments: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/canvas-credentials", () => ({
   getCanvasToken: mockGetCanvasToken,
+  getCanvasStatus: mockGetCanvasStatus,
 }));
 
 vi.mock("@/lib/calendar-feed-credentials", () => ({
@@ -66,6 +69,8 @@ describe("syncUser", () => {
     mockUserUpdate.mockResolvedValue({});
     mockGetCanvasToken.mockReset();
     mockGetCanvasToken.mockResolvedValue(CREDENTIALS);
+    mockGetCanvasStatus.mockReset();
+    mockGetCanvasStatus.mockResolvedValue({ connected: false, baseUrl: null, checkedAt: null });
     mockImportCourses.mockReset();
     mockImportAssignmentGroups.mockReset();
     mockImportAssignments.mockReset();
@@ -198,8 +203,8 @@ describe("syncUser", () => {
     expect(mockImportCourses).not.toHaveBeenCalled();
   });
 
-  it("falls back to the calendar feed when a Canvas request fails", async () => {
-    mockImportCourses.mockRejectedValue(new CanvasError("unauthorized", "Canvas rejected the token", 401));
+  it("falls back to the calendar feed when Canvas is unreachable", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("network", "Canvas request failed before a response"));
     mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
     mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 2 });
     await expect(syncUser(USER_ID)).resolves.toMatchObject({ assignments: 2, courses: 2 });
@@ -207,6 +212,38 @@ describe("syncUser", () => {
       USER_ID,
       "https://canvas.example.edu/feed.ics",
     );
+  });
+
+  it("falls back to the calendar feed when Canvas returns a server error", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("http", "Canvas returned 500", 500));
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 2 });
+    await expect(syncUser(USER_ID)).resolves.toMatchObject({ assignments: 2 });
+  });
+
+  it("surfaces a rejected token instead of hiding it behind the calendar feed", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("unauthorized", "Canvas rejected the token", 401));
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 2 });
+    await expect(syncUser(USER_ID)).rejects.toMatchObject({ kind: "unauthorized" });
+    expect(mockImportCalendarAssignments).not.toHaveBeenCalled();
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("reports a stored token it cannot decrypt instead of falling back to the feed", async () => {
+    mockGetCanvasToken.mockResolvedValue(null);
+    mockGetCanvasStatus.mockResolvedValue({ connected: true, baseUrl: "https://canvas.example.edu", checkedAt: null });
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    await expect(syncUser(USER_ID)).rejects.toMatchObject({ kind: "unauthorized" });
+    expect(mockImportCalendarAssignments).not.toHaveBeenCalled();
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Canvas error when the saved feed credential is itself unreadable", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("network", "Canvas request failed before a response"));
+    mockGetCalendarFeedUrl.mockRejectedValue(new CalendarFeedError("The saved Canvas calendar feed could not be decrypted."));
+    await expect(syncUser(USER_ID)).rejects.toMatchObject({ kind: "network" });
+    expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 
   it("propagates a clear feed error and does not mark a failed fallback as synced", async () => {
