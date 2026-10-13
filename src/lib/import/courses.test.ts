@@ -233,4 +233,14 @@ describe("importCourses", () => {
     await expect(importCourses(USER_ID)).resolves.toMatchObject({ imported: 0 });
     expect(mockUpdateMany).not.toHaveBeenCalled();
   });
+
+  it("leaves current markers alone when the only started-term course is malformed", async () => {
+    const fall2026 = TERMS.find((t) => t.id === 380)!;
+    vi.stubGlobal("fetch", singlePage([
+      { id: 77, course_code: "CS-77", term: { id: fall2026.id, name: fall2026.name, start_at: fall2026.start_at, end_at: fall2026.end_at } },
+    ]));
+    await expect(importCourses(USER_ID)).resolves.toMatchObject({ imported: 0 });
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
 });

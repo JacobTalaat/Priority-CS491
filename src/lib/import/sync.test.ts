@@ -4,6 +4,7 @@ const {
   mockFindMany,
   mockUserUpdate,
   mockGetCanvasToken,
+  mockGetCanvasStatus,
   mockImportCourses,
   mockImportAssignmentGroups,
   mockImportAssignments,
@@ -14,6 +15,7 @@ const {
   mockFindMany: vi.fn(),
   mockUserUpdate: vi.fn(),
   mockGetCanvasToken: vi.fn(),
+  mockGetCanvasStatus: vi.fn(),
   mockImportCourses: vi.fn(),
   mockImportAssignmentGroups: vi.fn(),
   mockImportAssignments: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/canvas-credentials", () => ({
   getCanvasToken: mockGetCanvasToken,
+  getCanvasStatus: mockGetCanvasStatus,
 }));
 
 vi.mock("@/lib/calendar-feed-credentials", () => ({
@@ -66,6 +69,8 @@ describe("syncUser", () => {
     mockUserUpdate.mockResolvedValue({});
     mockGetCanvasToken.mockReset();
     mockGetCanvasToken.mockResolvedValue(CREDENTIALS);
+    mockGetCanvasStatus.mockReset();
+    mockGetCanvasStatus.mockResolvedValue({ connected: false, baseUrl: null, checkedAt: null });
     mockImportCourses.mockReset();
     mockImportAssignmentGroups.mockReset();
     mockImportAssignments.mockReset();
@@ -222,6 +227,22 @@ describe("syncUser", () => {
     mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 2 });
     await expect(syncUser(USER_ID)).rejects.toMatchObject({ kind: "unauthorized" });
     expect(mockImportCalendarAssignments).not.toHaveBeenCalled();
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("reports a stored token it cannot decrypt instead of falling back to the feed", async () => {
+    mockGetCanvasToken.mockResolvedValue(null);
+    mockGetCanvasStatus.mockResolvedValue({ connected: true, baseUrl: "https://canvas.example.edu", checkedAt: null });
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    await expect(syncUser(USER_ID)).rejects.toMatchObject({ kind: "unauthorized" });
+    expect(mockImportCalendarAssignments).not.toHaveBeenCalled();
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Canvas error when the saved feed credential is itself unreadable", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("network", "Canvas request failed before a response"));
+    mockGetCalendarFeedUrl.mockRejectedValue(new CalendarFeedError("The saved Canvas calendar feed could not be decrypted."));
+    await expect(syncUser(USER_ID)).rejects.toMatchObject({ kind: "network" });
     expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 

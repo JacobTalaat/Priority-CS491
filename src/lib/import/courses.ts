@@ -67,7 +67,7 @@ export async function importCourses(
     imported += 1;
   }
   // sweep only on a conclusive answer from Canvas
-  if (courses.length === 0 || currentTermId !== null) {
+  if (courses.length === 0 || courseIds.length > 0) {
     await prisma.course.updateMany({
       where: courseIds.length > 0 ? { userId, id: { notIn: courseIds } } : { userId },
       data: { isCurrent: false },
