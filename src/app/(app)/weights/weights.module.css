@@ -1,0 +1,163 @@
+.status,
+.description {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.setup {
+  display: grid;
+  gap: 24px;
+}
+
+.coursePicker {
+  display: grid;
+  max-width: 520px;
+  gap: 8px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 16px;
+}
+
+.select:focus-visible {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+.canvasWeights,
+.form {
+  display: grid;
+  max-width: 720px;
+  gap: 20px;
+}
+
+.formHeading {
+  display: grid;
+  gap: 8px;
+}
+
+.sectionTitle {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.description {
+  max-width: 560px;
+}
+
+.fieldset {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+}
+
+.legend {
+  padding: 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.categoryRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.4fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.mappingRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.6fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.cutoffGrid,
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 14px;
+}
+
+.totalValid,
+.totalInvalid {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.totalValid {
+  color: var(--accent);
+}
+
+.totalInvalid {
+  color: var(--danger);
+}
+
+.weightList {
+  display: grid;
+  max-width: 520px;
+  gap: 8px;
+  list-style: none;
+}
+
+.weightList li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--divider);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.emptyState {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+.emptyTitle {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.emptyDescription {
+  max-width: 480px;
+  color: var(--secondary);
+}
+
+@media (max-width: 560px) {
+  .categoryRow {
+    grid-template-columns: minmax(0, 1fr) minmax(100px, 0.5fr);
+  }
+
+  .categoryRow > button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .mappingRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
