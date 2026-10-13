@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { SyncNow } from "@/components/sync/sync-now";
 import { Button, Input, Notice } from "@/components/ui";
 import {
   DEFAULT_CANVAS_URL,
@@ -144,6 +145,7 @@ export function CanvasConnection() {
               <dd>{formatCheckedAt(status?.checkedAt ?? null)}</dd>
             </div>
           </dl>
+          <SyncNow />
           <div className={styles.actions}>
             <Button variant="secondary" onClick={handleTest} loading={busy === "test"} disabled={busy !== null}>
               Test connection

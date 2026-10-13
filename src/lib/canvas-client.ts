@@ -99,10 +99,6 @@ export function getImportedCourses() {
   return apiRequest<ImportedCoursesResponse>("/api/canvas/courses", { token: getToken() });
 }
 
-export function syncCanvas() {
-  return apiRequest<{ courses: number }>("/api/canvas/sync", { method: "POST", token: getToken() });
-}
-
 // Shows the API's own message (e.g. "Canvas rejected this token"), except for an expired
 // Priority session, which needs a different next step.
 export function canvasErrorMessage(result: Extract<ApiResult<unknown>, { ok: false }>): string {
@@ -110,4 +106,58 @@ export function canvasErrorMessage(result: Extract<ApiResult<unknown>, { ok: fal
     return "Your Priority session expired. Log out and log back in, then try again.";
   }
   return result.error;
+}
+
+export type SyncResult = {
+  lastSyncedAt: string;
+  courses: number;
+  assignmentGroups: number;
+  assignments: number;
+  grades: number;
+};
+
+export function getLastSynced() {
+  return apiRequest<{ lastSyncedAt: string | null }>("/api/canvas/sync", { token: getToken() });
+}
+
+export function syncNow() {
+  return apiRequest<SyncResult>("/api/canvas/sync", { method: "POST", token: getToken() });
+}
+
+function plural(count: number, word: string) {
+  if (count === 1) {
+    return `1 ${word}`;
+  }
+  return `${count} ${word.endsWith("s") ? `${word}es` : `${word}s`}`;
+}
+
+export function syncSummary(result: SyncResult): string {
+  return `Synced ${plural(result.courses, "class")} and ${plural(result.assignments, "assignment")}.`;
+}
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+
+// "Just now", "5 minutes ago", "3 hours ago", then a date once it's more than a day old.
+export function formatLastSynced(lastSyncedAt: string | null, now: Date = new Date()): string {
+  if (!lastSyncedAt) {
+    return "Never synced";
+  }
+  const then = new Date(lastSyncedAt);
+  const elapsed = now.getTime() - then.getTime();
+  if (Number.isNaN(elapsed)) {
+    return "Never synced";
+  }
+  if (elapsed < MINUTE) {
+    return "Just now";
+  }
+  if (elapsed < HOUR) {
+    return `${plural(Math.floor(elapsed / MINUTE), "minute")} ago`;
+  }
+  if (elapsed < 24 * HOUR) {
+    return `${plural(Math.floor(elapsed / HOUR), "hour")} ago`;
+  }
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(
+    then,
+  );
 }

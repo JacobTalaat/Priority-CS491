@@ -5,7 +5,7 @@ import { Button, ButtonLink, List, ListRow, Notice, PageHeader } from "@/compone
 import {
   canvasErrorMessage,
   getImportedCourses,
-  syncCanvas,
+  syncNow,
 } from "@/lib/canvas-client";
 import type { ImportedCoursesResponse } from "@/lib/canvas-client";
 import type { ApiResult } from "@/lib/api-client";
@@ -52,7 +52,7 @@ export function ClassesList() {
   async function handleSync() {
     setSyncing(true);
     setSyncError(null);
-    const result = await syncCanvas();
+    const result = await syncNow();
     setSyncing(false);
     if (!result.ok) {
       setSyncError(canvasErrorMessage(result));

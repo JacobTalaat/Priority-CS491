@@ -5,11 +5,14 @@ import {
   clearCalendarFeed,
   connectCanvas,
   disconnectCanvas,
+  formatLastSynced,
   getCalendarFeedStatus,
-  getImportedCourses,
   getCanvasStatus,
-  syncCanvas,
+  getImportedCourses,
+  getLastSynced,
   saveCalendarFeed,
+  syncNow,
+  syncSummary,
   testCanvasConnection,
   validateCanvasForm,
 } from "./canvas-client";
@@ -63,7 +66,7 @@ describe("Canvas requests", () => {
     await testCanvasConnection();
     await disconnectCanvas();
     await getImportedCourses();
-    await syncCanvas();
+    await syncNow();
     await getCalendarFeedStatus();
     await saveCalendarFeed(" https://canvas.example.edu/feed.ics ");
     await clearCalendarFeed();
@@ -98,5 +101,55 @@ describe("canvasErrorMessage", () => {
 
   it("explains an expired Priority session instead of saying Unauthorized", () => {
     expect(canvasErrorMessage({ ok: false, status: 401, error: "Unauthorized" })).toMatch(/session expired/);
+  });
+});
+
+describe("sync requests", () => {
+  it("reads the last synced time and runs a sync with the app token", async () => {
+    await getLastSynced();
+    await syncNow();
+    expect(fetchMock.mock.calls.map(([path, init]) => [path, init.method, init.headers.Authorization])).toEqual([
+      ["/api/canvas/sync", "GET", "Bearer app-token"],
+      ["/api/canvas/sync", "POST", "Bearer app-token"],
+    ]);
+  });
+});
+
+describe("syncSummary", () => {
+  const base = { lastSyncedAt: "2026-10-09T20:00:00.000Z", assignmentGroups: 3, grades: 1 };
+
+  it("counts classes and assignments", () => {
+    expect(syncSummary({ ...base, courses: 4, assignments: 28 })).toBe("Synced 4 classes and 28 assignments.");
+  });
+
+  it("uses singular words for one", () => {
+    expect(syncSummary({ ...base, courses: 1, assignments: 1 })).toBe("Synced 1 class and 1 assignment.");
+  });
+});
+
+describe("formatLastSynced", () => {
+  const now = new Date("2026-10-09T20:00:00.000Z");
+  const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+
+  it("says never when there is no time", () => {
+    expect(formatLastSynced(null, now)).toBe("Never synced");
+  });
+
+  it("says just now inside the first minute", () => {
+    expect(formatLastSynced(ago(20 * 1000), now)).toBe("Just now");
+  });
+
+  it("counts minutes, then hours", () => {
+    expect(formatLastSynced(ago(60 * 1000), now)).toBe("1 minute ago");
+    expect(formatLastSynced(ago(5 * 60 * 1000), now)).toBe("5 minutes ago");
+    expect(formatLastSynced(ago(3 * 60 * 60 * 1000), now)).toBe("3 hours ago");
+  });
+
+  it("shows a date once it is a day old", () => {
+    expect(formatLastSynced(ago(26 * 60 * 60 * 1000), now)).toMatch(/^Oct \d+, \d+:\d{2}/);
+  });
+
+  it("treats a bad timestamp as never synced", () => {
+    expect(formatLastSynced("not a date", now)).toBe("Never synced");
   });
 });
