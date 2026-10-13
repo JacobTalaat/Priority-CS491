@@ -67,10 +67,23 @@ describe("importCalendarAssignments", () => {
         title: "Read chapter 4",
         dueAt: new Date("2026-10-14T19:30:00.000Z"),
         hasDueDate: true,
-        pointsPossible: 0,
         htmlUrl: "https://canvas.example.edu/courses/123/assignments/987",
-        assignmentGroupId: null,
       },
+    });
+  });
+
+  it("leaves pointsPossible and assignmentGroupId untouched on an existing assignment", async () => {
+    await importCalendarAssignments("user-1", "https://canvas.example.edu/feed.ics");
+    const update = mockUpsert.mock.calls[0][0].update;
+    expect(update).not.toHaveProperty("pointsPossible");
+    expect(update).not.toHaveProperty("assignmentGroupId");
+  });
+
+  it("still seeds pointsPossible and assignmentGroupId when creating a feed-only assignment", async () => {
+    await importCalendarAssignments("user-1", "https://canvas.example.edu/feed.ics");
+    expect(mockUpsert.mock.calls[0][0].create).toMatchObject({
+      pointsPossible: 0,
+      assignmentGroupId: null,
     });
   });
 

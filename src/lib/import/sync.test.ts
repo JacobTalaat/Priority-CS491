@@ -198,8 +198,8 @@ describe("syncUser", () => {
     expect(mockImportCourses).not.toHaveBeenCalled();
   });
 
-  it("falls back to the calendar feed when a Canvas request fails", async () => {
-    mockImportCourses.mockRejectedValue(new CanvasError("unauthorized", "Canvas rejected the token", 401));
+  it("falls back to the calendar feed when Canvas is unreachable", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("network", "Canvas request failed before a response"));
     mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
     mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 2 });
     await expect(syncUser(USER_ID)).resolves.toMatchObject({ assignments: 2, courses: 2 });
@@ -207,6 +207,22 @@ describe("syncUser", () => {
       USER_ID,
       "https://canvas.example.edu/feed.ics",
     );
+  });
+
+  it("falls back to the calendar feed when Canvas returns a server error", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("http", "Canvas returned 500", 500));
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 2 });
+    await expect(syncUser(USER_ID)).resolves.toMatchObject({ assignments: 2 });
+  });
+
+  it("surfaces a rejected token instead of hiding it behind the calendar feed", async () => {
+    mockImportCourses.mockRejectedValue(new CanvasError("unauthorized", "Canvas rejected the token", 401));
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 2 });
+    await expect(syncUser(USER_ID)).rejects.toMatchObject({ kind: "unauthorized" });
+    expect(mockImportCalendarAssignments).not.toHaveBeenCalled();
+    expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 
   it("propagates a clear feed error and does not mark a failed fallback as synced", async () => {

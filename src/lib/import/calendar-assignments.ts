@@ -20,13 +20,12 @@ export async function importCalendarAssignments(
       skipped += 1;
       continue;
     }
-    const data = {
+    // fields the feed is the authority for
+    const feedFields = {
       title: event.title,
       dueAt: event.dueAt,
       hasDueDate: true,
-      pointsPossible: 0,
       htmlUrl: event.htmlUrl,
-      assignmentGroupId: null,
     };
     await prisma.assignment.upsert({
       where: {
@@ -35,8 +34,14 @@ export async function importCalendarAssignments(
           canvasId: event.assignmentCanvasId,
         },
       },
-      create: { courseId: course.id, canvasId: event.assignmentCanvasId, ...data },
-      update: data,
+      create: {
+        courseId: course.id,
+        canvasId: event.assignmentCanvasId,
+        ...feedFields,
+        pointsPossible: 0,
+        assignmentGroupId: null,
+      },
+      update: feedFields,
     });
     imported += 1;
   }

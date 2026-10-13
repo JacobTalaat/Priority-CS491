@@ -66,9 +66,12 @@ export async function importCourses(
     courseIds.push(row.id);
     imported += 1;
   }
-  await prisma.course.updateMany({
-    where: courseIds.length > 0 ? { userId, id: { notIn: courseIds } } : { userId },
-    data: { isCurrent: false },
-  });
+  // sweep only on a conclusive answer from Canvas
+  if (courses.length === 0 || currentTermId !== null) {
+    await prisma.course.updateMany({
+      where: courseIds.length > 0 ? { userId, id: { notIn: courseIds } } : { userId },
+      data: { isCurrent: false },
+    });
+  }
   return { imported, skipped: courses.length - imported, courseIds };
 }

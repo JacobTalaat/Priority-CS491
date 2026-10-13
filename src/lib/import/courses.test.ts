@@ -227,4 +227,10 @@ describe("importCourses", () => {
       data: { isCurrent: false },
     });
   });
+
+  it("leaves current markers alone when courses came back but no term has started", async () => {
+    vi.stubGlobal("fetch", singlePage([course(42, "Intro", 1)]));
+    await expect(importCourses(USER_ID)).resolves.toMatchObject({ imported: 0 });
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
 });

@@ -59,7 +59,7 @@ export async function syncUser(userId: string): Promise<{
     await prisma.user.update({ where: { id: userId }, data: { lastSyncedAt } });
     return { lastSyncedAt, courses: coursesImported.imported, assignmentGroups, assignments, grades };
   } catch (error) {
-    if (!(error instanceof CanvasError) && !(error instanceof Error && error.message === "Canvas not connected")) {
+    if (!(error instanceof CanvasError) || error.kind === "unauthorized") {
       throw error;
     }
     const feedUrl = await getCalendarFeedUrl(userId);
