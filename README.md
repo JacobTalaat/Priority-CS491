@@ -20,9 +20,11 @@ Priority tracker built with Next.js, Prisma, and PostgreSQL.
    On Supabase, open **Project Settings - Database - Connection string** and copy both:
 
    - the **Transaction pooler** URI (port 6543) into `DATABASE_URL`, and add `?pgbouncer=true` to the end
-   - the **Direct connection** URI (port 5432) into `DIRECT_URL`
+   - the **Session pooler** URI (port 5432) into `DIRECT_URL`
 
-   Migrations need the direct connection because the pooler cannot hold the advisory locks Prisma takes. On a local PostgreSQL one direct URL does both jobs, so leave `DIRECT_URL` unset.
+   Migrations need a connection that holds a session open, because the transaction pooler cannot keep the advisory locks Prisma takes. On a local PostgreSQL one direct URL does both jobs, so leave `DIRECT_URL` unset.
+
+   Use the **Session pooler**, not the **Direct connection** tab, unless you know your network has IPv6. The direct host `db.PROJECT_REF.supabase.co` publishes no IPv4 address, so on an IPv4-only network it fails to connect at all. Check with `host -t A db.PROJECT_REF.supabase.co`: if it says "has no A record" you need the session pooler. Both poolers are dual stack.
 
 3. Install dependencies (this also generates the Prisma client):
 
@@ -47,7 +49,7 @@ Priority tracker built with Next.js, Prisma, and PostgreSQL.
 Real values live only in `.env` on each laptop and in the server's own environment, never in the repo. The repo carries `.env.example` with placeholders only:
 
 - `DATABASE_URL` — PostgreSQL connection string the running app uses. On Supabase, the pooler on port 6543.
-- `DIRECT_URL` — optional direct connection used only by migrations. On Supabase, port 5432. Falls back to `DATABASE_URL` when unset.
+- `DIRECT_URL` — optional session connection used only by migrations. On Supabase, the session pooler on port 5432. Falls back to `DATABASE_URL` when unset.
 - `CANVAS_TOKEN_ENCRYPTION_KEY` — base64 key that decodes to exactly 32 bytes (AES-256), used to encrypt Canvas tokens. Generate one with:
 
   ```bash
