@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { GradeSetupPayload } from "@/lib/grade-setup";
+import { parseGradeSetup, type GradeSetupPayload } from "@/lib/grade-setup";
 import { calculateWeightedGrade, type GradeAssignment } from "./weighted-grade";
 
 function makeSetup(
@@ -188,5 +188,51 @@ describe("calculateWeightedGrade", () => {
         expect(result.percentage).toBeLessThanOrEqual(100);
       }
     }
+  });
+});
+
+describe("stored setup to engine handoff", () => {
+  it("computes a grade from a CourseGradeSetup row shaped the way Prisma returns it", () => {
+    const storedRow = {
+      categories: [
+        { name: "Homework", weight: 30 },
+        { name: "Midterm", weight: 30 },
+      ],
+      assignmentMappings: [
+        { assignmentId: "hw-1", category: "Homework" },
+        { assignmentId: "hw-2", category: "Homework" },
+        { assignmentId: "midterm", category: "Midterm" },
+      ],
+      finalExamWeight: 40,
+      cutoffs: { A: 90, B: 80 },
+      classDetails: { room: "GITC 1400", credits: 3 },
+    };
+
+    const parsed = parseGradeSetup(storedRow);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+
+    const result = calculateWeightedGrade(parsed.data, [
+      { id: "hw-1", pointsPossible: 20, grade: { score: 18 } },
+      { id: "hw-2", pointsPossible: 30, grade: { score: 24 } },
+      { id: "midterm", pointsPossible: 100, grade: { score: 72 } },
+      { id: "final", pointsPossible: 200, grade: null },
+    ]);
+
+    expect(result).toEqual({ status: "calculated", percentage: 78 });
+  });
+
+  it("a malformed stored setup is rejected by the parser, never reaching the engine", () => {
+    const parsed = parseGradeSetup({
+      categories: [{ name: "Homework", weight: 30 }],
+      assignmentMappings: [],
+      finalExamWeight: 30,
+      cutoffs: {},
+      classDetails: {},
+    });
+
+    expect(parsed.ok).toBe(false);
   });
 });
