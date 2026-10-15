@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { Button, ButtonLink } from "@/components/ui";
 import { StatusPage } from "./status-page";
 
@@ -10,10 +9,6 @@ type ErrorViewProps = {
 };
 
 export function ErrorView({ error, retry }: ErrorViewProps) {
-  useEffect(() => {
-    console.error(error);
-  }, [error]);
-
   return (
     <StatusPage
       code="Error"

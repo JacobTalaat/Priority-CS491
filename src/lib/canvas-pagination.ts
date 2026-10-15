@@ -25,9 +25,14 @@ export function parseNextLink(linkHeader: string | null): string | null {
 }
 
 function nextPath(next: string, baseUrl: string): string {
-  const url = new URL(next, baseUrl);
+  let url: URL;
+  try {
+    url = new URL(next, baseUrl);
+  } catch {
+    throw new Error("Canvas pagination next URL is invalid");
+  }
   if (url.origin !== new URL(baseUrl).origin) {
-    throw new Error(`Canvas pagination next URL origin does not match baseUrl: ${url.origin}`);
+    throw new Error("Canvas pagination next URL origin does not match baseUrl");
   }
   return `${url.pathname}${url.search}`;
 }
@@ -38,7 +43,7 @@ export async function fetchAllPages<T>(baseUrl: string, token: string, path: str
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const { data, response } = await canvasFetch(baseUrl, token, next);
     if (!Array.isArray(data)) {
-      throw new CanvasError("http", `Canvas returned a non-list payload for ${next}`);
+      throw new CanvasError("http", "Canvas returned a non-list payload");
     }
     results.push(...(data as T[]));
     const link = parseNextLink(response.headers.get("Link"));
@@ -47,5 +52,5 @@ export async function fetchAllPages<T>(baseUrl: string, token: string, path: str
     }
     next = nextPath(link, baseUrl);
   }
-  throw new Error(`Canvas pagination exceeded the ${MAX_PAGES}-page cap for ${path}`);
+  throw new Error(`Canvas pagination exceeded the ${MAX_PAGES}-page cap`);
 }

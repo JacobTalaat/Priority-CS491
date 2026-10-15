@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSession } from "@/lib/auth";
+import { checkLoginAllowed, clearFailedLogins, recordFailedLogin } from "@/lib/login-rate-limit";
 import { verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 
@@ -31,10 +32,19 @@ export async function POST(request: Request) {
   if (!credentials) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
+  const rateLimit = checkLoginAllowed(credentials.email);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many login attempts" },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+  recordFailedLogin(credentials.email);
   const user = await prisma.user.findUnique({ where: { email: credentials.email } });
   if (!user || !verifyPassword(credentials.password, user.passwordHash)) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
+  clearFailedLogins(credentials.email);
   const { token, expiresAt } = await createSession(user.id);
   return NextResponse.json({ token, expiresAt, user: { id: user.id, email: user.email } });
 }
