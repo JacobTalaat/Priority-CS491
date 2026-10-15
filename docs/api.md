@@ -280,6 +280,14 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 }
 ```
 
+`429` — too many wrong passwords for this account; the `Retry-After` header carries the seconds remaining:
+
+```json
+{
+  "error": "Too many password attempts."
+}
+```
+
 ---
 
 ### `POST /api/canvas/token`

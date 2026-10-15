@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { checkConfirmAllowed, clearFailedConfirms, recordFailedConfirm } from "@/lib/confirm-password-limit";
 import { verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 
@@ -26,6 +27,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Password is required." }, { status: 400 });
   }
 
+  const limit = checkConfirmAllowed(user.id);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many password attempts." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
+    );
+  }
+
   const row = await prisma.user.findUnique({
     where: { id: user.id },
     select: { passwordHash: true },
@@ -34,9 +43,11 @@ export async function POST(request: Request) {
     return unauthorized();
   }
   if (!verifyPassword(password, row.passwordHash)) {
+    recordFailedConfirm(user.id);
     return NextResponse.json({ error: "Password is incorrect." }, { status: 403 });
   }
 
+  clearFailedConfirms(user.id);
   await prisma.user.delete({ where: { id: user.id } });
   return NextResponse.json({ deleted: true });
 }

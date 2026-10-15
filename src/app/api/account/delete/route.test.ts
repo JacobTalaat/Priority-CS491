@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hashPassword } from "@/lib/password";
+import { MAX_CONFIRM_ATTEMPTS, resetConfirmLimitForTests } from "@/lib/confirm-password-limit";
 import { POST } from "./route";
 
 const { mockSessionFindUnique, mockUserFindUnique, mockUserDelete } = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ describe("POST /api/account/delete", () => {
     mockSessionFindUnique.mockReset();
     mockUserFindUnique.mockReset();
     mockUserDelete.mockReset();
+    resetConfirmLimitForTests();
     mockSessionFindUnique.mockResolvedValue({
       expiresAt: new Date(Date.now() + 60 * 1000),
       user: { id: "authenticated-user", email: "student@example.com" },
@@ -105,5 +107,25 @@ describe("POST /api/account/delete", () => {
     expect(mockUserDelete).toHaveBeenCalledExactlyOnceWith({
       where: { id: "authenticated-user" },
     });
+  });
+
+  it("returns 429 after too many wrong passwords and refuses to delete", async () => {
+    for (let index = 0; index < MAX_CONFIRM_ATTEMPTS; index += 1) {
+      const attempt = await POST(deleteRequest(JSON.stringify({ password: "wrong" }), "session-token"));
+      expect(attempt.status).toBe(403);
+    }
+    const limited = await POST(deleteRequest(JSON.stringify({ password: "wrong" }), "session-token"));
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(mockUserDelete).not.toHaveBeenCalled();
+  });
+
+  it("a limited account cannot delete even with the correct password", async () => {
+    for (let index = 0; index < MAX_CONFIRM_ATTEMPTS; index += 1) {
+      await POST(deleteRequest(JSON.stringify({ password: "wrong" }), "session-token"));
+    }
+    const limited = await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "session-token"));
+    expect(limited.status).toBe(429);
+    expect(mockUserDelete).not.toHaveBeenCalled();
   });
 });
