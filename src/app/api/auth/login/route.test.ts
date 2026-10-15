@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hashPassword } from "@/lib/password";
-import { resetLoginRateLimitForTests } from "@/lib/login-rate-limit";
+import { MAX_FAILED_ATTEMPTS, resetLoginRateLimitForTests } from "@/lib/login-rate-limit";
 import { POST } from "./route";
 
 const { mockUserFindUnique, mockSessionCreate } = vi.hoisted(() => ({
@@ -135,5 +135,33 @@ describe("POST /api/auth/login", () => {
     const res = await POST(loginRequest(validBody));
     expect(res.status).toBe(401);
     expect(mockUserFindUnique).toHaveBeenCalledTimes(6);
+  });
+});
+
+describe("concurrent login attempts", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    mockUserFindUnique.mockReset();
+    mockSessionCreate.mockReset();
+    resetLoginRateLimitForTests();
+  });
+
+  it("counts every in-flight attempt, so parallel requests cannot all slip past the limit", async () => {
+    resetLoginRateLimitForTests();
+    mockUserFindUnique.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(null), 5))
+    );
+
+    const body = JSON.stringify({ email: "racer@example.com", password: "wrong-password" });
+    const inFlight = MAX_FAILED_ATTEMPTS * 2;
+    const responses = await Promise.all(
+      Array.from({ length: inFlight }, () => POST(loginRequest(body)))
+    );
+
+    const limited = responses.filter((response) => response.status === 429).length;
+    const rejected = responses.filter((response) => response.status === 401).length;
+
+    expect(rejected).toBe(MAX_FAILED_ATTEMPTS);
+    expect(limited).toBe(inFlight - MAX_FAILED_ATTEMPTS);
   });
 });

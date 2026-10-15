@@ -39,9 +39,9 @@ export async function POST(request: Request) {
       { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
     );
   }
+  recordFailedLogin(credentials.email);
   const user = await prisma.user.findUnique({ where: { email: credentials.email } });
   if (!user || !verifyPassword(credentials.password, user.passwordHash)) {
-    recordFailedLogin(credentials.email);
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
   clearFailedLogins(credentials.email);
