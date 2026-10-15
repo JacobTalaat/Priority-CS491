@@ -75,13 +75,13 @@ export async function canvasFetch(
       },
     });
   } catch {
-    throw new CanvasError("network", `Canvas request to ${path} failed before a response`);
+    throw new CanvasError("network", "Canvas request failed before a response");
   }
   if (UNAUTHORIZED_STATUSES.includes(response.status)) {
-    throw new CanvasError("unauthorized", `Canvas rejected credentials for ${path}`, response.status);
+    throw new CanvasError("unauthorized", "Canvas rejected credentials", response.status);
   }
   if (!response.ok) {
-    throw new CanvasError("http", `Canvas returned ${response.status} for ${path}`, response.status);
+    throw new CanvasError("http", `Canvas returned ${response.status}`, response.status);
   }
   const data: unknown = await response.json();
   return { data, response };

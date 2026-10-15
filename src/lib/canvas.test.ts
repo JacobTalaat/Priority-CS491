@@ -38,7 +38,7 @@ describe("canvasFetch", () => {
     const error = await canvasFetch(BASE_URL, TOKEN, PATH).catch((e: unknown) => e);
     expect((error as CanvasError).kind).toBe("http");
     expect((error as CanvasError).status).toBe(500);
-    expect((error as CanvasError).message).toContain("500");
+    expect((error as CanvasError).message).toBe("Canvas returned 500");
     expect((error as CanvasError).message).not.toContain(TOKEN);
     expect((error as CanvasError).stack).not.toContain(TOKEN);
   });
