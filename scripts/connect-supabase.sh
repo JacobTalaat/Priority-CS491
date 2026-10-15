@@ -184,7 +184,36 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=5
+TOTAL_STAGES=4
+
+PROJECT_REF="${SUPABASE_PROJECT_REF:-snzsriylivgqyokwjhuo}"
+POOLER_HOST=""
+
+# urlencode escapes a password for safe use inside a connection URI.
+urlencode() {
+  python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$1"
+}
+
+# find_pooler_host probes the regional poolers for this project ref. The one
+# that answers "password authentication failed" owns the tenant; the others
+# answer "tenant or user not found".
+find_pooler_host() {
+  local host out
+  for host in \
+    aws-0-us-east-1.pooler.supabase.com aws-1-us-east-1.pooler.supabase.com \
+    aws-0-us-west-1.pooler.supabase.com aws-1-us-west-1.pooler.supabase.com \
+    aws-0-eu-central-1.pooler.supabase.com aws-1-eu-central-1.pooler.supabase.com \
+    aws-0-ap-southeast-1.pooler.supabase.com aws-1-ap-southeast-1.pooler.supabase.com
+  do
+    out=$(PGPASSWORD="probe-not-a-real-password" PGCONNECT_TIMEOUT=8 \
+      psql "postgresql://postgres.${PROJECT_REF}@${host}:5432/postgres" -c "SELECT 1" 2>&1 || true)
+    if [[ "$out" == *"password authentication failed"* ]]; then
+      POOLER_HOST="$host"
+      return 0
+    fi
+  done
+  return 1
+}
 
 banner "Connect Priority to Supabase"
 
@@ -205,90 +234,63 @@ say ""
 warn "Supabase is a different database. Accounts you made locally will not be there."
 confirm "Switch this machine to Supabase?" || { echo; note "Nothing changed. Exiting."; exit 0; }
 
-# ── 2. Transaction pooler → DATABASE_URL ──────────────────────────────────
-stage "Copy the transaction pooler string"
-say "This is the connection the running app uses."
-open_url "https://supabase.com/dashboard/project/_/settings/database"
-step "Pick your project if you are asked."
-step "Scroll to 'Connection string'."
-step "Choose the 'Transaction pooler' tab. The port must be 6543."
-step "Tick 'Display connection pooler' if the tabs are hidden."
-step "Copy the URI, then replace [YOUR-PASSWORD] with your database password."
-note "Forgot the password? Reset it on the same page under 'Database password'."
-ask_secret DATABASE_URL "Paste the transaction pooler URI:"
-if [[ -z "$DATABASE_URL" ]]; then
-  warn "nothing pasted; stopping so your .env is left alone"
-  exit 1
+# ── 2. Find the pooler ────────────────────────────────────────────────────
+stage "Find your pooler"
+say "Working out which pooler holds project $PROJECT_REF."
+note "No password is sent; this only reads which host recognises the tenant."
+if ! command -v psql >/dev/null 2>&1; then
+  warn "psql is not installed, so the host cannot be detected automatically."
+  ask POOLER_HOST "Pooler host (from the dashboard, ends in pooler.supabase.com):"
+elif find_pooler_host; then
+  printf '  %s✓ found%s %s\n' "$GREEN" "$RESET" "$POOLER_HOST"
+else
+  warn "could not identify the pooler automatically."
+  note "In the dashboard the host is shown in the connection string, ending pooler.supabase.com."
+  ask POOLER_HOST "Pooler host:"
 fi
-if [[ "$DATABASE_URL" == *"[YOUR-PASSWORD]"* || "$DATABASE_URL" == *"YOUR-PASSWORD"* ]]; then
-  warn "that still has the [YOUR-PASSWORD] placeholder in it. Re-run and paste the real password."
-  exit 1
-fi
-if [[ "$DATABASE_URL" != *":6543"* ]]; then
-  warn "that does not contain port 6543, so it is probably not the transaction pooler."
-  confirm "Use it anyway?" || exit 1
-fi
-if [[ "$DATABASE_URL" != *"pgbouncer=true"* ]]; then
-  if [[ "$DATABASE_URL" == *"?"* ]]; then
-    DATABASE_URL="${DATABASE_URL}&pgbouncer=true"
-  else
-    DATABASE_URL="${DATABASE_URL}?pgbouncer=true"
-  fi
-  note "added ?pgbouncer=true for you"
-fi
-write_env DATABASE_URL "\"$DATABASE_URL\""
+[[ -n "$POOLER_HOST" ]] || { warn "no pooler host; stopping"; exit 1; }
+say ""
+say "Your connection strings will be:"
+note "  app        postgresql://postgres.$PROJECT_REF:********@$POOLER_HOST:6543/postgres?pgbouncer=true"
+note "  migrations postgresql://postgres.$PROJECT_REF:********@$POOLER_HOST:5432/postgres"
+pause "Press Enter to enter your password."
 
-# ── 3. Session pooler → DIRECT_URL ────────────────────────────────────────
-stage "Copy the session pooler string"
-say "This is the connection migrations use. It must hold a session open."
-step "Same page, same 'Connection string' box."
-step "Choose the 'Session pooler' tab this time. The port must be 5432."
-step "Copy the URI and replace [YOUR-PASSWORD] again."
-warn "Do NOT use the 'Direct connection' tab."
-note "That host has no IPv4 address, so it cannot be reached from an IPv4-only network."
-ask_secret DIRECT_URL "Paste the session pooler URI:"
-if [[ -z "$DIRECT_URL" ]]; then
-  warn "nothing pasted; stopping"
+# ── 3. Database password ──────────────────────────────────────────────────
+stage "Enter your database password"
+say "This is the Postgres password for the project, not your Supabase login."
+note "It is shown once when the project is created. If you do not have it, reset it:"
+open_url "https://supabase.com/dashboard/project/${PROJECT_REF}/settings/database"
+step "Under 'Database password', choose 'Reset database password'."
+step "Copy the new password."
+say ""
+ask_secret SUPABASE_DB_PASSWORD "Database password (hidden):"
+if [[ -z "$SUPABASE_DB_PASSWORD" ]]; then
+  warn "nothing entered; stopping so your .env is left alone"
   exit 1
 fi
-if [[ "$DIRECT_URL" == *"[YOUR-PASSWORD]"* || "$DIRECT_URL" == *"YOUR-PASSWORD"* ]]; then
-  warn "that still has the [YOUR-PASSWORD] placeholder in it."
-  exit 1
-fi
-if [[ "$DIRECT_URL" =~ ^postgres(ql)?://[^@]+@db\..*\.supabase\.co ]]; then
-  warn "that is the Direct connection host, which is IPv6 only."
-  say "  Go back and pick the 'Session pooler' tab instead."
-  exit 1
-fi
-if [[ "$DIRECT_URL" != *":5432"* ]]; then
-  warn "that does not contain port 5432, so it is probably not the session pooler."
-  confirm "Use it anyway?" || exit 1
-fi
-write_env DIRECT_URL "\"$DIRECT_URL\""
+encoded=$(urlencode "$SUPABASE_DB_PASSWORD")
+write_env DATABASE_URL "\"postgresql://postgres.${PROJECT_REF}:${encoded}@${POOLER_HOST}:6543/postgres?pgbouncer=true\""
+write_env DIRECT_URL "\"postgresql://postgres.${PROJECT_REF}:${encoded}@${POOLER_HOST}:5432/postgres\""
+note "The password was URL encoded, so symbols in it are safe."
 
 # ── 4. Verify ─────────────────────────────────────────────────────────────
 stage "Check it actually connects"
 say "Asking Prisma whether Supabase has every migration applied."
-if npx prisma migrate status 2>&1 | tail -20; then
+say ""
+if npx prisma migrate status 2>&1 | tail -15; then
   printf '\n'
   note "'Database schema is up to date!' above means you are connected."
+  say ""
+  say "Start the app with:"
+  printf '\n      npm run dev\n\n'
+  note "Then: curl http://localhost:3000/api/health"
+  note "Your Supabase database starts empty, so sign up again at /signup."
 else
   printf '\n'
   warn "that did not succeed. The usual causes:"
   note "  - wrong password: reset it in the dashboard and re-run this script"
-  note "  - used the Direct connection tab instead of Session pooler"
   note "  - project paused: open the dashboard and resume it"
 fi
-pause "Press Enter once you have read the result."
-
-# ── 5. Run the app ────────────────────────────────────────────────────────
-stage "Start the app"
-say "Everything is written. Start the dev server with:"
-printf '\n      npm run dev\n\n'
-say "Then check it is talking to Supabase:"
-printf '\n      curl http://localhost:3000/api/health\n\n'
-note "{\"status\":\"ok\"} means the database is reachable."
-note "Your Supabase database starts empty, so sign up again at /signup."
 say ""
 note "To go back to local PostgreSQL, restore the .env backup from stage 1."
 

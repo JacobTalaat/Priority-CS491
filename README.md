@@ -24,13 +24,13 @@ Priority tracker built with Next.js, Prisma, and PostgreSQL.
 
    Migrations need a connection that holds a session open, because the transaction pooler cannot keep the advisory locks Prisma takes. On a local PostgreSQL one direct URL does both jobs, so leave `DIRECT_URL` unset.
 
-   Or run the wizard, which opens the right page, captures both strings without echoing your password, and checks the connection:
+   Or run the wizard, which only asks for your database password. It works out the pooler host itself, builds both connection strings, URL encodes the password, and checks the connection:
 
    ```bash
    ./scripts/connect-supabase.sh
    ```
 
-   It backs up your existing `.env` first, so you can switch back to local PostgreSQL by restoring that file.
+   It backs up your existing `.env` first, so you can switch back to local PostgreSQL by restoring that file. For a different project, set `SUPABASE_PROJECT_REF` before running it.
 
    Use the **Session pooler**, not the **Direct connection** tab, unless you know your network has IPv6. The direct host `db.PROJECT_REF.supabase.co` publishes no IPv4 address, so on an IPv4-only network it fails to connect at all. Check with `host -t A db.PROJECT_REF.supabase.co`: if it says "has no A record" you need the session pooler. Both poolers are dual stack.
 
