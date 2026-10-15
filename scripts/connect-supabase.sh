@@ -195,7 +195,7 @@ urlencode() {
 }
 
 # find_pooler_host probes the regional poolers for this project ref. The one
-# that answers "password authentication failed" owns the tenant; the others
+# that owns the tenant answers "password authentication failed"; the others
 # answer "tenant or user not found".
 find_pooler_host() {
   local host out
@@ -213,6 +213,13 @@ find_pooler_host() {
     fi
   done
   return 1
+}
+
+# test_password returns success only when the password actually authenticates.
+test_password() {
+  PGPASSWORD="$1" PGCONNECT_TIMEOUT=15 \
+    psql "postgresql://postgres.${PROJECT_REF}@${POOLER_HOST}:5432/postgres" \
+    -c "SELECT 1" >/dev/null 2>&1
 }
 
 banner "Connect Priority to Supabase"
@@ -239,58 +246,77 @@ stage "Find your pooler"
 say "Working out which pooler holds project $PROJECT_REF."
 note "No password is sent; this only reads which host recognises the tenant."
 if ! command -v psql >/dev/null 2>&1; then
-  warn "psql is not installed, so the host cannot be detected automatically."
-  ask POOLER_HOST "Pooler host (from the dashboard, ends in pooler.supabase.com):"
+  warn "psql is not installed, so the host cannot be detected or the password checked."
+  note "Install it with: brew install libpq"
+  ask POOLER_HOST "Pooler host (ends in pooler.supabase.com):"
 elif find_pooler_host; then
   printf '  %s✓ found%s %s\n' "$GREEN" "$RESET" "$POOLER_HOST"
 else
   warn "could not identify the pooler automatically."
-  note "In the dashboard the host is shown in the connection string, ending pooler.supabase.com."
   ask POOLER_HOST "Pooler host:"
 fi
 [[ -n "$POOLER_HOST" ]] || { warn "no pooler host; stopping"; exit 1; }
-say ""
-say "Your connection strings will be:"
-note "  app        postgresql://postgres.$PROJECT_REF:********@$POOLER_HOST:6543/postgres?pgbouncer=true"
-note "  migrations postgresql://postgres.$PROJECT_REF:********@$POOLER_HOST:5432/postgres"
-pause "Press Enter to enter your password."
+pause "Press Enter to continue."
 
-# ── 3. Database password ──────────────────────────────────────────────────
+# ── 3. Database password, checked before anything is written ──────────────
 stage "Enter your database password"
 say "This is the Postgres password for the project, not your Supabase login."
-note "It is shown once when the project is created. If you do not have it, reset it:"
-open_url "https://supabase.com/dashboard/project/${PROJECT_REF}/settings/database"
-step "Under 'Database password', choose 'Reset database password'."
-step "Copy the new password."
+say "It is shown only once, when you create or reset it."
 say ""
-ask_secret SUPABASE_DB_PASSWORD "Database password (hidden):"
-if [[ -z "$SUPABASE_DB_PASSWORD" ]]; then
-  warn "nothing entered; stopping so your .env is left alone"
+step "If you do not have it, reset it on the page opening now."
+step "Under 'Database password', choose 'Reset database password'."
+step "Copy the new password straight away."
+open_url "https://supabase.com/dashboard/project/${PROJECT_REF}/settings/database"
+say ""
+
+verified=""
+for attempt in 1 2 3; do
+  SUPABASE_DB_PASSWORD=""
+  ask_secret SUPABASE_DB_PASSWORD "Database password (hidden):"
+  if [[ -z "$SUPABASE_DB_PASSWORD" ]]; then
+    warn "nothing entered."
+    continue
+  fi
+  if ! command -v psql >/dev/null 2>&1; then
+    warn "psql missing, so the password cannot be checked here. Writing it unverified."
+    verified="unchecked"
+    break
+  fi
+  printf '  %s…checking against Supabase%s\n' "$DIM" "$RESET"
+  if test_password "$SUPABASE_DB_PASSWORD"; then
+    printf '  %s✓ password accepted%s\n' "$GREEN" "$RESET"
+    verified="yes"
+    break
+  fi
+  warn "Supabase rejected that password. (attempt $attempt of 3)"
+  note "It is the database password, not your Supabase account login."
+  note "If you are unsure, reset it on the page already open and copy the new one."
+  say ""
+done
+
+if [[ -z "$verified" ]]; then
+  warn "no working password after 3 attempts, so .env was left untouched."
+  note "Your app keeps using whatever it used before. Re-run when you have the password."
   exit 1
 fi
+
 encoded=$(urlencode "$SUPABASE_DB_PASSWORD")
 write_env DATABASE_URL "\"postgresql://postgres.${PROJECT_REF}:${encoded}@${POOLER_HOST}:6543/postgres?pgbouncer=true\""
 write_env DIRECT_URL "\"postgresql://postgres.${PROJECT_REF}:${encoded}@${POOLER_HOST}:5432/postgres\""
 note "The password was URL encoded, so symbols in it are safe."
 
-# ── 4. Verify ─────────────────────────────────────────────────────────────
-stage "Check it actually connects"
+# ── 4. Verify migrations ──────────────────────────────────────────────────
+stage "Check the schema"
 say "Asking Prisma whether Supabase has every migration applied."
 say ""
-if npx prisma migrate status 2>&1 | tail -15; then
-  printf '\n'
-  note "'Database schema is up to date!' above means you are connected."
-  say ""
-  say "Start the app with:"
-  printf '\n      npm run dev\n\n'
-  note "Then: curl http://localhost:3000/api/health"
-  note "Your Supabase database starts empty, so sign up again at /signup."
-else
-  printf '\n'
-  warn "that did not succeed. The usual causes:"
-  note "  - wrong password: reset it in the dashboard and re-run this script"
-  note "  - project paused: open the dashboard and resume it"
-fi
+npx prisma migrate status 2>&1 | tail -15
+printf '\n'
+note "'Database schema is up to date!' above means you are fully connected."
+say ""
+say "Start the app with:"
+printf '\n      npm run dev\n\n'
+note "Then: curl http://localhost:3000/api/health"
+note "Your Supabase database starts empty, so sign up again at /signup."
 say ""
 note "To go back to local PostgreSQL, restore the .env backup from stage 1."
 
