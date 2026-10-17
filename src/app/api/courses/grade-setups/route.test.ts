@@ -45,7 +45,12 @@ describe("GET /api/courses/grade-setups", () => {
         term: "Fall 2026",
         assignmentGroups: [{ name: "Homework", groupWeight: 30 }],
         assignments: [
-          { id: "assignment-1", title: "Project 1", assignmentGroup: { name: "Homework", groupWeight: 30 } },
+          {
+            id: "assignment-1",
+            title: "Project 1",
+            dueAt: "2026-10-20T23:59:00.000Z",
+            assignmentGroup: { name: "Homework", groupWeight: 30 },
+          },
         ],
         gradeSetup: null,
       },
@@ -71,6 +76,7 @@ describe("GET /api/courses/grade-setups", () => {
           select: {
             id: true,
             title: true,
+            dueAt: true,
             assignmentGroup: { select: { name: true, groupWeight: true } },
           },
           orderBy: [{ title: "asc" }, { id: "asc" }],

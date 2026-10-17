@@ -69,6 +69,6 @@
   gap: 10px;
 }
 
-.rest {
-  margin-top: 8px;
+.dangerAction {
+  color: var(--danger);
 }

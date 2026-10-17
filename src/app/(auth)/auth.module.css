@@ -71,6 +71,13 @@
   text-decoration: underline;
 }
 
+.privacyNotice {
+  margin-top: 24px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 @media (max-width: 720px) {
   .shell {
     gap: 32px;

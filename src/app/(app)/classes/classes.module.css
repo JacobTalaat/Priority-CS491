@@ -19,3 +19,58 @@
   max-width: 480px;
   color: var(--secondary);
 }
+
+.description {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.classGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+}
+
+.classCard {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  padding: 20px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.courseName {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.courseMeta,
+.detailLabel {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.courseMeta {
+  margin-top: 4px;
+}
+
+.cardDetails {
+  display: grid;
+  gap: 14px;
+}
+
+.cardDetail {
+  display: grid;
+  gap: 4px;
+}
+
+.detailValue {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+}

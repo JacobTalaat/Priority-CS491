@@ -192,6 +192,52 @@ curl -i -X POST http://localhost:3000/api/auth/refresh \
 
 ---
 
+### `DELETE /api/auth/account`
+
+Permanently deletes the authenticated student's Priority account after an explicit confirmation. Related Priority records, including sessions, encrypted Canvas credentials, courses, assignments, grades, and grade setups, are removed through database cascades. This does not delete data stored by Canvas or revoke a Canvas access token in Canvas.
+
+- **Method**: `DELETE`
+- **Path**: `/api/auth/account`
+
+**Request**
+
+Send an `Authorization` header with the Priority bearer token and a JSON body that confirms the deletion:
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/auth/account \
+  -H "Authorization: ******" \
+  -H "Content-Type: application/json" \
+  -d '{"confirmation":"DELETE"}'
+```
+
+**Response**
+
+`200` — the account and associated Priority records were deleted:
+
+```json
+{
+  "deleted": true
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`400` — deletion confirmation is missing or invalid:
+
+```json
+{
+  "error": "Type DELETE to confirm account deletion."
+}
+```
+
+---
+
 ### `GET /api/auth/me`
 
 Returns the currently authenticated user from the bearer token in `Authorization`.
@@ -733,6 +779,59 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 ---
 
+### `GET /api/courses/[courseId]/grade`
+
+Returns the current grade and per-category percentage for one of the authenticated student's current courses. The current grade is the weighted average of categories with graded work; categories without grades and the reserved final-exam weight are excluded until they have graded work. A grade setup that is missing, invalid, or no longer maps every current assignment is reported as unsupported.
+
+- **Method**: `GET`
+- **Path**: `/api/courses/[courseId]/grade`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/courses/course-id/grade \
+  -H "Authorization: ******"
+```
+
+**Response**
+
+`200` — supported current grade and category breakdown:
+
+```json
+{
+  "courseId": "course-id",
+  "supported": true,
+  "currentGrade": 83.75,
+  "categories": [
+    { "name": "Homework", "weight": 30, "grade": 90 },
+    { "name": "Exams", "weight": 50, "grade": 80 }
+  ],
+  "message": null
+}
+```
+
+When setup is unsupported, `supported` is `false`, `currentGrade` is `null`, and `message` explains why. A supported setup with no weighted graded work has a `null` current grade and a message of `"No weighted graded work yet."`.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
+
+---
+
 ### `POST /api/courses/[courseId]/grade-setup`
 
 Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
@@ -839,6 +938,7 @@ curl -i http://localhost:3000/api/courses/grade-setups \
         {
           "id": "assignment-id",
           "title": "Project 1",
+          "dueAt": "2026-10-20T23:59:00.000Z",
           "assignmentGroup": { "name": "Homework", "groupWeight": 30 }
         }
       ],

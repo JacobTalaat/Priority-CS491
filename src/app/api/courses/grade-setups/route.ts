@@ -21,6 +21,7 @@ export async function GET(request: Request) {
         select: {
           id: true,
           title: true,
+          dueAt: true,
           assignmentGroup: { select: { name: true, groupWeight: true } },
         },
         orderBy: [{ title: "asc" }, { id: "asc" }],
