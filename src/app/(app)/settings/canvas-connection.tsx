@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { FormEvent } from "react";
 import { SyncNow } from "@/components/sync/sync-now";
 import { Button, Input, Notice } from "@/components/ui";
@@ -123,6 +124,13 @@ export function CanvasConnection() {
       <p className={styles.sectionNote}>
         Paste a Canvas access token so Priority can read your classes and assignments. It&apos;s encrypted
         and never shown again.
+      </p>
+      <p className={styles.sectionNote}>
+        Need help finding a token?{" "}
+        <Link className={styles.helpLink} href="/settings/canvas-token-guide">
+          Follow the step-by-step guide
+        </Link>
+        .
       </p>
 
       {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}

@@ -1,0 +1,55 @@
+.guide {
+  display: grid;
+  max-width: 760px;
+  justify-items: start;
+  gap: 24px;
+}
+
+.steps {
+  display: grid;
+  gap: 28px;
+  padding-left: 24px;
+}
+
+.steps li {
+  padding-left: 4px;
+}
+
+.steps h2 {
+  margin-bottom: 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.steps p {
+  max-width: 640px;
+  color: var(--secondary);
+}
+
+.figure {
+  display: grid;
+  max-width: 100%;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.screenshot {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+}
+
+.figure figcaption,
+.source {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.source a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
