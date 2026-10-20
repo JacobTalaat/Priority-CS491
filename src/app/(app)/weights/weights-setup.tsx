@@ -5,6 +5,7 @@ import { Button, Input, Notice, PageHeader } from "@/components/ui";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
 import { getGradeSetupCourses, saveGradeSetup } from "@/lib/grade-setup-client";
 import type { GradeSetupCourse } from "@/lib/grade-setup-client";
+import { SyllabusUpload } from "@/components/syllabus/syllabus-upload";
 import styles from "./weights.module.css";
 
 type CategoryField = { name: string; weight: string };
@@ -302,6 +303,8 @@ export function WeightsSetup() {
               ))}
             </select>
           </div>
+
+          {selectedCourse ? <SyllabusUpload key={selectedCourse.id} course={selectedCourse} /> : null}
 
           {selectedCourse && hasCanvasWeights && !selectedCourse.gradeSetup && !manualMode ? (
             <div className={styles.canvasWeights}>
