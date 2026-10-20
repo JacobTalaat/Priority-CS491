@@ -144,6 +144,8 @@ Every API route is documented in [`docs/api.md`](docs/api.md) with its method, p
 
 Update `docs/api.md` in the same pull request whenever a route is added, removed, or changed. `src/app/api/api-doc.test.ts` compares the doc against the route files and fails when they disagree.
 
+Use the shared [cross-platform test plan](docs/test-plan.md) for API, website, and iPhone app checks on every story.
+
 ## Scripts
 
 - `npm run dev` — start the Next.js development server
