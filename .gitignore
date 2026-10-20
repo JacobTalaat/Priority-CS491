@@ -50,3 +50,8 @@ next-env.d.ts
 # generated agent instruction files
 AGENTS.md
 CLAUDE.md
+
+# Xcode per-user state
+xcuserdata/
+*.xcuserstate
+ios/build/
