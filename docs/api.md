@@ -149,6 +149,14 @@ curl -i -X POST http://localhost:3000/api/auth/login \
 }
 ```
 
+`429` — too many failed login attempts within the rate limit window. The response includes a `Retry-After` header with the whole seconds remaining:
+
+```json
+{
+  "error": "Too many login attempts"
+}
+```
+
 ---
 
 ### `POST /api/auth/refresh`
