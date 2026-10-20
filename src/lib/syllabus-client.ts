@@ -1,17 +1,19 @@
 import { NETWORK_ERROR } from "./api-client";
 import { getToken } from "./session";
+import type { SyllabusSuggestions } from "./syllabus-reader";
 
 export const SYLLABUS_MAX_BYTES = 10 * 1024 * 1024;
 
-// What the AI reader (PR-042) suggests. Kept loose here; the weights form owns the shape.
-export type SyllabusSuggestions = Record<string, unknown>;
+export type { SyllabusSuggestions };
 
 export type SyllabusUploadResult =
-  | { ok: true; suggestions: SyllabusSuggestions }
+  | { ok: true; suggestions: SyllabusSuggestions | null; suggestionsError: string | null }
   | { ok: false; status: number; error: string };
 
 export const NOT_AVAILABLE_YET =
   "Reading syllabi isn't turned on yet. You can enter your weights by hand below for now.";
+
+export const NOT_READ = "Priority couldn't read your syllabus automatically. You can enter your weights by hand below.";
 
 export function isPdf(file: Pick<File, "name" | "type">): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
@@ -63,15 +65,22 @@ export async function uploadSyllabus(courseId: string, file: File): Promise<Syll
       : null;
 
   if (response.ok) {
-    const suggestions =
-      typeof payload === "object" &&
-      payload !== null &&
-      "suggestions" in payload &&
-      typeof payload.suggestions === "object" &&
-      payload.suggestions !== null
-        ? (payload.suggestions as SyllabusSuggestions)
-        : {};
-    return { ok: true, suggestions };
+    if (typeof payload !== "object" || payload === null) {
+      return { ok: true, suggestions: null, suggestionsError: NOT_READ };
+    }
+    const suggestions = (payload as { suggestions?: unknown }).suggestions;
+    if (suggestions === null) {
+      const suggestionsError = (payload as { suggestionsError?: unknown }).suggestionsError;
+      return {
+        ok: true,
+        suggestions: null,
+        suggestionsError: typeof suggestionsError === "string" ? suggestionsError : NOT_READ,
+      };
+    }
+    if (typeof suggestions === "object" && !Array.isArray(suggestions)) {
+      return { ok: true, suggestions: suggestions as SyllabusSuggestions, suggestionsError: null };
+    }
+    return { ok: true, suggestions: null, suggestionsError: NOT_READ };
   }
   // A 404 with no JSON error means the route itself doesn't exist yet, not a missing course.
   if (response.status === 404 && !apiError) {
