@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Input, Notice, PageHeader } from "@/components/ui";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
 import { getGradeSetupCourses, saveGradeSetup } from "@/lib/grade-setup-client";
+import { isCompleteTotal, weightTotalMessage } from "@/lib/weight-total";
 import type { GradeSetupCourse } from "@/lib/grade-setup-client";
 import styles from "./weights.module.css";
 
@@ -394,8 +395,8 @@ export function WeightsSetup() {
                 onChange={(event) => setForm((current) => ({ ...current, finalExamWeight: event.target.value }))}
                 required
               />
-              <p className={Math.abs(totalWeight - 100) <= 0.001 ? styles.totalValid : styles.totalInvalid} role="status">
-                Total weight: {Number.isFinite(totalWeight) ? totalWeight : 0}%
+              <p className={isCompleteTotal(totalWeight) ? styles.totalValid : styles.totalInvalid} role="status">
+                {weightTotalMessage(totalWeight)}
               </p>
 
               <fieldset className={styles.fieldset}>
