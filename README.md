@@ -65,6 +65,21 @@ Real values live only in `.env` on each laptop and in the server's own environme
   ```
 
 - `CANVAS_BASE_URL` — optional Canvas host, defaults to `https://canvas.instructure.com`.
+- `AI_BASE_URL` — base URL of an OpenAI-compatible chat completions provider, for example `https://openrouter.ai/api/v1`. No query string, fragment, or embedded credentials.
+- `AI_MODEL` — model id sent with every AI request, for example `openai/gpt-4o-mini`.
+- `AI_API_KEY` — AI provider key sent as a Bearer token. It is read from the environment only on the server and is never asked for from users or sent to the browser.
+- `AI_INPUT_USD_PER_MILLION_TOKENS` — input price in USD per million tokens, used to cost each request before it runs and to settle actual spend afterwards. `0` is for free models.
+- `AI_OUTPUT_USD_PER_MILLION_TOKENS` — output price in USD per million tokens, same rules as the input price.
+  The cap is enforced against these configured prices, so prices of `0` never use the budget.
+- `AI_MONTHLY_BUDGET_USD` — hard monthly spending cap in USD across all users combined; when a request would push the month past it, the request is refused before any provider call. The meter resets each calendar month (UTC).
+  A provider that ignores `max_tokens` can push one call past the cap; the call still completes, but after it settles every further call is refused for the rest of the month.
+  If the process dies mid-call, its reservation stays held until the month ends. Release it only with the app stopped:
+
+  ```sql
+  UPDATE "AiSpendMonth" SET "reservedMicros" = 0 WHERE "period" = 'YYYY-MM';
+  ```
+
+- `AI_TIMEOUT_MS` — optional per-request timeout in milliseconds, defaults to `60000`. Keep it below the hosting platform's request time limit.
 
 ## Check that it works
 
