@@ -237,6 +237,67 @@ curl -i http://localhost:3000/api/auth/me \
 
 ---
 
+### `POST /api/account/delete`
+
+Deletes the currently authenticated account after confirming its password.
+
+- **Method**: `POST`
+- **Path**: `/api/account/delete`
+
+**Request**
+
+Send an `Authorization` bearer token and the account password in the JSON body.
+
+```json
+{
+  "password": "your-password"
+}
+```
+
+**Response**
+
+`200` — account deleted:
+
+```json
+{
+  "deleted": true
+}
+```
+
+`400` — password is missing or invalid:
+
+```json
+{
+  "error": "Password is required."
+}
+```
+
+`401` — token missing, invalid, expired, or account no longer exists:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`403` — password is incorrect:
+
+```json
+{
+  "error": "Password is incorrect."
+}
+```
+
+`429` — too many wrong passwords for this account; the `Retry-After` header carries the seconds remaining:
+
+```json
+{
+  "error": "Too many password attempts."
+}
+```
+
+---
+
 ### `POST /api/canvas/token`
 
 Saves the student's Canvas personal access token. The token is checked against Canvas first and only stored if Canvas accepts it. It is encrypted before it is written and is never returned by any route.
