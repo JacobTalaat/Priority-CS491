@@ -140,3 +140,10 @@ model Grade {
 
   assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 }
+
+model AiSpendMonth {
+  period         String   @id
+  spentMicros    BigInt   @default(0)
+  reservedMicros BigInt   @default(0)
+  updatedAt      DateTime @updatedAt
+}
