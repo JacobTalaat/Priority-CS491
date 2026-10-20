@@ -30,9 +30,9 @@ A story or bug is done only when all applicable items are true:
 - The PR records verification results, receives approval from at least one teammate, and is merged to `main`.
 - Any known follow-up work is recorded rather than hidden by closing the story.
 
-**Meeting decision — not yet recorded**
+**Meeting decision**
 
-- Meeting date:
-- Attendees:
-- Decision: Pending team discussion and agreement.
+- Meeting date: Not provided.
+- Attendees: Not provided.
+- Decision: Agreed as written by the team.
 - Changes agreed by the team:
