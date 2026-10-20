@@ -19,7 +19,7 @@ Actual:
 
 When useful, include the browser/device, OS version, and test account type (never include passwords, access tokens, or real student data).
 
-## Definition of Done — proposed for team agreement
+## Definition of Done — agreed by the team
 
 A story or bug is done only when all applicable items are true:
 
