@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button, Input, Notice, PageHeader } from "@/components/ui";
+import { mappingSummary, unmappedAssignmentIds } from "@/lib/assignment-mapping";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
 import { getGradeSetupCourses, saveGradeSetup } from "@/lib/grade-setup-client";
 import { isCompleteTotal, weightTotalMessage } from "@/lib/weight-total";
@@ -122,6 +123,20 @@ export function WeightsSetup() {
         return sum + (Number.isFinite(weight) ? weight : 0);
       }, numberValue(form.finalExamWeight) || 0),
     [form.categories, form.finalExamWeight],
+  );
+
+  const unmappedIds = useMemo(
+    () =>
+      new Set(
+        selectedCourse
+          ? unmappedAssignmentIds(
+              selectedCourse.assignments,
+              form.assignmentMappings,
+              form.categories.map((category) => category.name),
+            )
+          : [],
+      ),
+    [selectedCourse, form.assignmentMappings, form.categories],
   );
 
   useEffect(() => {
@@ -407,23 +422,45 @@ export function WeightsSetup() {
                 {selectedCourse.assignments.length === 0 ? (
                   <p className={styles.description}>No imported assignments yet. You can confirm categories now and map assignments after syncing Canvas.</p>
                 ) : (
-                  selectedCourse.assignments.map((assignment) => (
-                    <div className={styles.mappingRow} key={assignment.id}>
-                      <label className={styles.label} htmlFor={`assignment-${assignment.id}`}>{assignment.title}</label>
-                      <select
-                        className={styles.select}
-                        id={`assignment-${assignment.id}`}
-                        value={form.assignmentMappings[assignment.id] ?? ""}
-                        onChange={(event) => updateMapping(assignment.id, event.target.value)}
-                        required
-                      >
-                        <option value="">Choose a category</option>
-                        {form.categories.filter((item) => item.name.trim()).map((item, index) => (
-                          <option key={`${item.name}-${index}`} value={item.name}>{item.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ))
+                  <>
+                    <p
+                      className={unmappedIds.size > 0 ? styles.mappingSummaryWarn : styles.mappingSummaryDone}
+                      role="status"
+                    >
+                      {mappingSummary(selectedCourse.assignments.length, unmappedIds.size)}
+                    </p>
+                    {selectedCourse.assignments.map((assignment) => {
+                      const unmapped = unmappedIds.has(assignment.id);
+                      const noteId = `assignment-${assignment.id}-note`;
+                      return (
+                        <div
+                          className={unmapped ? `${styles.mappingRow} ${styles.unmapped}` : styles.mappingRow}
+                          key={assignment.id}
+                        >
+                          <div className={styles.mappingText}>
+                            <label className={styles.label} htmlFor={`assignment-${assignment.id}`}>{assignment.title}</label>
+                            {unmapped ? (
+                              <span id={noteId} className={styles.needsCategory}>Needs a category</span>
+                            ) : null}
+                          </div>
+                          <select
+                            className={unmapped ? `${styles.select} ${styles.selectUnmapped}` : styles.select}
+                            id={`assignment-${assignment.id}`}
+                            value={form.assignmentMappings[assignment.id] ?? ""}
+                            onChange={(event) => updateMapping(assignment.id, event.target.value)}
+                            aria-invalid={unmapped ? true : undefined}
+                            aria-describedby={unmapped ? noteId : undefined}
+                            required
+                          >
+                            <option value="">Choose a category</option>
+                            {form.categories.filter((item) => item.name.trim()).map((item, index) => (
+                              <option key={`${item.name}-${index}`} value={item.name}>{item.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </>
                 )}
               </fieldset>
 

@@ -146,6 +146,45 @@
   color: var(--secondary);
 }
 
+.mappingText {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+/* Unmapped rows get a red edge and tint so they stand out in a long list. */
+.unmapped {
+  margin: 0 -8px;
+  padding: 8px;
+  border-radius: var(--radius);
+  box-shadow: inset 3px 0 0 var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.needsCategory {
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.selectUnmapped {
+  border-color: var(--danger);
+}
+
+.mappingSummaryWarn,
+.mappingSummaryDone {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mappingSummaryWarn {
+  color: var(--danger);
+}
+
+.mappingSummaryDone {
+  color: var(--accent);
+}
+
 @media (max-width: 560px) {
   .categoryRow {
     grid-template-columns: minmax(0, 1fr) minmax(100px, 0.5fr);
