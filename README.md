@@ -144,8 +144,6 @@ Every API route is documented in [`docs/api.md`](docs/api.md) with its method, p
 
 Update `docs/api.md` in the same pull request whenever a route is added, removed, or changed. `src/app/api/api-doc.test.ts` compares the doc against the route files and fails when they disagree.
 
-Use the [Jira bug template and proposed Definition of Done](docs/bug-template-and-definition-of-done.md) when reporting defects and reviewing story completion.
-
 ## Scripts
 
 - `npm run dev` — start the Next.js development server
@@ -155,3 +153,7 @@ Use the [Jira bug template and proposed Definition of Done](docs/bug-template-an
 - `npm run typecheck` — type-check the project with TypeScript
 - `npm test` — run the test suite with Vitest
 - `npm run db:migrate` — create and apply Prisma migrations
+
+## Team process
+
+Report defects with the shared [Jira bug template](docs/bug-template-and-definition-of-done.md#jira-bug-template), and check a story against the team's [Definition of Done](docs/bug-template-and-definition-of-done.md#definition-of-done--agreed-by-the-team) before asking for review.
