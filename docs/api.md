@@ -927,4 +927,82 @@ curl -i http://localhost:3000/api/courses/grade-setups \
 
 ---
 
+### `POST /api/courses/[courseId]/syllabus`
+
+Extracts the text of a syllabus PDF and saves it for one of the student's current courses. The PDF itself is never stored; only the extracted text and metadata are. Repeating the request replaces the saved syllabus with the new upload.
+
+- **Method**: `POST`
+- **Path**: `/api/courses/[courseId]/syllabus`
+
+**Request**
+
+`multipart/form-data` with one field:
+
+- `file` — the syllabus PDF. It must be at most 10 MB, at most 50 pages, and its content must start with `%PDF-`. The file name and MIME type are not trusted; the file contents decide everything.
+
+```bash
+curl -i -X POST http://localhost:3000/api/courses/course-id/syllabus \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -F "file=@/Users/student/Downloads/syllabus.pdf"
+```
+
+**Response**
+
+`200` — the syllabus text was extracted and saved:
+
+```json
+{
+  "syllabus": {
+    "courseId": "course-id",
+    "fileName": "syllabus.pdf",
+    "sizeBytes": 412876,
+    "pageCount": 12,
+    "characterCount": 28641,
+    "extractedAt": "2026-10-20T18:30:00.000Z"
+  }
+}
+```
+
+`400` — the body was not multipart/form-data, the file field was missing or empty, or the upload was not a PDF:
+
+```json
+{
+  "error": "That isn't a PDF. Download the syllabus from Canvas as a PDF and try again."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
+
+`413` — the upload is over 10 MB:
+
+```json
+{
+  "error": "That PDF is over 10 MB. Try a smaller copy of the syllabus."
+}
+```
+
+`422` — the PDF is unreadable, password-protected, has more than 50 pages, or looks like a scanned image. The scanned-image case reads:
+
+```json
+{
+  "error": "This PDF looks like a scanned image, so Priority can't read its text. Upload a PDF with selectable text, or enter your weights by hand."
+}
+```
+
+---
+
 When you add a route, copy the section above and fill in the new route: keep the section heading in the same `METHOD /path` backticked form, and give it a **Method** line, a **Path** line, a **Request** part, and a **Response** part with a JSON example for every status code it returns.
