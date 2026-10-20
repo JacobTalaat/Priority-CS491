@@ -144,6 +144,8 @@ Every API route is documented in [`docs/api.md`](docs/api.md) with its method, p
 
 Update `docs/api.md` in the same pull request whenever a route is added, removed, or changed. `src/app/api/api-doc.test.ts` compares the doc against the route files and fails when they disagree.
 
+Use the [Jira bug template and proposed Definition of Done](docs/bug-template-and-definition-of-done.md) when reporting defects and reviewing story completion.
+
 ## Scripts
 
 - `npm run dev` — start the Next.js development server
