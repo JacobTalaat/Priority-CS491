@@ -1005,4 +1005,75 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/syllabus \
 
 ---
 
+### `GET /api/courses/[courseId]`
+
+Returns one of the student's current courses with its saved class details and its assignments. The grades are the raw stored scores (no course percentages or category breakdown here). The assignments are ordered by due date with undated last. The `officeHours`, `latePolicy` and `contacts` are read from the saved class details and are null until captured.
+
+- **Method**: `GET`
+- **Path**: `/api/courses/[courseId]`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/courses/course-id \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the course, its class details, and its assignments:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026",
+    "termEndsAt": "2026-12-20T00:00:00.000Z"
+  },
+  "details": {
+    "instructor": "Professor Example",
+    "section": "002",
+    "credits": 3,
+    "officeHours": "Tue 2-4pm, GITC 4400",
+    "latePolicy": "10% off per day, max 3 days",
+    "contacts": "prof@njit.edu; TA ta@njit.edu",
+    "confirmedAt": "2026-10-11T18:30:00.000Z"
+  },
+  "assignments": [
+    {
+      "id": "assignment-id",
+      "title": "Homework 1",
+      "dueAt": "2026-09-10T03:59:00.000Z",
+      "hasDueDate": true,
+      "pointsPossible": 10,
+      "htmlUrl": "https://canvas.example.edu/courses/1/assignments/1",
+      "assignmentGroup": { "name": "Homework" },
+      "grade": { "score": 9.5, "gradedAt": "2026-09-12T15:00:00.000Z" }
+    }
+  ]
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
+
+---
+
 When you add a route, copy the section above and fill in the new route: keep the section heading in the same `METHOD /path` backticked form, and give it a **Method** line, a **Path** line, a **Request** part, and a **Response** part with a JSON example for every status code it returns.
