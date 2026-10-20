@@ -72,6 +72,13 @@ export function SignUpForm() {
           {submitting ? "Creating account…" : "Create account"}
         </Button>
       </form>
+      <p className={styles.privacyDisclosure}>
+        Priority stores your email and password hash, encrypted Canvas credentials and calendar-feed link, synced
+        classes, assignments and grades, your confirmed grade setup, and extracted syllabus text. If you request
+        AI syllabus suggestions, the syllabus text and instructions for analyzing it are sent to Priority&apos;s
+        configured AI provider, not your password, Canvas credentials, or grades. To delete your account and its
+        associated data, sign in and send a password-confirmed POST request to <code>/api/account/delete</code>.
+      </p>
       <p className={styles.switch}>
         Already have an account? <Link href="/login">Log in</Link>
       </p>

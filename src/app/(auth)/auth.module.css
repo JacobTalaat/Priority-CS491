@@ -55,6 +55,18 @@
   gap: 18px;
 }
 
+.privacyDisclosure {
+  margin-top: 20px;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.privacyDisclosure code {
+  color: var(--foreground);
+  font-size: 11px;
+}
+
 .switch {
   margin-top: 24px;
   color: var(--secondary);
