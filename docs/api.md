@@ -948,7 +948,7 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/syllabus \
 
 **Response**
 
-`200` — the syllabus text was extracted and saved:
+`200` — the syllabus text was extracted and saved. The route then asks the AI to pull grading rules (categories, weights, cutoffs, final exam weight, late policy, office hours, contacts) out of the saved text and returns them as `suggestions`. Suggestions are a proposal only: nothing about them is saved until the student confirms their weights. On success:
 
 ```json
 {
@@ -959,7 +959,39 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/syllabus \
     "pageCount": 12,
     "characterCount": 28641,
     "extractedAt": "2026-10-20T18:30:00.000Z"
+  },
+  "suggestions": {
+    "categories": [
+      { "name": "Homework", "weight": 20 },
+      { "name": "Midterm", "weight": 30 },
+      { "name": "Final Exam", "weight": 50 }
+    ],
+    "finalExamWeight": 0,
+    "cutoffs": { "A": 93, "B": 83, "C": 70, "D": 60 },
+    "latePolicy": "Late work loses 2 points per day, up to 5 days.",
+    "officeHours": "Tue & Thu 2:00-3:30 pm",
+    "contacts": [{ "name": "Dr. Elena Ruiz", "role": "Instructor", "email": "eruiz@njit.edu" }],
+    "unsupportedRules": ["The lowest quiz score is dropped before averaging."]
   }
+}
+```
+
+A `null` weight or field means the syllabus did not state it — never zero. The final exam is one of the categories, so `finalExamWeight` is `0` whenever the category weights account for the whole grade. `unsupportedRules` lists grading rules a simple weighted or points-based calculation cannot express (drop-lowest, replacement exams, curves, bonus caps, attendance penalties).
+
+`200` (degraded) — the text was still extracted and saved, but the AI read failed. The status stays `200` because the student can enter their weights by hand, so this is not an error:
+
+```json
+{
+  "syllabus": {
+    "courseId": "course-id",
+    "fileName": "syllabus.pdf",
+    "sizeBytes": 412876,
+    "pageCount": 12,
+    "characterCount": 28641,
+    "extractedAt": "2026-10-20T18:30:00.000Z"
+  },
+  "suggestions": null,
+  "suggestionsError": "Priority's AI budget for this month is used up, so it couldn't read your syllabus. You can enter your weights by hand below."
 }
 ```
 

@@ -5,11 +5,13 @@ const {
   mockCourseFindFirst,
   mockSyllabusUpsert,
   mockReadSyllabusPdf,
+  mockReadSuggestions,
 } = vi.hoisted(() => ({
   mockSessionFindUnique: vi.fn(),
   mockCourseFindFirst: vi.fn(),
   mockSyllabusUpsert: vi.fn(),
   mockReadSyllabusPdf: vi.fn(),
+  mockReadSuggestions: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -18,6 +20,10 @@ vi.mock("@/lib/prisma", () => ({
     course: { findFirst: mockCourseFindFirst },
     courseSyllabus: { upsert: mockSyllabusUpsert },
   },
+}));
+
+vi.mock("@/lib/syllabus-reader", () => ({
+  readSyllabusSuggestions: mockReadSuggestions,
 }));
 
 vi.mock("@/lib/syllabus-text", () => ({
@@ -107,12 +113,23 @@ const context = { params: Promise.resolve({ courseId: "course-1" }) };
 const okResult = { ok: true as const, text: "Syllabus text", pageCount: 12 };
 const failResult = (reason: string) => ({ ok: false as const, reason });
 
+const SAMPLE_SUGGESTIONS = {
+  categories: [{ name: "Homework", weight: 20 }],
+  finalExamWeight: 80,
+  cutoffs: { A: 93 },
+  latePolicy: "Late work loses 2 points per day.",
+  officeHours: "Tue 2-3 pm",
+  contacts: [{ name: "Dr. Ruiz", role: "Instructor", email: "eruiz@njit.edu" }],
+  unsupportedRules: [],
+};
+
 describe("POST /api/courses/[courseId]/syllabus", () => {
   beforeEach(() => {
     mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
     mockCourseFindFirst.mockReset().mockResolvedValue({ id: "course-1" });
     mockSyllabusUpsert.mockReset().mockResolvedValue({});
     mockReadSyllabusPdf.mockReset().mockResolvedValue(okResult);
+    mockReadSuggestions.mockReset().mockResolvedValue({ ok: true, suggestions: SAMPLE_SUGGESTIONS });
   });
 
   it("stores extracted text for the authenticated student's current course and returns metadata only", async () => {
@@ -151,7 +168,50 @@ describe("POST /api/courses/[courseId]/syllabus", () => {
         characterCount: 13,
         extractedAt: expect.any(String),
       },
+      suggestions: SAMPLE_SUGGESTIONS,
     });
+    expect(mockReadSuggestions).toHaveBeenCalledWith("Syllabus text", "user-1");
+  });
+
+  it("still returns 200 with suggestions: null and suggestionsError when the AI read fails", async () => {
+    mockReadSuggestions.mockResolvedValue({
+      ok: false,
+      error: "Priority's AI budget for this month is used up, so it couldn't read your syllabus. You can enter your weights by hand below.",
+    });
+    const response = await POST(multipartRequest(), context);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      syllabus: {
+        courseId: "course-1",
+        fileName: "syllabus.pdf",
+        sizeBytes: STORAGE_FILE_SIZE,
+        pageCount: 12,
+        characterCount: 13,
+        extractedAt: expect.any(String),
+      },
+      suggestions: null,
+      suggestionsError:
+        "Priority's AI budget for this month is used up, so it couldn't read your syllabus. You can enter your weights by hand below.",
+    });
+    // The text is already saved; the failed read must not roll it back.
+    expect(mockSyllabusUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a degraded 200 when the reader reports an unusable reply", async () => {
+    mockReadSuggestions.mockResolvedValue({
+      ok: false,
+      error: "Priority couldn't read your syllabus automatically. You can enter your weights by hand below.",
+    });
+    const response = await POST(multipartRequest(), context);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      syllabus: expect.objectContaining({ courseId: "course-1" }),
+      suggestions: null,
+      suggestionsError: "Priority couldn't read your syllabus automatically. You can enter your weights by hand below.",
+    });
+    expect(mockSyllabusUpsert).toHaveBeenCalledTimes(1);
   });
 
   it("replaces a saved syllabus through the upsert update branch", async () => {
