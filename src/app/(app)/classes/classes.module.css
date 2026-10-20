@@ -19,3 +19,86 @@
   max-width: 480px;
   color: var(--secondary);
 }
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+  list-style: none;
+}
+
+.cardItem {
+  min-width: 0;
+}
+
+.card {
+  display: grid;
+  height: 100%;
+  gap: 24px;
+  padding: 20px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.cardHeader {
+  display: grid;
+  gap: 14px;
+}
+
+.cardTitleGroup {
+  display: grid;
+  gap: 3px;
+}
+
+.cardTitle {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.cardMeta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.confirmed,
+.unconfirmed {
+  justify-self: start;
+  padding: 3px 8px;
+  border: 1px solid var(--divider);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.confirmed {
+  color: var(--accent);
+}
+
+.unconfirmed {
+  color: var(--secondary);
+}
+
+.cardDetails {
+  display: grid;
+  gap: 18px;
+}
+
+.cardDetails dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cardDetails dd {
+  display: grid;
+  gap: 2px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.dueDate {
+  color: var(--secondary);
+  font-size: 13px;
+  font-weight: 400;
+}

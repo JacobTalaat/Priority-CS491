@@ -1,23 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, ButtonLink, List, ListRow, Notice, PageHeader } from "@/components/ui";
-import {
-  canvasErrorMessage,
-  getImportedCourses,
-  syncNow,
-} from "@/lib/canvas-client";
-import type { ImportedCoursesResponse } from "@/lib/canvas-client";
+import { Button, ButtonLink, Notice, PageHeader } from "@/components/ui";
+import { canvasErrorMessage, syncNow } from "@/lib/canvas-client";
 import type { ApiResult } from "@/lib/api-client";
+import { getClassCards } from "@/lib/class-cards-client";
+import type { ClassCardsResponse } from "@/lib/class-cards-client";
+import { ClassCard } from "./class-card";
 import styles from "./classes.module.css";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; data: ImportedCoursesResponse };
+  | { status: "ready"; data: ClassCardsResponse };
 
 function applyCourseResult(
-  result: ApiResult<ImportedCoursesResponse>,
+  result: ApiResult<ClassCardsResponse>,
   setState: (state: LoadState) => void,
 ) {
   if (result.ok) {
@@ -33,13 +31,13 @@ export function ClassesList() {
   const [syncError, setSyncError] = useState<string | null>(null);
 
   const loadCourses = useCallback(async () => {
-    const result = await getImportedCourses();
+    const result = await getClassCards();
     applyCourseResult(result, setState);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    getImportedCourses().then((result) => {
+    getClassCards().then((result) => {
       if (!cancelled) {
         applyCourseResult(result, setState);
       }
@@ -114,18 +112,9 @@ export function ClassesList() {
       ) : null}
 
       {connected && courses.length > 0 ? (
-        <List label="Current classes">
-          {courses.map((course) => {
-            const meta = [course.courseCode, course.term].filter(Boolean).join(" · ");
-            return (
-              <ListRow
-                key={course.id}
-                title={course.name}
-                meta={meta || "Imported from Canvas"}
-              />
-            );
-          })}
-        </List>
+        <ul className={styles.cardGrid} aria-label="Current classes">
+          {courses.map((course) => <ClassCard key={course.id} course={course} />)}
+        </ul>
       ) : null}
     </>
   );

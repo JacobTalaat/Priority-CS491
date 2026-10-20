@@ -552,6 +552,57 @@ When Canvas is not connected, the response is `{"connected":false,"courses":[]}`
 
 ---
 
+### `GET /api/courses/class-cards`
+
+Returns one overview card payload per current course for the authenticated student. The grade includes its status and the grade for each configured category. The next due item is the earliest upcoming assignment with a due date.
+
+- **Method**: `GET`
+- **Path**: `/api/courses/class-cards`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+**Response**
+
+`200` — Canvas connection state and current course summaries:
+
+```json
+{
+  "connected": true,
+  "courses": [
+    {
+      "id": "course-id",
+      "name": "Introduction to Computer Science",
+      "courseCode": "CS-100",
+      "term": "Fall 2026",
+      "confirmed": true,
+      "grade": { "status": "calculated", "percentage": 84 },
+      "categoryBreakdown": [
+        { "name": "Homework", "weight": 60, "percentage": 80 },
+        { "name": "Exams", "weight": 40, "percentage": 90 }
+      ],
+      "nextDue": {
+        "title": "Homework 2",
+        "dueAt": "2026-11-01T12:00:00.000Z"
+      }
+    }
+  ]
+}
+```
+
+The grade status can be `calculated`, `insufficient-data`, or `unsupported`. A missing or invalid confirmed setup is reported as `unsupported`. Category percentages and `nextDue` are `null` when not available; `confirmed` indicates whether a setup has been saved. When Canvas is disconnected, no cards are returned.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
 ### `GET /api/canvas/calendar-feed`
 
 Reports whether a private Canvas calendar feed link is saved for the authenticated student. The feed URL is never returned because it grants access to calendar data.
