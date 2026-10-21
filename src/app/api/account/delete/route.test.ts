@@ -1,18 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { hashPassword } from "@/lib/password";
 import { MAX_CONFIRM_ATTEMPTS, resetConfirmLimitForTests } from "@/lib/confirm-password-limit";
 import { POST } from "./route";
 
-const { mockSessionFindUnique, mockUserFindUnique, mockUserDelete } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
-  mockUserFindUnique: vi.fn(),
-  mockUserDelete: vi.fn(),
+const { mockVerifyAccessToken, mockUserFindUnique, mockUserCreate, mockUserDelete, mockVerifyPassword, mockDeleteAuthUser } =
+  vi.hoisted(() => ({
+    mockVerifyAccessToken: vi.fn(),
+    mockUserFindUnique: vi.fn(),
+    mockUserCreate: vi.fn(),
+    mockUserDelete: vi.fn(),
+    mockVerifyPassword: vi.fn(),
+    mockDeleteAuthUser: vi.fn(),
+  }));
+
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+  verifyPassword: mockVerifyPassword,
+  deleteAuthUser: mockDeleteAuthUser,
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
-    user: { findUnique: mockUserFindUnique, delete: mockUserDelete },
+    user: { findUnique: mockUserFindUnique, create: mockUserCreate, delete: mockUserDelete },
   },
 }));
 
@@ -30,15 +38,30 @@ function deleteRequest(body: string, token?: string) {
 
 describe("POST /api/account/delete", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset();
     mockUserFindUnique.mockReset();
+    mockUserCreate.mockReset();
     mockUserDelete.mockReset();
+    mockVerifyPassword.mockReset();
+    mockDeleteAuthUser.mockReset();
     resetConfirmLimitForTests();
-    mockSessionFindUnique.mockResolvedValue({
-      expiresAt: new Date(Date.now() + 60 * 1000),
-      user: { id: "authenticated-user", email: "student@example.com" },
+    mockVerifyAccessToken.mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
     });
-    mockUserFindUnique.mockResolvedValue({ passwordHash: hashPassword("correct-password") });
+    // getUserFromRequest looks the row up by its Supabase id; the route then
+    // looks it up again by its Prisma id for the authUserId to delete.
+    mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) => {
+      if ("authUserId" in args.where) {
+        return { id: "authenticated-user", email: "student@example.com" };
+      }
+      return { authUserId: "auth-user-1" };
+    });
+    // The mock answers like Supabase would: only the real password passes.
+    mockVerifyPassword.mockImplementation(
+      async (_email: string, password: string) => password === "correct-password"
+    );
+    mockDeleteAuthUser.mockResolvedValue(undefined);
     mockUserDelete.mockResolvedValue({});
   });
 
@@ -47,6 +70,7 @@ describe("POST /api/account/delete", () => {
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ error: "Unauthorized" });
     expect(mockUserDelete).not.toHaveBeenCalled();
+    expect(mockDeleteAuthUser).not.toHaveBeenCalled();
   });
 
   it("returns 400 when the body is not JSON", async () => {
@@ -62,21 +86,14 @@ describe("POST /api/account/delete", () => {
     await expect(res.json()).resolves.toEqual({ error: "Password is required." });
     expect(mockUserDelete).not.toHaveBeenCalled();
   });
-
-  it("returns 400 when the password is missing", async () => {
-    const response = await POST(deleteRequest(JSON.stringify({}), "session-token"));
-    expect(response.status).toBe(400);
-    expect(mockUserDelete).not.toHaveBeenCalled();
-  });
-
-  it("returns 400 when the password is an empty string", async () => {
-    const response = await POST(deleteRequest(JSON.stringify({ password: "" }), "session-token"));
-    expect(response.status).toBe(400);
-    expect(mockUserDelete).not.toHaveBeenCalled();
-  });
-
-  it("returns 401 when the authenticated user row is gone", async () => {
-    mockUserFindUnique.mockResolvedValue(null);
+  it("returns 401 when the row disappears between the auth lookup and the delete", async () => {
+    mockUserCreate.mockReset();
+    mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) => {
+      if ("authUserId" in args.where) {
+        return { id: "authenticated-user", email: "student@example.com" };
+      }
+      return null;
+    });
     const res = await POST(
       deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token")
     );
@@ -84,14 +101,16 @@ describe("POST /api/account/delete", () => {
     expect(mockUserDelete).not.toHaveBeenCalled();
   });
 
-  it("returns 403 when the password is incorrect", async () => {
+  it("returns 403 when Supabase rejects the password", async () => {
+    mockVerifyPassword.mockResolvedValue(false);
     const res = await POST(deleteRequest(JSON.stringify({ password: "wrong-password" }), "valid-token"));
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({ error: "Password is incorrect." });
     expect(mockUserDelete).not.toHaveBeenCalled();
+    expect(mockDeleteAuthUser).not.toHaveBeenCalled();
   });
 
-  it("deletes only the authenticated user after password confirmation", async () => {
+  it("deletes the Supabase auth user and then the Prisma row", async () => {
     const res = await POST(
       deleteRequest(
         JSON.stringify({ id: "body-user", password: "correct-password" }),
@@ -100,13 +119,33 @@ describe("POST /api/account/delete", () => {
     );
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ deleted: true });
-    expect(mockUserFindUnique).toHaveBeenCalledWith({
-      where: { id: "authenticated-user" },
-      select: { passwordHash: true },
-    });
+    expect(mockVerifyPassword).toHaveBeenCalledWith("student@example.com", "correct-password");
+    expect(mockDeleteAuthUser).toHaveBeenCalledExactlyOnceWith("auth-user-1");
     expect(mockUserDelete).toHaveBeenCalledExactlyOnceWith({
       where: { id: "authenticated-user" },
     });
+  });
+
+  it("deletes the Prisma row only after the Supabase auth user is gone", async () => {
+    const order: string[] = [];
+    mockDeleteAuthUser.mockImplementation(async () => {
+      order.push("supabase");
+    });
+    mockUserDelete.mockImplementation(async () => {
+      order.push("prisma");
+    });
+    await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
+    expect(order).toEqual(["supabase", "prisma"]);
+  });
+
+  it("returns 500 and keeps the row when Supabase refuses to delete the auth user", async () => {
+    mockDeleteAuthUser.mockRejectedValue(new Error("Supabase refused"));
+    const res = await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Could not delete your account right now. Try again.",
+    });
+    expect(mockUserDelete).not.toHaveBeenCalled();
   });
 
   it("returns 429 after too many wrong passwords and refuses to delete", async () => {
@@ -127,5 +166,6 @@ describe("POST /api/account/delete", () => {
     const limited = await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "session-token"));
     expect(limited.status).toBe(429);
     expect(mockUserDelete).not.toHaveBeenCalled();
+    expect(mockDeleteAuthUser).not.toHaveBeenCalled();
   });
 });

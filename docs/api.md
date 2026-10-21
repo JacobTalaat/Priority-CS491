@@ -6,6 +6,8 @@ The base URL for local development is `http://localhost:3000`. Every request and
 
 Dynamic path segments keep the name of their Next.js folder, for example `/api/tasks/[id]`.
 
+Sign up, log in, and log out are handled by Supabase Auth in the browser, which issues the access token every protected route expects. There are no sign up, log in, or refresh routes here.
+
 When a route is added, removed, or changed, update this file in the same pull request. `src/app/api/api-doc.test.ts` reads the route files under `src/app/api` and fails when they disagree with this file, so the doc cannot drift silently.
 
 ## Routes
@@ -45,171 +47,16 @@ curl http://localhost:3000/api/health
 
 ---
 
-### `POST /api/auth/signup`
-
-Creates a student account, then creates a session token for that account.
-
-- **Method**: `POST`
-- **Path**: `/api/auth/signup`
-
-**Request**
-
-JSON body with:
-
-- `email` (string)
-- `password` (string, minimum 8 characters)
-
-```bash
-curl -i -X POST http://localhost:3000/api/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{"email":"student@example.com","password":"correct-horse"}'
-```
-
-**Response**
-
-`201` — account and session created:
-
-```json
-{
-  "token": "opaque-bearer-token",
-  "expiresAt": "2026-11-06T18:00:00.000Z",
-  "user": {
-    "id": 1,
-    "email": "student@example.com"
-  }
-}
-```
-
-`400` — malformed body, invalid email, or password shorter than 8 characters:
-
-```json
-{
-  "error": "Invalid body"
-}
-```
-
-`409` — email already registered:
-
-```json
-{
-  "error": "Email already registered"
-}
-```
-
----
-
-### `POST /api/auth/login`
-
-Authenticates an existing account and returns a new session token.
-
-- **Method**: `POST`
-- **Path**: `/api/auth/login`
-
-**Request**
-
-JSON body with:
-
-- `email` (string)
-- `password` (string, minimum 8 characters)
-
-```bash
-curl -i -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"student@example.com","password":"correct-horse"}'
-```
-
-**Response**
-
-`200` — credentials valid:
-
-```json
-{
-  "token": "opaque-bearer-token",
-  "expiresAt": "2026-11-06T18:00:00.000Z",
-  "user": {
-    "id": 1,
-    "email": "student@example.com"
-  }
-}
-```
-
-`400` — malformed body, invalid email, or password shorter than 8 characters:
-
-```json
-{
-  "error": "Invalid body"
-}
-```
-
-`401` — email/password pair is not valid:
-
-```json
-{
-  "error": "Invalid email or password"
-}
-```
-
-`429` — too many failed login attempts within the rate limit window. The response includes a `Retry-After` header with the whole seconds remaining:
-
-```json
-{
-  "error": "Too many login attempts"
-}
-```
-
----
-
-### `POST /api/auth/refresh`
-
-Rotates the current session: deletes the row for the presented token and creates a fresh session with a new token and expiry.
-
-- **Method**: `POST`
-- **Path**: `/api/auth/refresh`
-
-**Request**
-
-No body. Send an `Authorization` header with the bearer token from sign up, log in, or a previous refresh. The presented token is invalidated by the response.
-
-```bash
-curl -i -X POST http://localhost:3000/api/auth/refresh \
-  -H "Authorization: ******"
-```
-
-**Response**
-
-`200` — session rotated:
-
-```json
-{
-  "token": "new-opaque-bearer-token",
-  "expiresAt": "2026-11-06T18:00:00.000Z",
-  "user": {
-    "id": 1,
-    "email": "student@example.com"
-  }
-}
-```
-
-`401` — token missing, malformed, invalid, or expired:
-
-```json
-{
-  "error": "Unauthorized"
-}
-```
-
----
-
 ### `GET /api/auth/me`
 
-Returns the currently authenticated user from the bearer token in `Authorization`.
+Returns the currently authenticated user from the Supabase Auth bearer token in `Authorization`. The first request from a new Supabase account also creates the app's own user row for it.
 
 - **Method**: `GET`
 - **Path**: `/api/auth/me`
 
 **Request**
 
-No body. Send an `Authorization` header with the bearer token from sign up or log in.
+No body. Send an `Authorization` header with the access token Supabase Auth issued at sign up or log in.
 
 ```bash
 curl -i http://localhost:3000/api/auth/me \
@@ -218,7 +65,7 @@ curl -i http://localhost:3000/api/auth/me \
 
 **Response**
 
-`200` — token valid and session active:
+`200` — token verified:
 
 ```json
 {
@@ -239,7 +86,7 @@ curl -i http://localhost:3000/api/auth/me \
 
 ### `POST /api/account/delete`
 
-Deletes the currently authenticated account after confirming its password.
+Deletes the currently authenticated account after confirming its password. The password is checked against Supabase Auth, and the Supabase auth user is deleted along with the app's own user row so the email can sign up again.
 
 - **Method**: `POST`
 - **Path**: `/api/account/delete`
@@ -293,6 +140,14 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 ```json
 {
   "error": "Too many password attempts."
+}
+```
+
+`500` — the Supabase Auth account could not be deleted; nothing was removed:
+
+```json
+{
+  "error": "Could not delete your account right now. Try again."
 }
 ```
 
