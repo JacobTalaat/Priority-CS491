@@ -24,6 +24,8 @@ export type FormState = {
   officeHours: string;
   latePolicy: string;
   contacts: string;
+  // The assignment that is the final exam, for the final exam tool; "" when there isn't one.
+  finalExamAssignmentId: string;
 };
 
 // Class details the syllabus reader can fill in, shown with a "from your syllabus" hint.
@@ -44,6 +46,7 @@ function blankForm(): FormState {
     officeHours: "",
     latePolicy: "",
     contacts: "",
+    finalExamAssignmentId: "",
   };
 }
 
@@ -73,6 +76,7 @@ function formForCourse(course: GradeSetupCourse): FormState {
       officeHours: detailText(saved.classDetails, "officeHours"),
       latePolicy: detailText(saved.classDetails, "latePolicy"),
       contacts: detailText(saved.classDetails, "contacts"),
+      finalExamAssignmentId: detailText(saved.classDetails, "finalExamAssignmentId"),
     };
   }
 
@@ -109,6 +113,7 @@ function formForCourse(course: GradeSetupCourse): FormState {
     officeHours: "",
     latePolicy: "",
     contacts: "",
+    finalExamAssignmentId: "",
   };
 }
 
@@ -197,6 +202,7 @@ export function applySyllabusSuggestions(
         ? suggestions.latePolicy
         : current.latePolicy,
     contacts: current.contacts.trim() === "" ? formatContacts(suggestions.contacts) || current.contacts : current.contacts,
+    finalExamAssignmentId: current.finalExamAssignmentId,
   };
 }
 
@@ -443,6 +449,12 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
         officeHours: detailValue(form.officeHours),
         latePolicy: detailValue(form.latePolicy),
         contacts: detailValue(form.contacts),
+        // Only a current assignment counts; one removed from Canvas since is saved as none.
+        finalExamAssignmentId: selectedCourse.assignments.some(
+          (assignment) => assignment.id === form.finalExamAssignmentId,
+        )
+          ? form.finalExamAssignmentId
+          : null,
       },
     };
   }
@@ -610,6 +622,30 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
                 onChange={(event) => setForm((current) => ({ ...current, finalExamWeight: event.target.value }))}
                 required
               />
+              <div className={styles.coursePicker}>
+                <label className={styles.label} htmlFor="final-exam-assignment">Final exam</label>
+                <select
+                  className={styles.select}
+                  id="final-exam-assignment"
+                  value={
+                    selectedCourse.assignments.some((assignment) => assignment.id === form.finalExamAssignmentId)
+                      ? form.finalExamAssignmentId
+                      : ""
+                  }
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, finalExamAssignmentId: event.target.value }))
+                  }
+                  aria-describedby="final-exam-assignment-hint"
+                >
+                  <option value="">No final exam in this class</option>
+                  {selectedCourse.assignments.map((assignment) => (
+                    <option key={assignment.id} value={assignment.id}>{assignment.title}</option>
+                  ))}
+                </select>
+                <p className={styles.description} id="final-exam-assignment-hint">
+                  Pick the assignment that is your final, so Priority can show the score you need on it.
+                </p>
+              </div>
               <p className={isCompleteTotal(totalWeight) ? styles.totalValid : styles.totalInvalid} role="status">
                 {weightTotalMessage(totalWeight)}
               </p>

@@ -59,6 +59,7 @@ function currentForm(): FormState {
     officeHours: "",
     latePolicy: "",
     contacts: "",
+    finalExamAssignmentId: "",
   };
 }
 
@@ -210,6 +211,44 @@ describe("applySyllabusSuggestions", () => {
     expect(next.officeHours).toBe("");
     expect(next.latePolicy).toBe("");
     expect(next.contacts).toBe("");
+  });
+});
+
+describe("final exam picker", () => {
+  it("keeps the picked final exam when a syllabus is read", () => {
+    const next = applySyllabusSuggestions({ ...currentForm(), finalExamAssignmentId: "a2" }, fullSuggestions);
+    expect(next.finalExamAssignmentId).toBe("a2");
+  });
+
+  it("offers every assignment, plus none, and starts on none for a new setup", () => {
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[course]} />);
+    expect(html).toMatch(/<label[^>]*for="final-exam-assignment"[^>]*>Final exam<\/label>/);
+    expect(html).toContain('<option value="" selected="">No final exam in this class</option>');
+    expect(html).toContain('<option value="a1">Homework 1</option>');
+    expect(html).toContain('<option value="a2">Project 1</option>');
+  });
+
+  it("shows the saved final exam, and none when that assignment no longer exists", () => {
+    const withFinal = (finalExamAssignmentId: string): GradeSetupCourse => ({
+      ...course,
+      gradeSetup: {
+        categories: [{ name: "Homework", weight: 100 }],
+        assignmentMappings: [
+          { assignmentId: "a1", category: "Homework" },
+          { assignmentId: "a2", category: "Homework" },
+        ],
+        finalExamWeight: 0,
+        cutoffs: { A: 90 },
+        classDetails: { finalExamAssignmentId },
+        confirmedAt: "2026-10-20T12:00:00.000Z",
+      },
+    });
+    expect(renderToStaticMarkup(<WeightsSetup initialCourses={[withFinal("a2")]} />)).toContain(
+      '<option value="a2" selected="">Project 1</option>',
+    );
+    expect(renderToStaticMarkup(<WeightsSetup initialCourses={[withFinal("gone")]} />)).toContain(
+      '<option value="" selected="">No final exam in this class</option>',
+    );
   });
 });
 
