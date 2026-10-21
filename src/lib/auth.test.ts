@@ -1,29 +1,24 @@
-import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createSession,
-  deleteSession,
-  getSessionFromRequest,
-  getUserFromRequest,
-  rotateSession,
-} from "./auth";
+import { getUserFromRequest, unauthorized } from "./auth";
 
-const { mockSessionCreate, mockSessionFindUnique, mockSessionDelete, mockTransaction } =
-  vi.hoisted(() => ({
-    mockSessionCreate: vi.fn(),
-    mockSessionFindUnique: vi.fn(),
-    mockSessionDelete: vi.fn(),
-    mockTransaction: vi.fn(),
-  }));
+const { mockVerifyAccessToken, mockUserFindUnique, mockUserCreate, mockUserUpdate } = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
+  mockUserCreate: vi.fn(),
+  mockUserUpdate: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: {
-      create: mockSessionCreate,
-      findUnique: mockSessionFindUnique,
-      delete: mockSessionDelete,
+    user: {
+      findUnique: mockUserFindUnique,
+      create: mockUserCreate,
+      update: mockUserUpdate,
     },
-    $transaction: mockTransaction,
   },
 }));
 
@@ -35,107 +30,22 @@ function requestWithToken(token?: string) {
   return new Request("http://localhost/api/auth/me", { headers });
 }
 
-describe("createSession", () => {
-  beforeEach(() => {
-    mockSessionCreate.mockReset();
-  });
-
-  it("returns a token and stores only its sha256 hash", async () => {
-    mockSessionCreate.mockResolvedValue({});
-    const { token, expiresAt } = await createSession("user-1");
-    expect(token).toBeTruthy();
-    expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
-    expect(mockSessionCreate).toHaveBeenCalledTimes(1);
-    const data = mockSessionCreate.mock.calls[0][0].data;
-    expect(data.tokenHash).toBe(createHash("sha256").update(token).digest("hex"));
-    expect(data.tokenHash).not.toBe(token);
-    expect(data.userId).toBe("user-1");
-    expect(data.expiresAt.getTime()).toBeGreaterThan(Date.now());
-  });
-});
-
-describe("rotateSession", () => {
-  beforeEach(() => {
-    mockSessionDelete.mockReset();
-    mockSessionCreate.mockReset();
-    mockTransaction.mockReset();
-  });
-
-  it("deletes the old session and creates a new one with a different token hash", async () => {
-    mockSessionCreate.mockResolvedValue({});
-    const old = await createSession("user-1");
-    const oldHash = mockSessionCreate.mock.calls[0][0].data.tokenHash;
-    mockSessionDelete.mockReset();
-    mockSessionCreate.mockReset();
-    mockSessionDelete.mockResolvedValue({});
-    mockSessionCreate.mockResolvedValue({});
-    mockTransaction.mockImplementation(async (operations: Promise<unknown>[]) => {
-      return Promise.all(operations);
-    });
-    await rotateSession("session-1", "user-1");
-    expect(mockTransaction).toHaveBeenCalledTimes(1);
-    expect(mockSessionDelete).toHaveBeenCalledWith({ where: { id: "session-1" } });
-    expect(mockSessionCreate).toHaveBeenCalledTimes(1);
-    const data = mockSessionCreate.mock.calls[0][0].data;
-    expect(data.tokenHash).not.toBe(oldHash);
-    expect(data.tokenHash).not.toBe(old.token);
-    expect(data.userId).toBe("user-1");
-    expect(data.expiresAt.getTime()).toBeGreaterThan(Date.now());
-  });
-
-  it("stores only a sha256 hash and never the raw token", async () => {
-    mockSessionDelete.mockResolvedValue({});
-    mockSessionCreate.mockResolvedValue({});
-    mockTransaction.mockImplementation(async (operations: Promise<unknown>[]) => {
-      return Promise.all(operations);
-    });
-    const { token } = await rotateSession("session-1", "user-1");
-    expect(token).toBeTruthy();
-    const data = mockSessionCreate.mock.calls[0][0].data;
-    expect(data.tokenHash).toBe(createHash("sha256").update(token).digest("hex"));
-    expect(data.tokenHash).not.toBe(token);
-  });
-});
-
-describe("deleteSession", () => {
-  beforeEach(() => {
-    mockSessionDelete.mockReset();
-  });
-
-  it("deletes the session by id", async () => {
-    mockSessionDelete.mockResolvedValue({});
-    await deleteSession("session-1");
-    expect(mockSessionDelete).toHaveBeenCalledTimes(1);
-    expect(mockSessionDelete).toHaveBeenCalledWith({ where: { id: "session-1" } });
-  });
-});
-
-describe("getSessionFromRequest", () => {
-  beforeEach(() => {
-    mockSessionFindUnique.mockReset();
-  });
-
-  it("returns the session id and expiresAt for a valid token", async () => {
-    const expiresAt = new Date(Date.now() + 60 * 1000);
-    mockSessionFindUnique.mockResolvedValue({
-      id: "session-1",
-      expiresAt,
-      user: { id: "user-1", email: "student@example.com" },
-    });
-    const session = await getSessionFromRequest(requestWithToken("valid-token"));
-    expect(session).toEqual({ id: "session-1", expiresAt, user: { id: "user-1", email: "student@example.com" } });
-  });
-});
+const IDENTITY_A = { authUserId: "auth-user-a", email: "student@example.com" };
+const IDENTITY_B = { authUserId: "auth-user-b", email: "other@example.com" };
 
 describe("getUserFromRequest", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset();
+    mockUserFindUnique.mockReset();
+    mockUserCreate.mockReset();
+    mockUserUpdate.mockReset();
   });
 
   it("returns null when there is no authorization header", async () => {
     const user = await getUserFromRequest(requestWithToken());
     expect(user).toBeNull();
-    expect(mockSessionFindUnique).not.toHaveBeenCalled();
+    expect(mockVerifyAccessToken).not.toHaveBeenCalled();
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 
   it("returns null when the header is not a Bearer header", async () => {
@@ -143,35 +53,87 @@ describe("getUserFromRequest", () => {
       headers: { Authorization: "Basic dXNlcjpwYXNz" },
     });
     await expect(getUserFromRequest(request)).resolves.toBeNull();
-    expect(mockSessionFindUnique).not.toHaveBeenCalled();
+    expect(mockVerifyAccessToken).not.toHaveBeenCalled();
   });
 
-  it("returns null when the token is unknown", async () => {
-    mockSessionFindUnique.mockResolvedValue(null);
-    await expect(getUserFromRequest(requestWithToken("unknown-token"))).resolves.toBeNull();
-    expect(mockSessionFindUnique).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          tokenHash: createHash("sha256").update("unknown-token").digest("hex"),
-        }),
-      })
-    );
+  it("returns null when the token is missing, malformed, expired, or wrongly signed", async () => {
+    // verifyAccessToken answers null for every token Supabase would reject.
+    mockVerifyAccessToken.mockResolvedValue(null);
+    await expect(getUserFromRequest(requestWithToken("garbage-token"))).resolves.toBeNull();
+    expect(mockVerifyAccessToken).toHaveBeenCalledWith("garbage-token");
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 
-  it("returns null when the session has expired", async () => {
-    mockSessionFindUnique.mockResolvedValue({
-      expiresAt: new Date(Date.now() - 1000),
-      user: { id: "user-1", email: "student@example.com" },
+  it("keys the lookup on the token's own subject, so one token can never return another user's row", async () => {
+    mockVerifyAccessToken.mockResolvedValueOnce(IDENTITY_A);
+    mockUserFindUnique.mockResolvedValueOnce({ id: "user-row-a", email: IDENTITY_A.email });
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
+      id: "user-row-a",
+      email: IDENTITY_A.email,
     });
-    await expect(getUserFromRequest(requestWithToken("expired-token"))).resolves.toBeNull();
+    expect(mockUserFindUnique).toHaveBeenCalledWith({ where: { authUserId: "auth-user-a" } });
+
+    mockVerifyAccessToken.mockResolvedValueOnce(IDENTITY_B);
+    mockUserFindUnique.mockResolvedValueOnce({ id: "user-row-b", email: IDENTITY_B.email });
+    await expect(getUserFromRequest(requestWithToken("token-b"))).resolves.toEqual({
+      id: "user-row-b",
+      email: IDENTITY_B.email,
+    });
+    expect(mockUserFindUnique).toHaveBeenCalledWith({ where: { authUserId: "auth-user-b" } });
   });
 
-  it("returns the user when the session is valid", async () => {
-    const user = { id: "user-1", email: "student@example.com" };
-    mockSessionFindUnique.mockResolvedValue({
-      expiresAt: new Date(Date.now() + 60 * 1000),
-      user,
+  it("creates a Prisma row the first time it sees a Supabase account", async () => {
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
+    mockUserFindUnique.mockResolvedValue(null);
+    mockUserCreate.mockResolvedValue({ id: "user-row-a", email: IDENTITY_A.email });
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
+      id: "user-row-a",
+      email: IDENTITY_A.email,
     });
-    await expect(getUserFromRequest(requestWithToken("valid-token"))).resolves.toEqual(user);
+    expect(mockUserCreate).toHaveBeenCalledWith({
+      data: { authUserId: "auth-user-a", email: "student@example.com" },
+    });
+  });
+
+  it("reuses the same Prisma row on the second request instead of creating another", async () => {
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
+    mockUserFindUnique.mockResolvedValue({ id: "user-row-a", email: IDENTITY_A.email });
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
+      id: "user-row-a",
+      email: IDENTITY_A.email,
+    });
+    expect(mockUserCreate).not.toHaveBeenCalled();
+  });
+
+  it("adopts an existing row that shares the email when creation races to a unique violation", async () => {
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_B);
+    mockUserFindUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    mockUserCreate.mockRejectedValue({ code: "P2002" });
+    mockUserUpdate.mockResolvedValue({ id: "user-row-b", email: IDENTITY_B.email });
+    await expect(getUserFromRequest(requestWithToken("token-b"))).resolves.toEqual({
+      id: "user-row-b",
+      email: IDENTITY_B.email,
+    });
+    expect(mockUserUpdate).toHaveBeenCalledWith({
+      where: { email: "other@example.com" },
+      data: { authUserId: "auth-user-b" },
+    });
+    expect(mockUserCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets unrelated Prisma errors surface instead of swallowing them", async () => {
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
+    mockUserFindUnique.mockRejectedValue(new Error("database down"));
+    await expect(getUserFromRequest(requestWithToken("token-a"))).rejects.toThrow("database down");
+  });
+});
+
+describe("unauthorized", () => {
+  it("answers 401 in the same plain shape every protected route shows", async () => {
+    const response = unauthorized();
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
   });
 });
