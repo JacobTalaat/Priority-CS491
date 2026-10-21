@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getUserFromRequest, unauthorized } from "./auth";
 
-const { mockVerifyAccessToken, mockUserFindUnique, mockUserCreate, mockUserUpdate } = vi.hoisted(() => ({
+const { mockVerifyAccessToken, mockUserFindUnique, mockUserCreate, mockConsoleError } = vi.hoisted(() => ({
   mockVerifyAccessToken: vi.fn(),
   mockUserFindUnique: vi.fn(),
   mockUserCreate: vi.fn(),
-  mockUserUpdate: vi.fn(),
+  mockConsoleError: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -17,10 +17,15 @@ vi.mock("@/lib/prisma", () => ({
     user: {
       findUnique: mockUserFindUnique,
       create: mockUserCreate,
-      update: mockUserUpdate,
     },
   },
 }));
+
+vi.stubGlobal("console", { ...console, error: mockConsoleError });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function requestWithToken(token?: string) {
   const headers = new Headers();
@@ -38,7 +43,8 @@ describe("getUserFromRequest", () => {
     mockVerifyAccessToken.mockReset();
     mockUserFindUnique.mockReset();
     mockUserCreate.mockReset();
-    mockUserUpdate.mockReset();
+    mockConsoleError.mockReset();
+    vi.stubGlobal("console", { ...console, error: mockConsoleError });
   });
 
   it("returns null when there is no authorization header", async () => {
@@ -105,28 +111,41 @@ describe("getUserFromRequest", () => {
     expect(mockUserCreate).not.toHaveBeenCalled();
   });
 
-  it("adopts an existing row that shares the email when creation races to a unique violation", async () => {
-    mockVerifyAccessToken.mockResolvedValue(IDENTITY_B);
+  it("shows the email the token carries even when the row's copy is older", async () => {
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
+    mockUserFindUnique.mockResolvedValue({ id: "user-row-a", email: "old-name@example.com" });
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
+      id: "user-row-a",
+      email: "student@example.com",
+    });
+  });
+
+  it("adopts nothing when two first logins race with the same Supabase id", async () => {
+    // Both requests create; one wins the unique authUserId, the other reloads it.
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
     mockUserFindUnique
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null);
+      .mockResolvedValueOnce({ id: "user-row-winner", email: IDENTITY_A.email });
     mockUserCreate.mockRejectedValue({ code: "P2002" });
-    mockUserUpdate.mockResolvedValue({ id: "user-row-b", email: IDENTITY_B.email });
-    await expect(getUserFromRequest(requestWithToken("token-b"))).resolves.toEqual({
-      id: "user-row-b",
-      email: IDENTITY_B.email,
-    });
-    expect(mockUserUpdate).toHaveBeenCalledWith({
-      where: { email: "other@example.com" },
-      data: { authUserId: "auth-user-b" },
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
+      id: "user-row-winner",
+      email: IDENTITY_A.email,
     });
     expect(mockUserCreate).toHaveBeenCalledTimes(1);
   });
 
-  it("lets unrelated Prisma errors surface instead of swallowing them", async () => {
+  it("refuses to reassign a row whose email belongs to a different account, and leaves the row untouched", async () => {
+    // An orphan row holds the email under no Supabase account (or a foreign
+    // one): nobody has proven they own the mailbox, so the row must not move.
     mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
-    mockUserFindUnique.mockRejectedValue(new Error("database down"));
-    await expect(getUserFromRequest(requestWithToken("token-a"))).rejects.toThrow("database down");
+    mockUserFindUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    mockUserCreate.mockRejectedValue({ code: "P2002" });
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toBeNull();
+    expect(mockConsoleError).toHaveBeenCalledTimes(1);
+    expect(String(mockConsoleError.mock.calls[0][0])).not.toContain(IDENTITY_A.email);
+    expect(mockUserCreate).toHaveBeenCalledTimes(1);
   });
 });
 

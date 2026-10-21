@@ -31,7 +31,9 @@ export async function getUserFromRequest(request: Request) {
     where: { authUserId: identity.authUserId },
   });
   if (existing) {
-    return { id: existing.id, email: existing.email };
+    // The token's verified email is what routes see, even when the row's copy
+    // has gone stale (the student changed their email in Supabase).
+    return { id: existing.id, email: identity.email };
   }
   try {
     const created = await prisma.user.create({
@@ -42,20 +44,23 @@ export async function getUserFromRequest(request: Request) {
     if (!isUniqueConstraintError(error)) {
       throw error;
     }
-    // Two first logins raced, or a row from before Supabase already has this
-    // email. Either way that row belongs to this Supabase account, since Auth
-    // is the source of truth for the email.
+    // Two first logins raced with the same Supabase id: whichever create won,
+    // its row is the one to hand back.
     const winner = await prisma.user.findUnique({
       where: { authUserId: identity.authUserId },
     });
     if (winner) {
-      return { id: winner.id, email: winner.email };
+      return { id: winner.id, email: identity.email };
     }
-    const claimed = await prisma.user.update({
-      where: { email: identity.email },
-      data: { authUserId: identity.authUserId },
-    });
-    return { id: claimed.id, email: claimed.email };
+    // The conflict is on the email: another row holds it and no row belongs to
+    // this Supabase account. That leaves the owner of the address unproven — a
+    // signup with someone else's address succeeds until email confirmation is
+    // on — so adopting that row could hand its Canvas token to the wrong
+    // person. Fail closed: the request is unauthorized, and the row stays.
+    console.error(
+      "Refusing to reassign a user row to a Supabase account that does not already own it"
+    );
+    return null;
   }
 }
 

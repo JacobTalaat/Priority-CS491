@@ -143,11 +143,19 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 }
 ```
 
-`500` — the Supabase Auth account could not be deleted; nothing was removed:
+`500` — the deletion could not be finished. Either the app's own row could not be removed (nothing was deleted):
 
 ```json
 {
-  "error": "Could not delete your account right now. Try again."
+  "error": "Could not delete your account. Try again."
+}
+```
+
+or the row was removed but the Supabase auth account could not be deleted, so the data is gone while the login remains:
+
+```json
+{
+  "error": "Your data was deleted, but your account is still there. Try again."
 }
 ```
 
@@ -369,7 +377,7 @@ Returns the current-term courses imported for the authenticated student. Courses
 
 **Request**
 
-No body. Send an `Authorization` header with the Priority bearer token.
+No body. Send an `Authorization` header with the Supabase access token.
 
 ```bash
 curl -i http://localhost:3000/api/canvas/courses \
@@ -676,7 +684,7 @@ JSON body with:
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
-  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Authorization: Bearer supabase-access-token" \
   -H "Content-Type: application/json" \
   -d '{
     "categories": [
@@ -743,7 +751,7 @@ No body.
 
 ```bash
 curl -i http://localhost:3000/api/courses/grade-setups \
-  -H "Authorization: Bearer opaque-bearer-token"
+  -H "Authorization: Bearer supabase-access-token"
 ```
 
 **Response**
@@ -797,7 +805,7 @@ Extracts the text of a syllabus PDF and saves it for one of the student's curren
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/syllabus \
-  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Authorization: Bearer supabase-access-token" \
   -F "file=@/Users/student/Downloads/syllabus.pdf"
 ```
 
@@ -901,11 +909,11 @@ Returns one of the student's current courses with its saved class details and it
 
 **Request**
 
-No body. Send an `Authorization` header with the Priority bearer token.
+No body. Send an `Authorization` header with the Supabase access token.
 
 ```bash
 curl -i http://localhost:3000/api/courses/course-id \
-  -H "Authorization: Bearer opaque-bearer-token"
+  -H "Authorization: Bearer supabase-access-token"
 ```
 
 **Response**

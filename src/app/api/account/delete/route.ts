@@ -43,8 +43,10 @@ export async function POST(request: Request) {
     return unauthorized();
   }
 
-  // The password check goes to Supabase Auth: re-authenticating is the proof
-  // that it is really the student, and it keeps no password material of ours.
+  // The password check goes to Supabase Auth with the email the token itself
+  // carries, so a student who changes their email in Supabase can still delete
+  // their account. It is the proof that it is really them, and it keeps no
+  // password material of ours.
   const confirmed = await verifyPassword(user.email, password);
   if (!confirmed) {
     recordFailedConfirm(user.id);
@@ -52,17 +54,28 @@ export async function POST(request: Request) {
   }
 
   clearFailedConfirms(user.id);
-  // The auth user goes first: deleting it revokes the student's tokens, and if
-  // the Prisma delete below fails the row is re-claimed by email on the next
-  // log in instead of trapping the email forever.
+  // The Prisma row goes first: it takes the student's data with it. If the
+  // Supabase delete below then fails, nothing sensitive is left sitting behind
+  // an email that is free to register again — the next sign-in recreates an
+  // empty row, and the student can retry the deletion.
   try {
-    await deleteAuthUser(row.authUserId);
+    await prisma.user.delete({ where: { id: user.id } });
   } catch {
     return NextResponse.json(
-      { error: "Could not delete your account right now. Try again." },
+      { error: "Could not delete your account. Try again." },
       { status: 500 }
     );
   }
-  await prisma.user.delete({ where: { id: user.id } });
+  try {
+    await deleteAuthUser(row.authUserId);
+  } catch {
+    // The data is already gone and cannot come back, but the login itself is
+    // still there, which keeps the email from being taken over; deleting it is
+    // what frees it up again.
+    return NextResponse.json(
+      { error: "Your data was deleted, but your account is still there. Try again." },
+      { status: 500 }
+    );
+  }
   return NextResponse.json({ deleted: true });
 }

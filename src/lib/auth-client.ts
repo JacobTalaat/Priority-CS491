@@ -127,6 +127,16 @@ export async function currentToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
+// Fires with a null token on sign-out, and right away with the current one, so
+// subscribers learn the freshest token moment it changes. Returns the usual
+// unsubscribe function.
+export function onSessionChange(onToken: (token: string | null) => void): () => void {
+  const { data } = supabase().auth.onAuthStateChange((_event, session) => {
+    onToken(session?.access_token ?? null);
+  });
+  return () => data.subscription.unsubscribe();
+}
+
 export type SessionCheck = { status: "valid"; user: AuthUser } | { status: "invalid" } | { status: "offline" };
 
 // 401 means the token is gone or expired. A network failure doesn't prove that, so the

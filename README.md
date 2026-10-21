@@ -103,6 +103,8 @@ One account works for both the website and the iPhone app. Accounts are owned by
 
 No password material is stored by the app itself; the Prisma `User` row is linked to the Supabase Auth account through its `authUserId` column and holds the encrypted Canvas token and calendar feed.
 
+Two Supabase dashboard settings are required before real accounts exist. **Confirm email must be enabled** on the email provider (Authentication section): with it off, anyone can sign up with somebody else's address and receive a session without proving they can read that mailbox. And the project should keep **asymmetric JWT signing keys**, so tokens are verified locally instead of by a call per request.
+
 Sign up and log in happen in the browser through Supabase Auth, so they need a running client. With the app running, check the current user once you have a token from a signed-in browser:
 
 ```bash

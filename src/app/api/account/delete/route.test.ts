@@ -126,26 +126,36 @@ describe("POST /api/account/delete", () => {
     });
   });
 
-  it("deletes the Prisma row only after the Supabase auth user is gone", async () => {
+  it("removes the Prisma row before it calls Supabase", async () => {
     const order: string[] = [];
-    mockDeleteAuthUser.mockImplementation(async () => {
-      order.push("supabase");
-    });
     mockUserDelete.mockImplementation(async () => {
       order.push("prisma");
     });
+    mockDeleteAuthUser.mockImplementation(async () => {
+      order.push("supabase");
+    });
     await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
-    expect(order).toEqual(["supabase", "prisma"]);
+    expect(order).toEqual(["prisma", "supabase"]);
   });
 
-  it("returns 500 and keeps the row when Supabase refuses to delete the auth user", async () => {
+  it("returns 500 without deleting anything when the Prisma row cannot be removed", async () => {
+    mockUserDelete.mockRejectedValue(new Error("database down"));
+    const res = await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Could not delete your account. Try again.",
+    });
+    expect(mockDeleteAuthUser).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when Supabase refuses to delete the auth user, leaving no data behind it", async () => {
     mockDeleteAuthUser.mockRejectedValue(new Error("Supabase refused"));
     const res = await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({
-      error: "Could not delete your account right now. Try again.",
+      error: "Your data was deleted, but your account is still there. Try again.",
     });
-    expect(mockUserDelete).not.toHaveBeenCalled();
+    expect(mockUserDelete).toHaveBeenCalledTimes(1);
   });
 
   it("returns 429 after too many wrong passwords and refuses to delete", async () => {

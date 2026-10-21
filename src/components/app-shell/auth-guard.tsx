@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { checkSession, currentToken } from "@/lib/auth-client";
 import type { AuthUser } from "@/lib/auth-client";
 import { loginPathFor } from "@/lib/redirect";
+import { startSessionSync } from "@/lib/session-sync";
 import { TOKEN_KEY, clearToken, getToken, setToken } from "@/lib/session";
 import styles from "./app-shell.module.css";
 
@@ -57,6 +58,16 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       });
     })();
 
+    // Supabase refreshes the access token and ends it on sign-out in the
+    // background; mirror every change into the token the header reads, and
+    // leave for the login page if a sign-out reaches this tab. The
+    // subscription lives exactly as long as this component is mounted.
+    const stopSessionSync = startSessionSync(() => {
+      if (!cancelled) {
+        sendToLogin();
+      }
+    });
+
     // Logging out in another tab logs this one out too.
     function handleStorage(event: StorageEvent) {
       if (event.key === TOKEN_KEY && !event.newValue) {
@@ -67,6 +78,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      stopSessionSync();
       window.removeEventListener("storage", handleStorage);
     };
   }, [router]);
