@@ -1,7 +1,23 @@
+import { createClient } from "@supabase/supabase-js";
 import { apiRequest } from "./api-client";
+import { env } from "@/lib/env";
 
-// Must match the minimum enforced by /api/auth/signup and /api/auth/login.
 export const MIN_PASSWORD_LENGTH = 8;
+
+// supabase-js keeps the session in localStorage and refreshes the access token
+// in the background, so the token the browser holds stays valid while the tab
+// is open. The app mirrors it into its own TOKEN_KEY for the Authorization
+// header, the same way the iOS app will use it. The client is created lazily:
+// importing this module must not require the env vars to exist, or the app
+// could not even build without them.
+let client: ReturnType<typeof createClient> | null = null;
+
+function supabase() {
+  client ??= createClient(env.supabaseUrl, env.supabasePublishableKey, {
+    auth: { persistSession: true, autoRefreshToken: true },
+  });
+  return client;
+}
 
 export type Credentials = {
   email: string;
@@ -13,11 +29,6 @@ export type FieldErrors = Partial<Record<keyof Credentials, string>>;
 export type AuthUser = {
   id: string;
   email: string;
-};
-
-type AuthResponse = {
-  token: string;
-  user: AuthUser;
 };
 
 export type AuthResult =
@@ -42,21 +53,36 @@ export function validateSignUp({ email, password }: Credentials): FieldErrors {
   return errors;
 }
 
-export async function signUp({ email, password }: Credentials): Promise<AuthResult> {
-  const result = await apiRequest<AuthResponse>("/api/auth/signup", {
-    method: "POST",
-    body: { email: email.trim(), password },
-  });
-  if (result.ok) {
-    return { ok: true, token: result.data.token, user: result.data.user };
-  }
-  if (result.status === 409) {
+function resultFromError(error: { message?: string; status?: number }): AuthResult {
+  const message = error.message ?? "";
+  if (error.status === 422 && /already registered/i.test(message)) {
     return { ok: false, fieldErrors: { email: "That email already has an account." } };
   }
-  if (result.status === 400) {
-    return { ok: false, fieldErrors: {}, formError: "Check your email and password and try again." };
+  if (error.status === 422 && /password/i.test(message)) {
+    return { ok: false, fieldErrors: { password: `Password is too weak. ${message}` } };
   }
-  return { ok: false, fieldErrors: {}, formError: result.error };
+  return { ok: false, fieldErrors: {}, formError: "Check your email and password and try again." };
+}
+
+export async function signUp({ email, password }: Credentials): Promise<AuthResult> {
+  const { data, error } = await supabase().auth.signUp({ email: email.trim(), password });
+  if (error) {
+    return resultFromError(error);
+  }
+  if (!data.session || !data.user) {
+    // Supabase holds the account back when the project asks students to confirm
+    // their email: there is no session until they follow that link.
+    return {
+      ok: false,
+      fieldErrors: {},
+      formError: "Check your email to finish creating your account.",
+    };
+  }
+  return {
+    ok: true,
+    token: data.session.access_token,
+    user: { id: data.user.id, email: data.user.email ?? email.trim() },
+  };
 }
 
 export function validateLogIn({ email, password }: Credentials): FieldErrors {
@@ -73,19 +99,32 @@ export function validateLogIn({ email, password }: Credentials): FieldErrors {
 export const WRONG_CREDENTIALS = "Wrong email or password. Check them and try again.";
 
 export async function logIn({ email, password }: Credentials): Promise<AuthResult> {
-  const result = await apiRequest<AuthResponse>("/api/auth/login", {
-    method: "POST",
-    body: { email: email.trim(), password },
+  const { data, error } = await supabase().auth.signInWithPassword({
+    email: email.trim(),
+    password,
   });
-  if (result.ok) {
-    return { ok: true, token: result.data.token, user: result.data.user };
-  }
-  // The API answers 400 for a malformed email or a password under 8 characters. Neither can
-  // belong to a real account, so treat it the same as a wrong password.
-  if (result.status === 401 || result.status === 400) {
+  if (error || !data.session || !data.user) {
     return { ok: false, fieldErrors: {}, formError: WRONG_CREDENTIALS };
   }
-  return { ok: false, fieldErrors: {}, formError: result.error };
+  return {
+    ok: true,
+    token: data.session.access_token,
+    user: { id: data.user.id, email: data.user.email ?? email.trim() },
+  };
+}
+
+// Supabase Auth also tracks the session on the server, so logging out has to
+// reach it, not just forget the token in localStorage.
+export async function logOut(): Promise<void> {
+  await supabase().auth.signOut();
+}
+
+// The freshest access token, or null when signed out. supabase-js keeps it
+// refreshed in the background, so this is what the Authorization header should
+// carry.
+export async function currentToken(): Promise<string | null> {
+  const { data } = await supabase().auth.getSession();
+  return data.session?.access_token ?? null;
 }
 
 export type SessionCheck = { status: "valid"; user: AuthUser } | { status: "invalid" } | { status: "offline" };

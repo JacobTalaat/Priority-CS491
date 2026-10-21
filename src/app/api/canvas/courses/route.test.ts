@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique, mockUserFindUnique, mockCourseFindMany } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+const { mockVerifyAccessToken, mockUserFindUnique, mockCourseFindMany } = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
   mockUserFindUnique: vi.fn(),
   mockCourseFindMany: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
     user: { findUnique: mockUserFindUnique },
     course: { findMany: mockCourseFindMany },
   },
@@ -24,17 +27,31 @@ function request(withSession = true) {
   return new Request("http://localhost/api/canvas/courses", { headers });
 }
 
-function sessionRow() {
+function authUserRow() {
   return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
+    id: "user-1",
+    email: "student@example.com",
   };
+}
+
+// getUserFromRequest and getCanvasStatus both go through prisma.user.findUnique:
+// the auth lookup is keyed by authUserId and returns the row, the canvas status
+// lookup is keyed by id and returns the test's own row.
+function stubUserFindUnique(ownLookup: unknown) {
+  mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) => {
+    if (args.where && "authUserId" in args.where) {
+      return authUserRow();
+    }
+    return ownLookup;
+  });
 }
 
 describe("GET /api/canvas/courses", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
     mockUserFindUnique.mockReset();
     mockCourseFindMany.mockReset();
   });
@@ -43,8 +60,7 @@ describe("GET /api/canvas/courses", () => {
     const courses = [
       { id: "course-1", name: "Algorithms", courseCode: "CS-341", term: "Fall 2026", termEndsAt: null },
     ];
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue({
+    stubUserFindUnique({
       canvasTokenCipher: "cipher",
       canvasTokenIv: "iv",
       canvasTokenTag: "tag",
@@ -64,8 +80,12 @@ describe("GET /api/canvas/courses", () => {
   });
 
   it("returns no courses when Canvas is not connected", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue(null);
+    stubUserFindUnique({
+      canvasTokenCipher: null,
+      canvasTokenIv: null,
+      canvasTokenTag: null,
+      canvasBaseUrl: null,
+    });
 
     const response = await GET(request());
 

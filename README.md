@@ -99,30 +99,15 @@ The app is unaffected because it connects as the table owner through Prisma, and
 
 ## Authentication
 
-One account works for both the website and the iPhone app. Sign up and log in return a bearer token that both clients send as `Authorization: Bearer <token>`. Routes that need a signed-in student return `401` without a valid token.
+One account works for both the website and the iPhone app. Accounts are owned by [Supabase Auth](https://supabase.com/docs/guides/auth): sign up, log in, and log out go through it in the browser, and it issues the access token both clients send as `Authorization: Bearer <token>`. Routes that need a signed-in student verify that token and return `401` without a valid one.
 
-Passwords are stored as scrypt hashes, never in plain text. Tokens are opaque random strings; the database stores only their SHA-256 hash, and sessions expire after 30 days.
+No password material is stored by the app itself; the Prisma `User` row is linked to the Supabase Auth account through its `authUserId` column and holds the encrypted Canvas token and calendar feed.
 
-With the app running, sign up:
-
-```bash
-curl -i -X POST http://localhost:3000/api/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{"email":"student@example.com","password":"correct-horse"}'
-```
-
-It returns `201` with a `token`. Then log in and capture the token:
+Sign up and log in happen in the browser through Supabase Auth, so they need a running client. With the app running, check the current user once you have a token from a signed-in browser:
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"student@example.com","password":"correct-horse"}' \
-  | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
-```
+TOKEN=eyJhbGciOi...
 
-Then check the current user:
-
-```bash
 # Valid token -> 200 with { id, email }
 curl -i http://localhost:3000/api/auth/me -H "Authorization: Bearer $TOKEN"
 
@@ -131,11 +116,6 @@ curl -i http://localhost:3000/api/auth/me
 
 # Bad token -> 401
 curl -i http://localhost:3000/api/auth/me -H "Authorization: Bearer nope"
-
-# Wrong password -> 401
-curl -i -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"student@example.com","password":"wrong-password"}'
 ```
 
 ## API docs

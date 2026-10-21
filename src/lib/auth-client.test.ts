@@ -1,20 +1,49 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { WRONG_CREDENTIALS, checkSession, logIn, signUp, validateLogIn, validateSignUp } from "./auth-client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+const { mockCreateClient, mockSignUp, mockSignInWithPassword, mockSignOut, mockGetSession } =
+  vi.hoisted(() => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "test-publishable-key";
+    const client = {
+      auth: {
+        signUp: vi.fn(),
+        signInWithPassword: vi.fn(),
+        signOut: vi.fn(),
+        getSession: vi.fn(),
+      },
+    };
+    return {
+      mockCreateClient: vi.fn(() => client),
+      mockSignUp: client.auth.signUp,
+      mockSignInWithPassword: client.auth.signInWithPassword,
+      mockSignOut: client.auth.signOut,
+      mockGetSession: client.auth.getSession,
+    };
+  });
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: mockCreateClient,
+}));
+
+import {
+  MIN_PASSWORD_LENGTH,
+  WRONG_CREDENTIALS,
+  checkSession,
+  currentToken,
+  logIn,
+  logOut,
+  signUp,
+  validateLogIn,
+  validateSignUp,
+} from "./auth-client";
 
 describe("validateSignUp", () => {
   it("accepts a valid email and an 8 character password", () => {
     expect(validateSignUp({ email: "student@njit.edu", password: "12345678" })).toEqual({});
   });
 
-  it("asks for an email when it is blank", () => {
+  it("asks for an email when it is blank and rejects a malformed one", () => {
     expect(validateSignUp({ email: "   ", password: "12345678" }).email).toBe("Enter your email.");
-  });
-
-  it("rejects an email without a domain", () => {
     expect(validateSignUp({ email: "student@", password: "12345678" }).email).toMatch(/valid email/);
   });
 
@@ -24,60 +53,77 @@ describe("validateSignUp", () => {
 
   it("calls a short password weak", () => {
     expect(validateSignUp({ email: "student@njit.edu", password: "1234567" }).password).toBe(
-      "Password is too weak. Use at least 8 characters.",
+      `Password is too weak. Use at least ${MIN_PASSWORD_LENGTH} characters.`
     );
   });
 });
 
 describe("signUp", () => {
-  it("returns the token and user on success", async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json({ token: "tok", user: { id: "u1", email: "student@njit.edu" } }, { status: 201 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await signUp({ email: " student@njit.edu ", password: "12345678" });
-
-    expect(result).toEqual({ ok: true, token: "tok", user: { id: "u1", email: "student@njit.edu" } });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/auth/signup",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ email: "student@njit.edu", password: "12345678" }),
-      }),
-    );
+  beforeEach(() => {
+    mockSignUp.mockReset();
   });
 
-  it("puts a taken email error on the email field", async () => {
-    vi.stubGlobal("fetch", async () => Response.json({ error: "Email already registered" }, { status: 409 }));
+  it("creates the account with Supabase Auth and returns its access token", async () => {
+    mockSignUp.mockResolvedValue({
+      data: {
+        session: { access_token: "supabase-access-token" },
+        user: { id: "auth-user-1", email: "student@njit.edu" },
+      },
+      error: null,
+    });
+    await expect(signUp({ email: " student@njit.edu ", password: "12345678" })).resolves.toEqual({
+      ok: true,
+      token: "supabase-access-token",
+      user: { id: "auth-user-1", email: "student@njit.edu" },
+    });
+    expect(mockSignUp).toHaveBeenCalledWith({ email: "student@njit.edu", password: "12345678" });
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+  });
 
-    expect(await signUp({ email: "student@njit.edu", password: "12345678" })).toEqual({
+  it("sends the student to their email when the project requires confirmation", async () => {
+    mockSignUp.mockResolvedValue({ data: { session: null, user: null }, error: null });
+    const result = await signUp({ email: "student@njit.edu", password: "12345678" });
+    if (result.ok) {
+      throw new Error("expected the sign up to be held back for confirmation");
+    }
+    expect(result.formError).toMatch(/check your email/i);
+  });
+
+  it("blames the email when Supabase already has an account for it", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: null },
+      error: { message: "User already registered", status: 422 },
+    });
+    const result = await signUp({ email: "student@njit.edu", password: "12345678" });
+    expect(result).toEqual({
       ok: false,
       fieldErrors: { email: "That email already has an account." },
     });
   });
 
-  it("shows a form error when the server rejects the body", async () => {
-    vi.stubGlobal("fetch", async () => Response.json({ error: "Invalid body" }, { status: 400 }));
+  it("passes Supabase's password complaint back to the password field", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Password should be at least 8 characters", status: 422 },
+    });
+    const result = await signUp({ email: "student@njit.edu", password: "a" });
+    if (result.ok) {
+      throw new Error("expected the weak password to be rejected");
+    }
+    expect(result.fieldErrors.password).toMatch(/Password is too weak/);
+  });
 
+  it("keeps other failures generic", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Signups not allowed", status: 403 },
+    });
     const result = await signUp({ email: "student@njit.edu", password: "12345678" });
-
     expect(result).toEqual({
       ok: false,
       fieldErrors: {},
       formError: "Check your email and password and try again.",
     });
-  });
-
-  it("passes through other errors", async () => {
-    vi.stubGlobal("fetch", async () => {
-      throw new TypeError("Failed to fetch");
-    });
-
-    const result = await signUp({ email: "student@njit.edu", password: "12345678" });
-
-    expect(result.ok).toBe(false);
-    expect(!result.ok && result.formError).toMatch(/Can't reach Priority/);
   });
 });
 
@@ -86,7 +132,7 @@ describe("validateLogIn", () => {
     expect(validateLogIn({ email: "student@njit.edu", password: "x" })).toEqual({});
   });
 
-  it("asks for both fields when they are blank", () => {
+  it("asks for whatever is missing", () => {
     expect(validateLogIn({ email: " ", password: "" })).toEqual({
       email: "Enter your email.",
       password: "Enter your password.",
@@ -95,27 +141,34 @@ describe("validateLogIn", () => {
 });
 
 describe("logIn", () => {
-  it("returns the token and user on success", async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json({ token: "tok", user: { id: "u1", email: "student@njit.edu" } }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await logIn({ email: "student@njit.edu ", password: "12345678" });
-
-    expect(result).toEqual({ ok: true, token: "tok", user: { id: "u1", email: "student@njit.edu" } });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/auth/login",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ email: "student@njit.edu", password: "12345678" }),
-      }),
-    );
+  beforeEach(() => {
+    mockSignInWithPassword.mockReset();
   });
 
-  it("shows a clear wrong password error on 401", async () => {
-    vi.stubGlobal("fetch", async () => Response.json({ error: "Invalid email or password" }, { status: 401 }));
+  it("asks Supabase for a session and returns its access token", async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: {
+        session: { access_token: "supabase-access-token" },
+        user: { id: "auth-user-1", email: "student@njit.edu" },
+      },
+      error: null,
+    });
+    await expect(logIn({ email: " student@njit.edu ", password: "12345678" })).resolves.toEqual({
+      ok: true,
+      token: "supabase-access-token",
+      user: { id: "auth-user-1", email: "student@njit.edu" },
+    });
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: "student@njit.edu",
+      password: "12345678",
+    });
+  });
 
+  it("shows a clear wrong password error when Supabase refuses", async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Invalid login credentials", status: 400 },
+    });
     expect(await logIn({ email: "student@njit.edu", password: "wrong-password" })).toEqual({
       ok: false,
       fieldErrors: {},
@@ -123,52 +176,72 @@ describe("logIn", () => {
     });
   });
 
-  it("treats a 400 (password too short to be real) as a wrong password", async () => {
-    vi.stubGlobal("fetch", async () => Response.json({ error: "Invalid body" }, { status: 400 }));
+  it("treats a missing session as a failed log in", async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: { session: null, user: null },
+      error: null,
+    });
+    const result = await logIn({ email: "student@njit.edu", password: "12345678" });
+    expect(result).toEqual({ ok: false, fieldErrors: {}, formError: WRONG_CREDENTIALS });
+  });
+});
 
-    const result = await logIn({ email: "student@njit.edu", password: "short" });
+describe("logOut", () => {
+  it("tells Supabase, not just localStorage", async () => {
+    mockSignOut.mockResolvedValue({ error: null });
+    await logOut();
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+  });
+});
 
-    expect(!result.ok && result.formError).toBe(WRONG_CREDENTIALS);
+describe("currentToken", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
   });
 
-  it("passes through server errors", async () => {
-    vi.stubGlobal("fetch", async () => Response.json({ error: "Database unavailable" }, { status: 503 }));
+  it("returns the freshest access token the background refresh has produced", async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: { access_token: "fresh-token" } },
+    });
+    await expect(currentToken()).resolves.toBe("fresh-token");
+  });
 
-    const result = await logIn({ email: "student@njit.edu", password: "12345678" });
-
-    expect(!result.ok && result.formError).toBe("Database unavailable");
+  it("answers null when the browser is signed out", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } });
+    await expect(currentToken()).resolves.toBeNull();
   });
 });
 
 describe("checkSession", () => {
-  it("returns the user for a valid token", async () => {
-    const fetchMock = vi.fn(async () => Response.json({ id: "u1", email: "student@njit.edu" }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    expect(await checkSession("tok")).toEqual({
-      status: "valid",
-      user: { id: "u1", email: "student@njit.edu" },
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/auth/me",
-      expect.objectContaining({ headers: { Authorization: "Bearer tok" } }),
-    );
+  beforeEach(() => {
+    mockGetSession.mockReset();
   });
 
-  it("reports an expired or unknown token as invalid", async () => {
-    vi.stubGlobal("fetch", async () => Response.json({ error: "Unauthorized" }, { status: 401 }));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports the user for a token our API accepts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ id: "user-1", email: "student@njit.edu" }, { status: 200 }))
+    );
+    expect(await checkSession("tok")).toEqual({
+      status: "valid",
+      user: { id: "user-1", email: "student@njit.edu" },
+    });
+  });
+
+  it("reports invalid on 401 so the caller can log out", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ error: "Unauthorized" }, { status: 401 }))
+    );
     expect(await checkSession("tok")).toEqual({ status: "invalid" });
   });
 
-  it("does not treat a network failure as logged out", async () => {
-    vi.stubGlobal("fetch", async () => {
-      throw new TypeError("Failed to fetch");
-    });
-    expect(await checkSession("tok")).toEqual({ status: "offline" });
-  });
-
-  it("does not treat a server error as logged out", async () => {
-    vi.stubGlobal("fetch", async () => Response.json({ status: "error" }, { status: 503 }));
+  it("reports offline when the API cannot be reached", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network down")));
     expect(await checkSession("tok")).toEqual({ status: "offline" });
   });
 });

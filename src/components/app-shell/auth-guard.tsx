@@ -3,10 +3,10 @@
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { checkSession } from "@/lib/auth-client";
+import { checkSession, currentToken } from "@/lib/auth-client";
 import type { AuthUser } from "@/lib/auth-client";
 import { loginPathFor } from "@/lib/redirect";
-import { TOKEN_KEY, clearToken, getToken } from "@/lib/session";
+import { TOKEN_KEY, clearToken, getToken, setToken } from "@/lib/session";
 import styles from "./app-shell.module.css";
 
 type GuardState = { status: "checking" } | { status: "ready"; user: AuthUser | null };
@@ -29,23 +29,33 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       router.replace(loginPathFor(window.location.pathname + window.location.search));
     }
 
-    const token = getToken();
-    if (!token) {
-      sendToLogin();
-      return;
-    }
-
-    checkSession(token).then((result) => {
+    (async () => {
+      // supabase-js refreshes the access token in the background; use the
+      // freshest one it has and keep the stored token for the header current.
+      const token = (await currentToken()) ?? getToken();
       if (cancelled) {
         return;
       }
-      if (result.status === "invalid") {
-        clearToken();
+      if (!token) {
         sendToLogin();
         return;
       }
-      setState({ status: "ready", user: result.status === "valid" ? result.user : null });
-    });
+      if (getToken() !== token) {
+        setToken(token);
+      }
+
+      checkSession(token).then((result) => {
+        if (cancelled) {
+          return;
+        }
+        if (result.status === "invalid") {
+          clearToken();
+          sendToLogin();
+          return;
+        }
+        setState({ status: "ready", user: result.status === "valid" ? result.user : null });
+      });
+    })();
 
     // Logging out in another tab logs this one out too.
     function handleStorage(event: StorageEvent) {

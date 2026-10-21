@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique, mockUserUpdate, mockUserFindUnique } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+const { mockVerifyAccessToken, mockUserUpdate, mockUserFindUnique } = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
   mockUserUpdate: vi.fn(),
   mockUserFindUnique: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
     user: { update: mockUserUpdate, findUnique: mockUserFindUnique },
   },
 }));
@@ -27,6 +30,26 @@ vi.mock("@/lib/env", () => ({
 import { DELETE, GET, POST } from "./route";
 
 const TOKEN = "canvas-token-123";
+
+const IDENTITY = { authUserId: "auth-user-1", email: "student@example.com" };
+
+// getUserFromRequest looks the row up by its Supabase id; the canvas status
+// lookup uses the row's own id. One mock serves both.
+function authUserRow() {
+  return {
+    id: "user-1",
+    email: "student@example.com",
+  };
+}
+
+function stubUserFindUnique(ownLookup: unknown) {
+  mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) => {
+    if (args.where && "authUserId" in args.where) {
+      return authUserRow();
+    }
+    return ownLookup;
+  });
+}
 
 function jsonResponse(status: number, body: unknown = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -55,17 +78,11 @@ function getRequest(withSession = true): Request {
   return new Request("http://localhost/api/canvas/token", { method: "GET", headers });
 }
 
-function sessionRow() {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
-  };
-}
 
 describe("POST /api/canvas/token", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue(IDENTITY);
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockUserUpdate.mockReset();
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -74,7 +91,7 @@ describe("POST /api/canvas/token", () => {
   });
 
   it("saves an encrypted token and returns 200 with the Canvas user", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, { id: 42, name: "Student" })));
     const res = await POST(postRequest({ token: TOKEN, baseUrl: "https://canvas.example.edu" }));
     expect(res.status).toBe(200);
@@ -92,7 +109,7 @@ describe("POST /api/canvas/token", () => {
   });
 
   it("returns 400 and writes nothing when Canvas rejects the token", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(401)));
     const res = await POST(postRequest({ token: TOKEN, baseUrl: "https://canvas.example.edu" }));
     expect(res.status).toBe(400);
@@ -101,7 +118,7 @@ describe("POST /api/canvas/token", () => {
   });
 
   it("returns 400 for a bad body", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     const res = await POST(postRequest({ token: "" }));
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: "Invalid body" });
@@ -109,7 +126,7 @@ describe("POST /api/canvas/token", () => {
   });
 
   it("returns 400 for a bad baseUrl", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     const res = await POST(postRequest({ token: TOKEN, baseUrl: "http://canvas.example.edu" }));
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: "Invalid Canvas URL" });
@@ -117,7 +134,7 @@ describe("POST /api/canvas/token", () => {
   });
 
   it("returns 502 with a clear error when Canvas is unreachable", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
     const res = await POST(postRequest({ token: TOKEN, baseUrl: "https://canvas.example.edu" }));
     expect(res.status).toBe(502);
@@ -128,13 +145,12 @@ describe("POST /api/canvas/token", () => {
 
 describe("GET /api/canvas/token", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue(IDENTITY);
     mockUserFindUnique.mockReset();
   });
 
   it("returns the status without a token", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue({
+    stubUserFindUnique({
       canvasTokenCipher: "cipher",
       canvasBaseUrl: "https://canvas.example.edu",
       canvasCheckedAt: new Date("2026-10-01T12:00:00.000Z"),
@@ -147,7 +163,7 @@ describe("GET /api/canvas/token", () => {
   });
 
   it("returns 401 without a session", async () => {
-    mockSessionFindUnique.mockResolvedValue(null);
+    mockVerifyAccessToken.mockResolvedValue(null);
     const res = await GET(getRequest(false));
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ error: "Unauthorized" });
@@ -156,12 +172,13 @@ describe("GET /api/canvas/token", () => {
 
 describe("DELETE /api/canvas/token", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue(IDENTITY);
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockUserUpdate.mockReset();
   });
 
   it("clears the credentials", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     mockUserUpdate.mockResolvedValue({});
     const headers = new Headers({ Authorization: "Bearer app-session-token" });
     const res = await DELETE(
@@ -180,7 +197,7 @@ describe("DELETE /api/canvas/token", () => {
   });
 
   it("returns 401 without a session", async () => {
-    mockSessionFindUnique.mockResolvedValue(null);
+    mockVerifyAccessToken.mockResolvedValue(null);
     const res = await DELETE(
       new Request("http://localhost/api/canvas/token", { method: "DELETE" })
     );
@@ -191,14 +208,14 @@ describe("DELETE /api/canvas/token", () => {
 
 describe("POST /api/canvas/token without a session", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue(IDENTITY);
   });
 
   it("returns 401 for all three methods", async () => {
     const res = await POST(postRequest({ token: TOKEN }, false));
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ error: "Unauthorized" });
-    mockSessionFindUnique.mockResolvedValue(null);
+    mockVerifyAccessToken.mockResolvedValue(null);
     const get = await GET(getRequest(false));
     expect(get.status).toBe(401);
     const del = await DELETE(
