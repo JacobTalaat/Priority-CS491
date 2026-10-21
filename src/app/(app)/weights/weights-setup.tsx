@@ -206,6 +206,59 @@ export function applySyllabusSuggestions(
   };
 }
 
+// Everything that stops the setup from being confirmed, in the order the form shows it.
+// Confirm stays off until this is empty, and the same list explains why.
+export function confirmProblems(form: FormState, assignments: { id: string }[]): string[] {
+  const problems: string[] = [];
+  const categories = form.categories.map((category) => ({
+    name: category.name.trim(),
+    weight: numberValue(category.weight),
+  }));
+  if (
+    categories.some(
+      (category) =>
+        category.name.length === 0 || !Number.isFinite(category.weight) || category.weight < 0 || category.weight > 100,
+    )
+  ) {
+    problems.push("Give every category a name and a weight from 0 to 100.");
+  }
+  if (new Set(categories.map((category) => category.name.toLowerCase())).size !== categories.length) {
+    problems.push("Category names must be unique.");
+  }
+  const finalExamWeight = numberValue(form.finalExamWeight);
+  if (!Number.isFinite(finalExamWeight) || finalExamWeight < 0 || finalExamWeight > 100) {
+    problems.push("The final exam weight must be from 0 to 100.");
+  }
+  const total = categories.reduce(
+    (sum, category) => sum + (Number.isFinite(category.weight) ? category.weight : 0),
+    Number.isFinite(finalExamWeight) ? finalExamWeight : 0,
+  );
+  if (!isCompleteTotal(total)) {
+    problems.push(`Weights add up to ${Math.round(total * 100) / 100}%. They need to total 100%.`);
+  }
+  const unmapped = unmappedAssignmentIds(
+    assignments,
+    form.assignmentMappings,
+    categories.map((category) => category.name),
+  ).length;
+  if (unmapped > 0) {
+    problems.push(mappingSummary(assignments.length, unmapped));
+  }
+  if (
+    Object.values(form.cutoffs).some((value) => {
+      const cutoff = numberValue(value);
+      return !Number.isFinite(cutoff) || cutoff < 0 || cutoff > 100;
+    })
+  ) {
+    problems.push("Enter grade cutoffs from 0 to 100.");
+  }
+  const credits = form.credits.trim() === "" ? null : numberValue(form.credits);
+  if (credits !== null && (!Number.isFinite(credits) || credits < 0)) {
+    problems.push("Credits must be zero or greater.");
+  }
+  return problems;
+}
+
 // Which class details a read filled in, so the form can point them out for checking.
 export function detailsFilledByRead(before: FormState, after: FormState): ReadDetailField[] {
   return READ_DETAIL_FIELDS.filter((field) => before[field] !== after[field]);
@@ -323,6 +376,11 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
   }, [selectedCourseId, form]);
   const [readExtras, setReadExtras] = useState<SyllabusReadExtras | null>(null);
   const [filledByRead, setFilledByRead] = useState<ReadDetailField[]>([]);
+  const problems = useMemo(
+    () => (selectedCourse ? confirmProblems(form, selectedCourse.assignments) : []),
+    [form, selectedCourse],
+  );
+  const unsupportedCount = readExtras?.unsupportedRules.length ?? 0;
 
   function updateDetail(field: ReadDetailField | "section" | "credits", value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -385,57 +443,25 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
     if (!selectedCourse) {
       return null;
     }
+    // The button is already off while there are problems; this guards a submit from Enter.
+    const problems = confirmProblems(form, selectedCourse.assignments);
+    if (problems.length > 0) {
+      setMessage({ tone: "error", text: problems[0] });
+      return null;
+    }
     const categories = form.categories.map((category) => ({
       name: category.name.trim(),
       weight: numberValue(category.weight),
     }));
     const finalExamWeight = numberValue(form.finalExamWeight);
-    if (
-      categories.some(
-        (category) =>
-          category.name.length === 0 ||
-          !Number.isFinite(category.weight) ||
-          category.weight < 0 ||
-          category.weight > 100,
-      )
-    ) {
-      setMessage({ tone: "error", text: "Enter a name and a weight from 0 to 100 for each category." });
-      return null;
-    }
-    if (new Set(categories.map((category) => category.name.toLowerCase())).size !== categories.length) {
-      setMessage({ tone: "error", text: "Category names must be unique." });
-      return null;
-    }
-    if (!Number.isFinite(finalExamWeight) || finalExamWeight < 0 || finalExamWeight > 100) {
-      setMessage({ tone: "error", text: "The final exam weight must be from 0 to 100." });
-      return null;
-    }
-    if (Math.abs(categories.reduce((sum, category) => sum + category.weight, finalExamWeight) - 100) > 0.001) {
-      setMessage({ tone: "error", text: "Category weights and the final exam weight must add up to 100." });
-      return null;
-    }
     const assignmentMappings = selectedCourse.assignments.map((assignment) => ({
       assignmentId: assignment.id,
-      category: form.assignmentMappings[assignment.id] ?? "",
+      category: (form.assignmentMappings[assignment.id] ?? "").trim(),
     }));
-    if (assignmentMappings.some((mapping) => !categories.some((category) => category.name === mapping.category))) {
-      setMessage({ tone: "error", text: "Map every assignment to a category before confirming." });
-      return null;
-    }
-    const cutoffs: Record<string, number> = {};
-    for (const [label, value] of Object.entries(form.cutoffs)) {
-      const cutoff = numberValue(value);
-      if (!Number.isFinite(cutoff) || cutoff < 0 || cutoff > 100) {
-        setMessage({ tone: "error", text: "Enter grade cutoffs from 0 to 100." });
-        return null;
-      }
-      cutoffs[label] = cutoff;
-    }
+    const cutoffs = Object.fromEntries(
+      Object.entries(form.cutoffs).map(([label, value]) => [label, numberValue(value)]),
+    );
     const credits = form.credits.trim() === "" ? null : numberValue(form.credits);
-    if (credits !== null && (!Number.isFinite(credits) || credits < 0)) {
-      setMessage({ tone: "error", text: "Credits must be zero or greater." });
-      return null;
-    }
     return {
       categories,
       assignmentMappings,
@@ -764,8 +790,32 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
                 />
               </fieldset>
 
+              {unsupportedCount > 0 ? (
+                <Notice tone="warning">
+                  This syllabus has {unsupportedCount === 1 ? "a grading rule" : `${unsupportedCount} grading rules`}{" "}
+                  Priority can&apos;t calculate, listed under &quot;What the syllabus also said&quot; below. You can still
+                  confirm, but your grade here won&apos;t include {unsupportedCount === 1 ? "it" : "them"}.
+                </Notice>
+              ) : null}
+
+              {problems.length > 0 ? (
+                <div className={styles.confirmProblems} id="confirm-problems" role="status">
+                  <p className={styles.confirmProblemsTitle}>Before you can confirm:</p>
+                  <ul>
+                    {problems.map((problem) => (
+                      <li key={problem}>{problem}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div className={styles.actions}>
-                <Button type="submit" loading={saving}>
+                <Button
+                  type="submit"
+                  loading={saving}
+                  disabled={problems.length > 0}
+                  aria-describedby={problems.length > 0 ? "confirm-problems" : undefined}
+                >
                   {saving ? "Saving setup…" : "Confirm and save"}
                 </Button>
                 {manualMode && hasCanvasWeights && !selectedCourse.gradeSetup ? (
@@ -780,7 +830,7 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
           {readExtras && readExtras.unsupportedRules.length > 0 ? (
             <section className={styles.canvasWeights} aria-label="What the syllabus also said">
               <h2 className={styles.sectionTitle}>What the syllabus also said</h2>
-              <Notice tone="error">
+              <Notice tone="warning">
                 The syllabus has grading rules Priority cannot calculate automatically. Account for these
                 yourself when you check your grades:
               </Notice>

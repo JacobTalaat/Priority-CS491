@@ -25,6 +25,7 @@ import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import {
   applySyllabusRead,
   applySyllabusSuggestions,
+  confirmProblems,
   detailsFilledByRead,
   WeightsSetup,
   type FormState,
@@ -249,6 +250,85 @@ describe("final exam picker", () => {
     expect(renderToStaticMarkup(<WeightsSetup initialCourses={[withFinal("gone")]} />)).toContain(
       '<option value="" selected="">No final exam in this class</option>',
     );
+  });
+});
+
+describe("confirmProblems", () => {
+  const assignments = [{ id: "a1" }, { id: "a2" }];
+  const valid = (): FormState => ({
+    ...currentForm(),
+    categories: [{ name: "Homework", weight: "80" }],
+    finalExamWeight: "20",
+    assignmentMappings: { a1: "Homework", a2: "Homework" },
+  });
+
+  it("is empty for a complete setup", () => {
+    expect(confirmProblems(valid(), assignments)).toEqual([]);
+  });
+
+  it("explains a total that isn't 100", () => {
+    expect(confirmProblems({ ...valid(), finalExamWeight: "15" }, assignments)).toEqual([
+      "Weights add up to 95%. They need to total 100%.",
+    ]);
+  });
+
+  it("counts unmapped assignments", () => {
+    expect(confirmProblems({ ...valid(), assignmentMappings: { a1: "Homework" } }, assignments)).toEqual([
+      "1 of 2 assignments still needs a category.",
+    ]);
+  });
+
+  it("treats a mapping that differs only by spaces as mapped, like the save route", () => {
+    const spaced = { ...valid(), categories: [{ name: "Homework ", weight: "80" }], assignmentMappings: { a1: "Homework ", a2: "Homework" } };
+    expect(confirmProblems(spaced, assignments)).toEqual([]);
+  });
+
+  it("lists every problem at once, in form order", () => {
+    const broken: FormState = {
+      ...valid(),
+      categories: [
+        { name: "", weight: "50" },
+        { name: "Exams", weight: "20" },
+        { name: "exams", weight: "10" },
+      ],
+      finalExamWeight: "200",
+      assignmentMappings: {},
+      cutoffs: { A: "105" },
+      credits: "-1",
+    };
+    expect(confirmProblems(broken, assignments)).toEqual([
+      "Give every category a name and a weight from 0 to 100.",
+      "Category names must be unique.",
+      "The final exam weight must be from 0 to 100.",
+      // The out-of-range final exam weight still counts toward the total it shows.
+      "Weights add up to 280%. They need to total 100%.",
+      "2 of 2 assignments still need a category.",
+      "Enter grade cutoffs from 0 to 100.",
+      "Credits must be zero or greater.",
+    ]);
+  });
+});
+
+describe("Confirm button", () => {
+  it("is off and says why while an assignment is unmapped", () => {
+    const partial: GradeSetupCourse = {
+      ...course,
+      assignmentGroups: [{ name: "Homework", groupWeight: 40 }],
+    };
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[partial]} />);
+    const button = html.match(/<button[^>]*>Confirm and save<\/button>/)?.[0] ?? "";
+    expect(button).toContain('disabled=""');
+    expect(button).toContain('aria-describedby="confirm-problems"');
+    expect(html).toContain("Before you can confirm:");
+    expect(html).toContain("1 of 2 assignments still needs a category.");
+  });
+
+  it("is on when the setup is complete", () => {
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[course]} />);
+    expect(html).not.toContain("Before you can confirm:");
+    const button = html.match(/<button[^>]*>Confirm and save<\/button>/)?.[0] ?? "";
+    expect(button).toContain('type="submit"');
+    expect(button).not.toContain("disabled");
   });
 });
 

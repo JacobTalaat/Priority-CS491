@@ -112,6 +112,10 @@ describe("Notice", () => {
   it("announces success politely", () => {
     expect(renderToStaticMarkup(<Notice tone="success">Saved</Notice>)).toContain('role="status"');
   });
+
+  it("announces warnings politely", () => {
+    expect(renderToStaticMarkup(<Notice tone="warning">Check this</Notice>)).toContain('role="status"');
+  });
 });
 
 describe("TextArea", () => {
