@@ -2,7 +2,7 @@ import type { GradeSetupPayload } from "@/lib/grade-setup";
 
 export type GradeAssignment = { id: string; pointsPossible: number; grade: { score: number | null } | null };
 
-export type UnsupportedReason = "extra-credit" | "negative-score" | "non-finite-result";
+export type UnsupportedReason = "unsupported-rule" | "extra-credit" | "negative-score" | "non-finite-result";
 
 export type WeightedGradeResult =
   | { status: "calculated"; percentage: number }
@@ -20,6 +20,12 @@ export function calculateWeightedGrade(
   setup: GradeSetupPayload,
   assignments: readonly GradeAssignment[],
 ): WeightedGradeResult {
+  // Rules like drops or late penalties live in the syllabus, not the scores, so refuse
+  // before computing anything rather than producing a confident wrong number.
+  if (setup.unsupportedRules.length > 0) {
+    return { status: "unsupported", reason: "unsupported-rule" };
+  }
+
   const assignmentsById = new Map(assignments.map((assignment) => [assignment.id, assignment]));
   const categoriesByName = new Map(setup.categories.map((category) => [category.name, category]));
   const totalsByCategory = new Map<string, { earned: number; possible: number }>();
