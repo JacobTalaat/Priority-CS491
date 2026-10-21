@@ -101,6 +101,42 @@ describe("POST /api/courses/[courseId]/grade-setup", () => {
     });
   });
 
+  it("keeps saved rules when the body omits the unsupportedRules field", async () => {
+    const response = await POST(request(), context);
+    expect(response.status).toBe(200);
+    const [upsertArgs] = mockGradeSetupUpsert.mock.calls;
+    expect(upsertArgs[0].update).not.toHaveProperty("unsupportedRules");
+    expect(upsertArgs[0].update.confirmedAt).toEqual(expect.any(Date));
+  });
+
+  it("clears saved rules only on an explicit empty list", async () => {
+    const response = await POST(request({ ...SETUP, unsupportedRules: [] }), context);
+    expect(response.status).toBe(200);
+    const [upsertArgs] = mockGradeSetupUpsert.mock.calls;
+    expect(upsertArgs[0].update.unsupportedRules).toEqual([]);
+    expect(upsertArgs[0].create.unsupportedRules).toEqual([]);
+  });
+
+  it("saves rules the body provides explicitly", async () => {
+    const response = await POST(request({ ...SETUP, unsupportedRules: ["drop the lowest quiz"] }), context);
+    expect(response.status).toBe(200);
+    const [upsertArgs] = mockGradeSetupUpsert.mock.calls;
+    expect(upsertArgs[0].update.unsupportedRules).toEqual(["drop the lowest quiz"]);
+  });
+
+  it("rejects a malformed unsupportedRules value with 400 instead of saving", async () => {
+    const malformed = ["drop the lowest quiz", [{ id: "nope" }], 7, true];
+    for (const unsupportedRules of malformed) {
+      mockGradeSetupUpsert.mockClear();
+      const response = await POST(request({ ...SETUP, unsupportedRules }), context);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "Unsupported rules must be a list of at most 20 short text rules.",
+      });
+      expect(mockGradeSetupUpsert).not.toHaveBeenCalled();
+    }
+  });
+
   it("rejects invalid JSON and invalid weights without saving", async () => {
     const invalidWeights = await POST(request({ ...SETUP, finalExamWeight: 19 }), context);
     expect(invalidWeights.status).toBe(400);

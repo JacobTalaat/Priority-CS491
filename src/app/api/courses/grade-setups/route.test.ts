@@ -82,6 +82,7 @@ describe("GET /api/courses/grade-setups", () => {
             finalExamWeight: true,
             cutoffs: true,
             classDetails: true,
+            unsupportedRules: true,
             confirmedAt: true,
           },
         },

@@ -818,6 +818,7 @@ JSON body with:
 - `finalExamWeight` — number from 0 to 100. Together with category weights it must total 100.
 - `cutoffs` — object mapping grade labels to percentage cutoffs from 0 to 100.
 - `classDetails` — object mapping detail names to text, numbers, or `null`.
+- `unsupportedRules` (optional) — array of at most 20 short text rules (each at most 500 characters) the grade engine cannot express, such as drops, curves, extra credit, or late penalties. Omitting the field keeps the rules already saved for the course; sending an explicit list (including an empty one) replaces them. A value that is present but not a valid list is rejected. A course with any saved rule gets no computed grade.
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
@@ -833,7 +834,8 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
     ],
     "finalExamWeight": 20,
     "cutoffs": { "A": 90, "B": 80, "C": 70 },
-    "classDetails": { "instructor": "Professor Example", "section": "02" }
+    "classDetails": { "instructor": "Professor Example", "section": "02" },
+    "unsupportedRules": ["The lowest quiz score is dropped."]
   }'
 ```
 

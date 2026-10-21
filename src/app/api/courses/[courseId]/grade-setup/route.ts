@@ -54,10 +54,18 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const confirmedAt = new Date();
+  // Only an explicit unsupportedRules list replaces what is saved; a body that omits the
+  // field keeps the saved rules, because leaving them out does not mean there are none.
+  // On create there is no saved row, so an omitted field starts at the empty default.
+  const { unsupportedRules, ...setupFields } = parsed.data;
   await prisma.courseGradeSetup.upsert({
     where: { courseId: course.id },
-    create: { courseId: course.id, ...parsed.data, confirmedAt },
-    update: { ...parsed.data, confirmedAt },
+    create: { courseId: course.id, ...setupFields, unsupportedRules: unsupportedRules ?? [], confirmedAt },
+    update: {
+      ...setupFields,
+      confirmedAt,
+      ...(unsupportedRules === undefined ? {} : { unsupportedRules }),
+    },
   });
   return NextResponse.json({ confirmed: true, courseId: course.id, confirmedAt });
 }
