@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, Notice, PageHeader } from "@/components/ui";
 import { mappingSummary, unmappedAssignmentIds } from "@/lib/assignment-mapping";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
 import { getGradeSetupCourses, saveGradeSetup } from "@/lib/grade-setup-client";
-import { isCompleteTotal, weightTotalMessage } from "@/lib/weight-total";
 import type { GradeSetupCourse } from "@/lib/grade-setup-client";
+import { isCompleteTotal, weightTotalMessage } from "@/lib/weight-total";
+import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import { SyllabusUpload } from "@/components/syllabus/syllabus-upload";
 import styles from "./weights.module.css";
 
 type CategoryField = { name: string; weight: string };
-type FormState = {
+export type FormState = {
   categories: CategoryField[];
   assignmentMappings: Record<string, string>;
   finalExamWeight: string;
@@ -51,7 +52,9 @@ function formForCourse(course: GradeSetupCourse): FormState {
         saved.assignmentMappings.map((mapping) => [mapping.assignmentId, mapping.category]),
       ),
       finalExamWeight: String(saved.finalExamWeight),
-      cutoffs: Object.fromEntries(
+    // A syllabus may state only some cutoff labels, so suggestions merge over the current
+    // ones and no known label is lost.
+    cutoffs: Object.fromEntries(
         Object.entries(saved.cutoffs).map(([label, cutoff]) => [label, String(cutoff)]),
       ),
       instructor: typeof saved.classDetails.instructor === "string" ? saved.classDetails.instructor : "",
@@ -103,12 +106,118 @@ function canvasWeightsAvailable(course: GradeSetupCourse) {
   );
 }
 
-export function WeightsSetup() {
-  const [courses, setCourses] = useState<GradeSetupCourse[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState("");
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+function firstInstructorContactIndex(contacts: SyllabusSuggestions["contacts"]): number {
+  for (let index = 0; index < contacts.length; index++) {
+    const contact = contacts[index];
+    if (
+      contact.role !== null &&
+      /instructor/i.test(contact.role) &&
+      contact.name !== null &&
+      contact.name.trim() !== ""
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+// Fills the suggested grading rules into the form state. A fact the syllabus did not state
+// leaves the form's value alone: a missing suggestion is "did not say", not a default.
+// PR-39 owns whether Canvas weights should win over an explicitly requested syllabus read.
+export function applySyllabusSuggestions(
+  current: FormState,
+  suggestions: SyllabusSuggestions
+): FormState {
+  const categories =
+    suggestions.categories.length > 0
+      ? suggestions.categories.map((suggested) => ({
+          name: suggested.name,
+          weight: suggested.weight === null ? "" : String(suggested.weight),
+        }))
+      : current.categories;
+  const exactNameBySuggestedName = new Map<string, string>();
+  for (const category of categories) {
+    exactNameBySuggestedName.set(category.name.trim().toLowerCase(), category.name);
+  }
+  // buildPayload compares mapping values to category names exactly, so a mapping kept by
+  // case-insensitive name is rewritten to the suggested category's exact name.
+  const assignmentMappings = Object.fromEntries(
+    Object.entries(current.assignmentMappings)
+      .filter(([, categoryName]) => exactNameBySuggestedName.has(categoryName.trim().toLowerCase()))
+      .map(([assignmentId, categoryName]) => [
+        assignmentId,
+        exactNameBySuggestedName.get(categoryName.trim().toLowerCase()) ?? "",
+      ]),
+  );
+  const instructorIndex = firstInstructorContactIndex(suggestions.contacts);
+  return {
+    categories,
+    assignmentMappings,
+    finalExamWeight:
+      suggestions.finalExamWeight === null
+        ? current.finalExamWeight
+        : String(suggestions.finalExamWeight),
+    cutoffs: Object.fromEntries(
+      Object.entries({ ...current.cutoffs, ...suggestions.cutoffs }).map(([label, value]) => [
+        label,
+        String(value),
+      ]),
+    ),
+
+    instructor:
+      current.instructor.trim() === "" && instructorIndex !== -1
+        ? (suggestions.contacts[instructorIndex].name ?? "").trim()
+        : current.instructor,
+    section: current.section,
+    credits: current.credits,
+  };
+}
+
+export type SyllabusReadExtras = {
+  unsupportedRules: string[];
+  latePolicy: string | null;
+  officeHours: string | null;
+  contacts: SyllabusSuggestions["contacts"];
+};
+
+// The form changes plus the review-only parts of the last read — unsupported rules, late
+// policy, office hours, and every suggested contact including the one whose name was
+// auto-filled as the instructor. Held in component state for review before confirming;
+// nothing is saved. Returns null when the read is for a course that is no longer selected,
+// so a late reply cannot populate another class's form.
+export function applySyllabusRead(
+  courseId: string,
+  selectedCourseId: string,
+  form: FormState,
+  suggestions: SyllabusSuggestions
+): { form: FormState; extras: SyllabusReadExtras | null } | null {
+  if (courseId !== selectedCourseId) {
+    return null;
+  }
+  const extras: SyllabusReadExtras = {
+    unsupportedRules: suggestions.unsupportedRules,
+    latePolicy: suggestions.latePolicy,
+    officeHours: suggestions.officeHours,
+    contacts: suggestions.contacts,
+  };
+  const hasExtras =
+    extras.unsupportedRules.length > 0 ||
+    extras.latePolicy !== null ||
+    extras.officeHours !== null ||
+    extras.contacts.length > 0;
+  return { form: applySyllabusSuggestions(form, suggestions), extras: hasExtras ? extras : null };
+}
+
+export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCourse[] } = {}) {
+  const [courses, setCourses] = useState<GradeSetupCourse[]>(initialCourses ?? []);
+  const [selectedCourseId, setSelectedCourseId] = useState(initialCourses?.[0]?.id ?? "");
+  const [state, setState] = useState<"loading" | "ready" | "error">(
+    initialCourses ? "ready" : "loading",
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(blankForm);
+  const [form, setForm] = useState<FormState>(() =>
+    initialCourses?.[0] ? formForCourse(initialCourses[0]) : blankForm(),
+  );
   const [manualMode, setManualMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
@@ -140,6 +249,10 @@ export function WeightsSetup() {
   );
 
   useEffect(() => {
+    // initialCourses is for rendering the preloaded state in tests, so there is nothing to fetch.
+    if (initialCourses) {
+      return;
+    }
     let cancelled = false;
     getGradeSetupCourses().then((result) => {
       if (cancelled) {
@@ -160,7 +273,35 @@ export function WeightsSetup() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialCourses]);
+
+  // Kept in an effect rather than during render. A syllabus read's callback fires from an
+  // event, after any committed change, so the refs are current even for a long-old request.
+  const selectedCourseIdRef = useRef(selectedCourseId);
+  const formRef = useRef(form);
+  useEffect(() => {
+    selectedCourseIdRef.current = selectedCourseId;
+    formRef.current = form;
+  }, [selectedCourseId, form]);
+  const [readExtras, setReadExtras] = useState<SyllabusReadExtras | null>(null);
+
+  function handleSyllabusRead(courseId: string, suggestions: SyllabusSuggestions) {
+    // A read for a course the student already left must not touch the new course's form.
+    if (courseId !== selectedCourseIdRef.current) {
+      return;
+    }
+    const read = applySyllabusRead(courseId, selectedCourseIdRef.current, formRef.current, suggestions);
+    if (read === null) {
+      return;
+    }
+    setManualMode(true);
+    setForm(read.form);
+    setReadExtras(read.extras);
+    setMessage({
+      tone: "success",
+      text: "The AI's suggestions are filled in below. Nothing is saved until you confirm them.",
+    });
+  }
 
   function updateCategory(index: number, field: keyof CategoryField, value: string) {
     setForm((current) => {
@@ -312,6 +453,7 @@ export function WeightsSetup() {
                 }
                 setManualMode(false);
                 setMessage(null);
+                setReadExtras(null);
               }}
             >
               {courses.map((course) => (
@@ -322,7 +464,9 @@ export function WeightsSetup() {
             </select>
           </div>
 
-          {selectedCourse ? <SyllabusUpload key={selectedCourse.id} course={selectedCourse} /> : null}
+          {selectedCourse ? (
+            <SyllabusUpload key={selectedCourse.id} course={selectedCourse} onRead={handleSyllabusRead} />
+          ) : null}
 
           {selectedCourse && hasCanvasWeights && !selectedCourse.gradeSetup && !manualMode ? (
             <div className={styles.canvasWeights}>
@@ -525,6 +669,43 @@ export function WeightsSetup() {
                 ) : null}
               </div>
             </form>
+          ) : null}
+
+          {readExtras ? (
+            <section className={styles.canvasWeights} aria-label="What the syllabus also said">
+              <h2 className={styles.sectionTitle}>What the syllabus also said</h2>
+              {readExtras.unsupportedRules.length > 0 ? (
+                <>
+                  <Notice tone="error">
+                    The syllabus has grading rules Priority cannot calculate automatically. Account for these
+                    yourself when you check your grades:
+                  </Notice>
+                  <ul className={styles.weightList}>
+                    {readExtras.unsupportedRules.map((rule) => (
+                      <li key={rule}>{rule}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              {readExtras.latePolicy ? <p className={styles.description}>Late policy: {readExtras.latePolicy}</p> : null}
+              {readExtras.officeHours ? (
+                <p className={styles.description}>Office hours: {readExtras.officeHours}</p>
+              ) : null}
+              {readExtras.contacts.map((contact) => (
+                <p
+                  className={styles.description}
+                  key={`${contact.name ?? ""}-${contact.email ?? ""}`}
+                >
+                  {[
+                    contact.name ?? null,
+                    contact.role ?? null,
+                    contact.email ?? null,
+                  ]
+                    .filter((part) => part !== null)
+                    .join(" \u2014 ")}
+                </p>
+              ))}
+            </section>
           ) : null}
         </section>
       ) : null}

@@ -64,6 +64,36 @@ describe("uploadSyllabus", () => {
     expect(await uploadSyllabus("c1", pdf())).toEqual({
       ok: true,
       suggestions: { categories: [{ name: "Exams", weight: 60 }] },
+      suggestionsError: null,
+    });
+  });
+
+  it("returns null suggestions with the server's error message on a degraded read", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        suggestions: null,
+        suggestionsError: "Priority couldn't read your syllabus automatically. You can enter your weights by hand below.",
+      }),
+    );
+    expect(await uploadSyllabus("c1", pdf())).toEqual({
+      ok: true,
+      suggestions: null,
+      suggestionsError: "Priority couldn't read your syllabus automatically. You can enter your weights by hand below.",
+    });
+  });
+
+  it("falls back to its own message when a degraded read omits suggestionsError", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ suggestions: null }));
+    const result = await uploadSyllabus("c1", pdf());
+    expect(result).toEqual({ ok: true, suggestions: null, suggestionsError: expect.stringMatching(/couldn't read/) });
+  });
+
+  it("rejects a suggestions array as if the suggestions were missing", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ suggestions: [{ name: "Exams", weight: 60 }] }));
+    expect(await uploadSyllabus("c1", pdf())).toEqual({
+      ok: true,
+      suggestions: null,
+      suggestionsError: expect.stringMatching(/couldn't read/),
     });
   });
 
