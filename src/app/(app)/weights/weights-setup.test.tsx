@@ -25,6 +25,7 @@ import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import {
   applySyllabusRead,
   applySyllabusSuggestions,
+  detailsFilledByRead,
   WeightsSetup,
   type FormState,
 } from "./weights-setup";
@@ -55,6 +56,9 @@ function currentForm(): FormState {
     instructor: "",
     section: "002",
     credits: "3",
+    officeHours: "",
+    latePolicy: "",
+    contacts: "",
   };
 }
 
@@ -175,6 +179,46 @@ describe("applySyllabusSuggestions", () => {
     expect(next.section).toBe("002");
     expect(next.credits).toBe("3");
   });
+
+  it("fills empty office hours, late policy, and contacts so they can be edited", () => {
+    const next = applySyllabusSuggestions(currentForm(), fullSuggestions);
+    expect(next.officeHours).toBe("Tue 2-3 pm");
+    expect(next.latePolicy).toBe("Late work loses 2 points per day.");
+    expect(next.contacts).toBe("Dr. Ruiz (Instructor) eruiz@njit.edu");
+  });
+
+  it("never overwrites class details the student already typed", () => {
+    const typed = {
+      ...currentForm(),
+      officeHours: "Mon 10-11",
+      latePolicy: "No late work.",
+      contacts: "Prof. Ortega",
+    };
+    const next = applySyllabusSuggestions(typed, fullSuggestions);
+    expect(next.officeHours).toBe("Mon 10-11");
+    expect(next.latePolicy).toBe("No late work.");
+    expect(next.contacts).toBe("Prof. Ortega");
+  });
+
+  it("leaves class details empty when the syllabus didn't state them", () => {
+    const next = applySyllabusSuggestions(currentForm(), {
+      ...fullSuggestions,
+      latePolicy: null,
+      officeHours: null,
+      contacts: [],
+    });
+    expect(next.officeHours).toBe("");
+    expect(next.latePolicy).toBe("");
+    expect(next.contacts).toBe("");
+  });
+});
+
+describe("detailsFilledByRead", () => {
+  it("lists only the class details a read changed", () => {
+    const before = { ...currentForm(), latePolicy: "No late work." };
+    const after = applySyllabusSuggestions(before, fullSuggestions);
+    expect(detailsFilledByRead(before, after)).toEqual(["instructor", "officeHours", "contacts"]);
+  });
 });
 
 describe("applySyllabusRead", () => {
@@ -210,6 +254,37 @@ describe("applySyllabusRead", () => {
       contacts: [],
     });
     expect(silent!.extras).toBeNull();
+  });
+});
+
+describe("WeightsSetup class details", () => {
+  it("shows saved office hours, late policy, and contacts as editable fields", () => {
+    const saved: GradeSetupCourse = {
+      ...course,
+      gradeSetup: {
+        categories: [{ name: "Homework", weight: 100 }],
+        assignmentMappings: [
+          { assignmentId: "a1", category: "Homework" },
+          { assignmentId: "a2", category: "Homework" },
+        ],
+        finalExamWeight: 0,
+        cutoffs: { A: 90 },
+        classDetails: {
+          instructor: "Dr. Ruiz",
+          section: "002",
+          credits: 3,
+          officeHours: "Tue 2-3 pm",
+          latePolicy: "Late work loses 2 points per day.",
+          contacts: "Dr. Ruiz (Instructor) eruiz@njit.edu",
+        },
+        confirmedAt: "2026-10-20T12:00:00.000Z",
+      },
+    };
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[saved]} />);
+    expect(html).toMatch(/<label[^>]*>Office hours<\/label>/);
+    expect(html).toContain('value="Tue 2-3 pm"');
+    expect(html).toMatch(/<textarea[^>]*>Late work loses 2 points per day.<\/textarea>/);
+    expect(html).toMatch(/<textarea[^>]*>Dr. Ruiz \(Instructor\) eruiz@njit.edu<\/textarea>/);
   });
 });
 
