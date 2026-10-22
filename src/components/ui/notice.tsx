@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 import styles from "./notice.module.css";
 
 type NoticeProps = {
-  tone: "error" | "success";
+  tone: "error" | "warning" | "success";
   children: ReactNode;
 };
 
-// Errors are announced right away; success messages wait for the screen reader to finish.
+// Errors are announced right away; warnings and success messages wait for the screen reader to finish.
 export function Notice({ tone, children }: NoticeProps) {
   return (
     <p className={`${styles.notice} ${styles[tone]}`} role={tone === "error" ? "alert" : "status"}>
