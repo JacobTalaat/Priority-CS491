@@ -1,15 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, afterAll, describe, expect, it, vi } from "vitest";
 import { CanvasError, canvasFetch, normalizeCanvasBaseUrl } from "./canvas";
+import { setDnsResolverForTests } from "./public-host";
 
 const BASE_URL = "https://canvas.example.edu";
 const TOKEN = "canvas-token-123";
 const PATH = "/api/v1/users/self/profile";
+
+afterAll(() => {
+  // the vitest setup file owns the default test resolver; restore it
+  setDnsResolverForTests(async () => [{ address: "93.184.216.34" }]);
+});
 
 function jsonResponse(status: number, body: unknown = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function jsonRedirect(status: number, location: string): Response {
+  return new Response(null, { status, headers: { Location: location } });
 }
 
 describe("canvasFetch", () => {
@@ -61,6 +71,64 @@ describe("canvasFetch", () => {
     const headers = new Headers(init.headers);
     expect(headers.get("Authorization")).toBe(`Bearer ${TOKEN}`);
     expect(headers.get("Accept")).toBe("application/json");
+  });
+
+  it.each([301, 302, 307])("refuses a %d redirect instead of following it", async (status) => {
+    const mockFetch = vi.fn().mockResolvedValue(jsonRedirect(status, "https://canvas.njit.edu/login"));
+    vi.stubGlobal("fetch", mockFetch);
+    const error = await canvasFetch(BASE_URL, TOKEN, PATH).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CanvasError);
+    expect((error as CanvasError).kind).toBe("redirect");
+    expect((error as CanvasError).message).toBe(
+      "Canvas redirected to https://canvas.njit.edu. Use that address instead.",
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the redirect origin from a relative Location", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonRedirect(302, "/login")));
+    const error = await canvasFetch(BASE_URL, TOKEN, PATH).catch((e: unknown) => e);
+    expect((error as CanvasError).message).toBe(
+      "Canvas redirected to https://canvas.example.edu. Use that address instead.",
+    );
+  });
+
+  it("never follows a redirect to an internal address", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonRedirect(302, "http://169.254.169.254/latest/meta-data")));
+    const error = await canvasFetch(BASE_URL, TOKEN, PATH).catch((e: unknown) => e);
+    expect((error as CanvasError).kind).toBe("redirect");
+    expect((error as CanvasError).message).toBe(
+      "Canvas redirected this request; use your school's Canvas address directly.",
+    );
+  });
+
+  it("rejects a hostname whose DNS resolves to a private address, without ever connecting", async () => {
+    // fetch would succeed: the only thing standing between us and 10.0.0.5 is the DNS check.
+    const mockFetch = vi.fn().mockResolvedValue(jsonResponse(200, { id: 1 }));
+    vi.stubGlobal("fetch", mockFetch);
+    setDnsResolverForTests(vi.fn().mockResolvedValue([{ address: "10.0.0.5" }]));
+    const error = await canvasFetch(BASE_URL, TOKEN, PATH).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CanvasError);
+    expect((error as CanvasError).kind).toBe("network");
+    expect(mockFetch).not.toHaveBeenCalled();
+    setDnsResolverForTests(null);
+  });
+
+  it("asks fetch not to follow redirects, so the server never connects to the redirect target", async () => {
+    const mockFetch = vi.fn().mockResolvedValue(jsonResponse(200, { id: 1 }));
+    vi.stubGlobal("fetch", mockFetch);
+    await canvasFetch(BASE_URL, TOKEN, PATH);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("rejects an address that resolves privately at fetch time even when the stored URL passed normalize", async () => {
+    setDnsResolverForTests(
+      vi.fn().mockResolvedValue([{ address: "100.100.100.100" }]),
+    );
+    const error = await canvasFetch("https://172.15.0.1.example.edu", TOKEN, PATH).catch((e: unknown) => e);
+    expect((error as CanvasError).kind).toBe("network");
+    setDnsResolverForTests(null);
   });
 });
 

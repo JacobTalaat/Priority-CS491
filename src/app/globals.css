@@ -8,6 +8,7 @@
   --accent: #7fb2a4;
   --divider: rgba(233, 236, 236, 0.1);
   --danger: #e08a7e;
+  --warning: #e2b86b;
   --radius: 3px;
   --page-gutter: 48px;
 }
@@ -22,6 +23,7 @@ html[data-theme="light"] {
   --accent: #2f6f60;
   --divider: rgba(20, 22, 24, 0.1);
   --danger: #a8382b;
+  --warning: #8a5a00;
 }
 
 * {
