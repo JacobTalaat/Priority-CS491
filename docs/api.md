@@ -43,8 +43,6 @@ curl http://localhost:3000/api/health
 }
 ```
 
----
-
 ### `POST /api/auth/signup`
 
 Creates a student account, then creates a session token for that account.
@@ -95,8 +93,6 @@ curl -i -X POST http://localhost:3000/api/auth/signup \
   "error": "Email already registered"
 }
 ```
-
----
 
 ### `POST /api/auth/login`
 
@@ -157,8 +153,6 @@ curl -i -X POST http://localhost:3000/api/auth/login \
 }
 ```
 
----
-
 ### `POST /api/auth/refresh`
 
 Rotates the current session: deletes the row for the presented token and creates a fresh session with a new token and expiry.
@@ -198,8 +192,6 @@ curl -i -X POST http://localhost:3000/api/auth/refresh \
 }
 ```
 
----
-
 ### `GET /api/auth/me`
 
 Returns the currently authenticated user from the bearer token in `Authorization`.
@@ -234,8 +226,6 @@ curl -i http://localhost:3000/api/auth/me \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/account/delete`
 
@@ -296,8 +286,6 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 }
 ```
 
----
-
 ### `POST /api/canvas/token`
 
 Saves the student's Canvas personal access token. The token is checked against Canvas first and only stored if Canvas accepts it. It is encrypted before it is written and is never returned by any route.
@@ -333,11 +321,11 @@ curl -i -X POST http://localhost:3000/api/canvas/token \
 }
 ```
 
-`400` — the body was invalid, the Canvas URL was not a valid `https` origin, or Canvas rejected the token:
+`400` — the body was invalid, the Canvas URL was not a valid `https` origin, Canvas rejected the token, or Canvas answered with a redirect (redirects are never followed; the message names the redirect target so the student can paste that address instead):
 
 ```json
 {
-  "error": "Canvas rejected this token"
+  "error": "Canvas redirected to https://canvas.njit.edu. Use that address instead."
 }
 ```
 
@@ -349,15 +337,13 @@ curl -i -X POST http://localhost:3000/api/canvas/token \
 }
 ```
 
-`502` — Canvas could not be reached:
+`502` — Canvas could not be reached (including an address that resolves to a private IP):
 
 ```json
 {
   "error": "Could not reach Canvas"
 }
 ```
-
----
 
 ### `GET /api/canvas/token`
 
@@ -395,8 +381,6 @@ curl -i http://localhost:3000/api/canvas/token \
 }
 ```
 
----
-
 ### `DELETE /api/canvas/token`
 
 Disconnects Canvas by clearing the stored credentials.
@@ -431,8 +415,6 @@ curl -i -X DELETE http://localhost:3000/api/canvas/token \
 }
 ```
 
----
-
 ### `POST /api/canvas/token/test`
 
 Re-checks the stored Canvas token against Canvas. On success the stored "last checked" time is updated. A rejected token is reported but left in place, so the student can replace it rather than silently losing the connection.
@@ -463,11 +445,11 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
 }
 ```
 
-`400` — Canvas rejected the stored token:
+`400` — Canvas rejected the stored token, or Canvas answered with a redirect (redirects are never followed; the message names the redirect target so the student can correct the stored address):
 
 ```json
 {
-  "error": "Canvas rejected this token"
+  "error": "Canvas redirected to https://canvas.njit.edu. Use that address instead."
 }
 ```
 
@@ -502,8 +484,6 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
   "error": "Token check failed"
 }
 ```
-
----
 
 ### `GET /api/canvas/courses`
 
@@ -550,8 +530,6 @@ When Canvas is not connected, the response is `{"connected":false,"courses":[]}`
 }
 ```
 
----
-
 ### `GET /api/canvas/calendar-feed`
 
 Reports whether a private Canvas calendar feed link is saved for the authenticated student. The feed URL is never returned because it grants access to calendar data.
@@ -585,8 +563,6 @@ curl -i http://localhost:3000/api/canvas/calendar-feed \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/canvas/calendar-feed`
 
@@ -640,8 +616,6 @@ curl -i -X POST http://localhost:3000/api/canvas/calendar-feed \
 }
 ```
 
----
-
 ### `DELETE /api/canvas/calendar-feed`
 
 Removes the saved Canvas calendar feed link.
@@ -676,8 +650,6 @@ curl -i -X DELETE http://localhost:3000/api/canvas/calendar-feed \
 }
 ```
 
----
-
 ### `GET /api/canvas/sync`
 
 Reports when the student's Canvas data was last fully synced, so clients can show a "last synced" time without triggering a sync.
@@ -711,8 +683,6 @@ curl -i http://localhost:3000/api/canvas/sync \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/canvas/sync`
 
@@ -800,8 +770,6 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 }
 ```
 
----
-
 ### `POST /api/courses/[courseId]/grade-setup`
 
 Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
@@ -873,8 +841,6 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 }
 ```
 
----
-
 ### `GET /api/courses/grade-setups`
 
 Returns the authenticated student's current courses, their Canvas assignment-group weights and assignments, and any saved confirmed grade setup. Courses are included whether or not the Canvas token is currently connected.
@@ -924,8 +890,6 @@ curl -i http://localhost:3000/api/courses/grade-setups \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/courses/[courseId]/syllabus`
 
@@ -1035,8 +999,6 @@ A `null` weight or field means the syllabus did not state it — never zero. The
 }
 ```
 
----
-
 ### `GET /api/courses/[courseId]`
 
 Returns one of the student's current courses with its saved class details and its assignments. The grades are the raw stored scores (no course percentages or category breakdown here). The assignments are ordered by due date with undated last. The `officeHours`, `latePolicy` and `contacts` are read from the saved class details and are null until captured.
@@ -1106,7 +1068,144 @@ curl -i http://localhost:3000/api/courses/course-id \
 }
 ```
 
----
+### `GET /api/courses/[courseId]/grade`
+
+Returns the overall grade for one of the student's current courses and, when the course is graded by category, the grade inside each category so the student can see what is pulling the grade down. Which engine produced the grade comes back as `engine`: `weighted` when a confirmed setup with usable category weights was used, `points` otherwise (no confirmed setup, or one whose categories carry no usable weight — the weighted math would be impossible). A points grade has an empty `breakdown`; a points course has no categories.
+
+When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
+
+- `extra-credit` — a score above the points possible, or points on an assignment with no points possible, so the total could exceed 100%.
+- `negative-score` — a stored grade below zero.
+- `non-finite-result` — the arithmetic produced a number that is not usable.
+
+Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
+
+- **Method**: `GET`
+- **Path**: `/api/courses/[courseId]/grade`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/courses/course-id/grade \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — a weighted course with a confirmed setup, graded in both categories:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "calculated", "percentage": 80.4 },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": 81,
+      "pointsEarned": 81,
+      "pointsPossible": 100,
+      "gradedCount": 2,
+      "ungradedCount": 0
+    },
+    {
+      "category": "Exams",
+      "weight": 60,
+      "percentage": 80,
+      "pointsEarned": 120,
+      "pointsPossible": 150,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    }
+  ]
+}
+```
+
+`200` — a course graded on total points instead, so there is no breakdown:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": false,
+  "engine": "points",
+  "grade": { "status": "calculated", "percentage": 75 },
+  "breakdown": []
+}
+```
+
+`200` — nothing graded enough to produce a grade:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "insufficient-data" },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": null,
+      "pointsEarned": 0,
+      "pointsPossible": 0,
+      "gradedCount": 0,
+      "ungradedCount": 1
+    }
+  ]
+}
+```
+
+`200` — a grading rule the engine cannot express, with the reason carried through:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "unsupported", "reason": "extra-credit" },
+  "breakdown": []
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
 
 ### `POST /api/devices`
 
@@ -1181,8 +1280,6 @@ curl -i -X POST http://localhost:3000/api/devices \
   "error": "Couldn't register this device right now. Try again."
 }
 ```
-
----
 
 ### `DELETE /api/devices`
 
