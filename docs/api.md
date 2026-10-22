@@ -43,8 +43,6 @@ curl http://localhost:3000/api/health
 }
 ```
 
----
-
 ### `POST /api/auth/signup`
 
 Creates a student account, then creates a session token for that account.
@@ -95,8 +93,6 @@ curl -i -X POST http://localhost:3000/api/auth/signup \
   "error": "Email already registered"
 }
 ```
-
----
 
 ### `POST /api/auth/login`
 
@@ -157,8 +153,6 @@ curl -i -X POST http://localhost:3000/api/auth/login \
 }
 ```
 
----
-
 ### `POST /api/auth/refresh`
 
 Rotates the current session: deletes the row for the presented token and creates a fresh session with a new token and expiry.
@@ -198,8 +192,6 @@ curl -i -X POST http://localhost:3000/api/auth/refresh \
 }
 ```
 
----
-
 ### `GET /api/auth/me`
 
 Returns the currently authenticated user from the bearer token in `Authorization`.
@@ -234,8 +226,6 @@ curl -i http://localhost:3000/api/auth/me \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/ask`
 
@@ -336,8 +326,6 @@ The `kind` is `syllabus`, `assignment`, or `class-details`. The `source` object 
 }
 ```
 
----
-
 ### `POST /api/account/delete`
 
 Deletes the currently authenticated account after confirming its password.
@@ -396,8 +384,6 @@ Send an `Authorization` bearer token and the account password in the JSON body.
   "error": "Too many password attempts."
 }
 ```
-
----
 
 ### `POST /api/canvas/token`
 
@@ -458,8 +444,6 @@ curl -i -X POST http://localhost:3000/api/canvas/token \
 }
 ```
 
----
-
 ### `GET /api/canvas/token`
 
 Reports whether the student has connected Canvas. Never returns the token itself.
@@ -496,8 +480,6 @@ curl -i http://localhost:3000/api/canvas/token \
 }
 ```
 
----
-
 ### `DELETE /api/canvas/token`
 
 Disconnects Canvas by clearing the stored credentials.
@@ -531,8 +513,6 @@ curl -i -X DELETE http://localhost:3000/api/canvas/token \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/canvas/token/test`
 
@@ -604,8 +584,6 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
 }
 ```
 
----
-
 ### `GET /api/canvas/courses`
 
 Returns the current-term courses imported for the authenticated student. Courses are returned only while Canvas is connected.
@@ -651,8 +629,6 @@ When Canvas is not connected, the response is `{"connected":false,"courses":[]}`
 }
 ```
 
----
-
 ### `GET /api/canvas/calendar-feed`
 
 Reports whether a private Canvas calendar feed link is saved for the authenticated student. The feed URL is never returned because it grants access to calendar data.
@@ -686,8 +662,6 @@ curl -i http://localhost:3000/api/canvas/calendar-feed \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/canvas/calendar-feed`
 
@@ -741,8 +715,6 @@ curl -i -X POST http://localhost:3000/api/canvas/calendar-feed \
 }
 ```
 
----
-
 ### `DELETE /api/canvas/calendar-feed`
 
 Removes the saved Canvas calendar feed link.
@@ -776,8 +748,6 @@ curl -i -X DELETE http://localhost:3000/api/canvas/calendar-feed \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `GET /api/canvas/sync`
 
@@ -813,11 +783,9 @@ curl -i http://localhost:3000/api/canvas/sync \
 }
 ```
 
----
-
 ### `POST /api/canvas/sync`
 
-Runs the Canvas import for the student right away. When the Canvas API is available, it imports courses, assignment groups, assignments, and grades. If no token is saved, or Canvas is unreachable or returns a server error, and a calendar feed is saved, it instead imports dated assignment events from that feed for the student's already imported current courses. A token that Canvas rejects is never hidden behind the feed: it returns `400` so the student knows to reconnect. All writes are idempotent upserts. The last-synced time is saved only when the selected import completes successfully.
+Runs the Canvas import for the student right away. When the Canvas API is available, it imports courses, assignment groups, assignments, and grades. If no token is saved, or Canvas is unreachable or returns a server error, and a calendar feed is saved, it instead imports dated assignment events from that feed for the student's already imported current courses. A token that Canvas rejects is never hidden behind the feed: it returns `400` so the student knows to reconnect. All writes are idempotent upserts. After a complete successful Canvas listing per course, assignments and assignment groups Canvas no longer returns are removed from that course, along with the grades of removed assignments. A failed listing removes nothing, and an empty listing for a course that holds 20 or more is treated as a Canvas glitch and skipped for that sync. The last-synced time is saved only when the selected import completes successfully.
 
 - **Method**: `POST`
 - **Path**: `/api/canvas/sync`
@@ -901,8 +869,6 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 }
 ```
 
----
-
 ### `POST /api/courses/[courseId]/grade-setup`
 
 Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
@@ -974,8 +940,6 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 }
 ```
 
----
-
 ### `GET /api/courses/grade-setups`
 
 Returns the authenticated student's current courses, their Canvas assignment-group weights and assignments, and any saved confirmed grade setup. Courses are included whether or not the Canvas token is currently connected.
@@ -1025,8 +989,6 @@ curl -i http://localhost:3000/api/courses/grade-setups \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/courses/[courseId]/syllabus`
 
@@ -1136,8 +1098,6 @@ A `null` weight or field means the syllabus did not state it — never zero. The
 }
 ```
 
----
-
 ### `GET /api/courses/[courseId]`
 
 Returns one of the student's current courses with its saved class details and its assignments. The grades are the raw stored scores (no course percentages or category breakdown here). The assignments are ordered by due date with undated last. The `officeHours`, `latePolicy` and `contacts` are read from the saved class details and are null until captured.
@@ -1207,8 +1167,6 @@ curl -i http://localhost:3000/api/courses/course-id \
 }
 ```
 
----
-
 ### `GET /api/courses/[courseId]/grade`
 
 Returns the overall grade for one of the student's current courses and, when the course is graded by category, the grade inside each category so the student can see what is pulling the grade down. Which engine produced the grade comes back as `engine`: `weighted` when a confirmed setup with usable category weights was used, `points` otherwise (no confirmed setup, or one whose categories carry no usable weight — the weighted math would be impossible). A points grade has an empty `breakdown`; a points course has no categories.
@@ -1220,6 +1178,12 @@ When the grade cannot be worked out, `grade.status` says so. `insufficient-data`
 - `non-finite-result` — the arithmetic produced a number that is not usable.
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
+
+The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the setup holds the final exam's weight outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
+
+The needed score assumes every other ungraded assignment keeps counting the way the engine counts it today: ungraded work is left out of the grade, so the rest of the current average holds as-is. If more ungraded work is graded later, the real grade can land lower or higher than predicted, so `secured` and `out-of-reach` are only certain when nothing else is still to be graded. `otherWorkPending` on a `solved` result is `true` when other counted work has no grade yet; the student-facing sentences then say the answer holds "if your other grades stay where they are".
+
+The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. If the saved setup gives the final exam a weight outside the categories (`finalExamWeight` above 0), that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final. Make the final exam its own category to get shares.
 
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
@@ -1267,6 +1231,12 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "gradedCount": 1,
       "ungradedCount": 0
     }
+  ],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "hw-2", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
   ]
 }
 ```
@@ -1284,7 +1254,12 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "setupConfirmed": false,
   "engine": "points",
   "grade": { "status": "calculated", "percentage": 75 },
-  "breakdown": []
+  "breakdown": [],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 25, "category": null },
+    { "assignmentId": "proj-1", "share": 75, "category": null }
+  ]
 }
 ```
 
@@ -1311,7 +1286,9 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "gradedCount": 0,
       "ungradedCount": 1
     }
-  ]
+  ],
+  "finalExam": { "status": "no-final" },
+  "shares": [{ "assignmentId": "hw-1", "share": 40, "category": "Homework" }]
 }
 ```
 
@@ -1328,7 +1305,61 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "setupConfirmed": true,
   "engine": "weighted",
   "grade": { "status": "unsupported", "reason": "extra-credit" },
-  "breakdown": []
+  "breakdown": [],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
+  ]
+}
+```
+
+`200` — the setup picked the final exam and its grade has not landed yet, so every letter in the cutoffs is priced out. Homework sits at 80% (worth 40% of the course, with the final exam worth the other 60%), which is also the current displayed grade while the final is ungraded. The grade with the final scored `x` points is 32 + 0.6x, so an A needs 96.67 of the final's 100 points (96.7%), a B exactly 80 (80%), and a C 63.34 (63.4%):
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "calculated", "percentage": 80 },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": 80,
+      "pointsEarned": 80,
+      "pointsPossible": 100,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    },
+    {
+      "category": "Final Exam",
+      "weight": 60,
+      "percentage": null,
+      "pointsEarned": 0,
+      "pointsPossible": 0,
+      "gradedCount": 0,
+      "ungradedCount": 1
+    }
+  ],
+  "finalExam": {
+    "status": "solved",
+    "results": [
+      { "letter": "A", "status": "needed", "score": 96.67, "percent": 96.7 },
+      { "letter": "B", "status": "needed", "score": 80, "percent": 80 },
+      { "letter": "C", "status": "needed", "score": 63.34, "percent": 63.4 }
+    ],
+    "otherWorkPending": false
+  },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 40, "category": "Homework" },
+    { "assignmentId": "final-1", "share": 60, "category": "Final Exam" }
+  ]
 }
 ```
 
@@ -1345,6 +1376,89 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
 ```json
 {
   "error": "Current course not found."
+}
+```
+
+### `POST /api/assignments/[assignmentId]/plan`
+
+Asks the AI to break one of the student's current-course assignments into 3 to 7 concrete steps with minute estimates, so tonight can start instead of being spent staring at the work. Nothing about the plan is saved; ask again any time. The due date in the prompt is rendered in `America/New_York` campus time.
+
+- **Method**: `POST`
+- **Path**: `/api/assignments/[assignmentId]/plan`
+
+**Request**
+
+JSON body with:
+
+- `hoursAvailable` (number, optional, between 0.5 and 12) — the hours the student has tonight. When given, the plan's steps must total no more than that time; when omitted, only the per-step bounds apply. The body itself is optional.
+
+```bash
+curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"hoursAvailable": 2.5}'
+```
+
+**Response**
+
+`200` — the plan, with `totalMinutes` equal to the sum of the step minutes:
+
+```json
+{
+  "steps": [
+    { "title": "Skim the project brief and pick a topic", "minutes": 15 },
+    { "title": "Draft the two-page outline", "minutes": 45 },
+    { "title": "Review the sources and submit", "minutes": 20 }
+  ],
+  "totalMinutes": 80
+}
+```
+
+`400` — `hoursAvailable` was present but not a number between 0.5 and 12:
+
+```json
+{
+  "error": "Send hoursAvailable as a number of hours between 0.5 and 12."
+}
+```
+
+`400` — the body was not valid JSON or was not an object:
+
+```json
+{
+  "error": "Invalid JSON body."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not belong to a current course of this student:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
+`503` — Priority's AI budget for this month is used up:
+
+```json
+{
+  "error": "Priority's AI budget for this month is used up, so it couldn't plan this assignment. Try again next month."
+}
+```
+
+`502` — any other AI failure, for example the provider was unreachable or its answer did not parse into a valid plan:
+
+```json
+{
+  "error": "Priority couldn't turn this assignment into steps right now. Try again in a little while."
 }
 ```
 
