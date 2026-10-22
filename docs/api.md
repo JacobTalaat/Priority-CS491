@@ -1120,6 +1120,8 @@ When the grade cannot be worked out, `grade.status` says so. `insufficient-data`
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
+The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. If the saved setup gives the final exam a weight outside the categories (`finalExamWeight` above 0), that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final. Make the final exam its own category to get shares.
+
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
 
@@ -1166,6 +1168,11 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "gradedCount": 1,
       "ungradedCount": 0
     }
+  ],
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "hw-2", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
   ]
 }
 ```
@@ -1183,7 +1190,11 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "setupConfirmed": false,
   "engine": "points",
   "grade": { "status": "calculated", "percentage": 75 },
-  "breakdown": []
+  "breakdown": [],
+  "shares": [
+    { "assignmentId": "hw-1", "share": 25, "category": null },
+    { "assignmentId": "proj-1", "share": 75, "category": null }
+  ]
 }
 ```
 
@@ -1210,7 +1221,8 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "gradedCount": 0,
       "ungradedCount": 1
     }
-  ]
+  ],
+  "shares": [{ "assignmentId": "hw-1", "share": 40, "category": "Homework" }]
 }
 ```
 
@@ -1227,7 +1239,11 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "setupConfirmed": true,
   "engine": "weighted",
   "grade": { "status": "unsupported", "reason": "extra-credit" },
-  "breakdown": []
+  "breakdown": [],
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
+  ]
 }
 ```
 

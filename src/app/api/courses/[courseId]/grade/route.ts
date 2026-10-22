@@ -5,6 +5,7 @@ import { parseGradeSetup, type GradeSetupPayload } from "@/lib/grade-setup";
 import { calculatePointsGrade } from "@/lib/points-grade";
 import { calculateWeightedGrade, type WeightedGradeResult } from "@/lib/weighted-grade";
 import { buildCategoryBreakdown, chooseGradeEngine, type CategoryBreakdown } from "@/lib/grade-engine";
+import { assignmentShares, type AssignmentShare } from "@/lib/grade-share";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ type GradeResponse = {
   engine: "weighted" | "points";
   grade: WeightedGradeResult;
   breakdown: CategoryBreakdown[];
+  shares: AssignmentShare[];
 };
 
 // A saved row is a confirmed setup: the confirm step is what writes it.
@@ -82,7 +84,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
-  const choice = chooseGradeEngine(parseSavedSetup(course.gradeSetup));
+  const setup = parseSavedSetup(course.gradeSetup);
+  const choice = chooseGradeEngine(setup);
   const assignments = course.assignments.map((assignment) => ({
     id: assignment.id,
     pointsPossible: assignment.pointsPossible,
@@ -111,5 +114,6 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     engine: choice.engine,
     grade,
     breakdown,
+    shares: assignmentShares(setup, assignments),
   });
 }
