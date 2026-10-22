@@ -1,10 +1,12 @@
 import { fetchAllPages } from "@/lib/canvas-pagination";
+import { htmlToText } from "@/lib/html-to-text";
 import { prisma } from "@/lib/prisma";
 import type { Course } from "@/generated/prisma/client";
 
 type CanvasAssignment = {
   id?: unknown;
   name?: unknown;
+  description?: unknown;
   due_at?: unknown;
   points_possible?: unknown;
   assignment_group_id?: unknown;
@@ -51,6 +53,9 @@ export async function importAssignments(
     }
     const data = {
       title: assignment.name,
+      // Canvas descriptions are HTML; the AI planner reads plain text. The API import is
+      // the authority for it, so a re-import with no description clears a stale one.
+      description: htmlToText(assignment.description),
       dueAt,
       hasDueDate: dueAt !== null,
       pointsPossible: assignment.points_possible,

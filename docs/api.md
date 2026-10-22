@@ -43,8 +43,6 @@ curl http://localhost:3000/api/health
 }
 ```
 
----
-
 ### `POST /api/auth/signup`
 
 Creates a student account, then creates a session token for that account.
@@ -95,8 +93,6 @@ curl -i -X POST http://localhost:3000/api/auth/signup \
   "error": "Email already registered"
 }
 ```
-
----
 
 ### `POST /api/auth/login`
 
@@ -157,8 +153,6 @@ curl -i -X POST http://localhost:3000/api/auth/login \
 }
 ```
 
----
-
 ### `POST /api/auth/refresh`
 
 Rotates the current session: deletes the row for the presented token and creates a fresh session with a new token and expiry.
@@ -198,8 +192,6 @@ curl -i -X POST http://localhost:3000/api/auth/refresh \
 }
 ```
 
----
-
 ### `GET /api/auth/me`
 
 Returns the currently authenticated user from the bearer token in `Authorization`.
@@ -234,8 +226,6 @@ curl -i http://localhost:3000/api/auth/me \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/account/delete`
 
@@ -296,8 +286,6 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 }
 ```
 
----
-
 ### `POST /api/canvas/token`
 
 Saves the student's Canvas personal access token. The token is checked against Canvas first and only stored if Canvas accepts it. It is encrypted before it is written and is never returned by any route.
@@ -357,8 +345,6 @@ curl -i -X POST http://localhost:3000/api/canvas/token \
 }
 ```
 
----
-
 ### `GET /api/canvas/token`
 
 Reports whether the student has connected Canvas. Never returns the token itself.
@@ -395,8 +381,6 @@ curl -i http://localhost:3000/api/canvas/token \
 }
 ```
 
----
-
 ### `DELETE /api/canvas/token`
 
 Disconnects Canvas by clearing the stored credentials.
@@ -430,8 +414,6 @@ curl -i -X DELETE http://localhost:3000/api/canvas/token \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/canvas/token/test`
 
@@ -503,8 +485,6 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
 }
 ```
 
----
-
 ### `GET /api/canvas/courses`
 
 Returns the current-term courses imported for the authenticated student. Courses are returned only while Canvas is connected.
@@ -550,8 +530,6 @@ When Canvas is not connected, the response is `{"connected":false,"courses":[]}`
 }
 ```
 
----
-
 ### `GET /api/canvas/calendar-feed`
 
 Reports whether a private Canvas calendar feed link is saved for the authenticated student. The feed URL is never returned because it grants access to calendar data.
@@ -585,8 +563,6 @@ curl -i http://localhost:3000/api/canvas/calendar-feed \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/canvas/calendar-feed`
 
@@ -640,8 +616,6 @@ curl -i -X POST http://localhost:3000/api/canvas/calendar-feed \
 }
 ```
 
----
-
 ### `DELETE /api/canvas/calendar-feed`
 
 Removes the saved Canvas calendar feed link.
@@ -676,8 +650,6 @@ curl -i -X DELETE http://localhost:3000/api/canvas/calendar-feed \
 }
 ```
 
----
-
 ### `GET /api/canvas/sync`
 
 Reports when the student's Canvas data was last fully synced, so clients can show a "last synced" time without triggering a sync.
@@ -711,8 +683,6 @@ curl -i http://localhost:3000/api/canvas/sync \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/canvas/sync`
 
@@ -800,8 +770,6 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 }
 ```
 
----
-
 ### `POST /api/courses/[courseId]/grade-setup`
 
 Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
@@ -873,8 +841,6 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 }
 ```
 
----
-
 ### `GET /api/courses/grade-setups`
 
 Returns the authenticated student's current courses, their Canvas assignment-group weights and assignments, and any saved confirmed grade setup. Courses are included whether or not the Canvas token is currently connected.
@@ -924,8 +890,6 @@ curl -i http://localhost:3000/api/courses/grade-setups \
   "error": "Unauthorized"
 }
 ```
-
----
 
 ### `POST /api/courses/[courseId]/syllabus`
 
@@ -1035,8 +999,6 @@ A `null` weight or field means the syllabus did not state it — never zero. The
 }
 ```
 
----
-
 ### `GET /api/courses/[courseId]`
 
 Returns one of the student's current courses with its saved class details and its assignments. The grades are the raw stored scores (no course percentages or category breakdown here). The assignments are ordered by due date with undated last. The `officeHours`, `latePolicy` and `contacts` are read from the saved class details and are null until captured.
@@ -1105,8 +1067,6 @@ curl -i http://localhost:3000/api/courses/course-id \
   "error": "Current course not found."
 }
 ```
-
----
 
 ### `GET /api/courses/[courseId]/grade`
 
@@ -1244,6 +1204,89 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
 ```json
 {
   "error": "Current course not found."
+}
+```
+
+### `POST /api/assignments/[assignmentId]/plan`
+
+Asks the AI to break one of the student's current-course assignments into 3 to 7 concrete steps with minute estimates, so tonight can start instead of being spent staring at the work. Nothing about the plan is saved; ask again any time. The due date in the prompt is rendered in `America/New_York` campus time.
+
+- **Method**: `POST`
+- **Path**: `/api/assignments/[assignmentId]/plan`
+
+**Request**
+
+JSON body with:
+
+- `hoursAvailable` (number, optional, between 0.5 and 12) — the hours the student has tonight. When given, the plan's steps must total no more than that time; when omitted, only the per-step bounds apply. The body itself is optional.
+
+```bash
+curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"hoursAvailable": 2.5}'
+```
+
+**Response**
+
+`200` — the plan, with `totalMinutes` equal to the sum of the step minutes:
+
+```json
+{
+  "steps": [
+    { "title": "Skim the project brief and pick a topic", "minutes": 15 },
+    { "title": "Draft the two-page outline", "minutes": 45 },
+    { "title": "Review the sources and submit", "minutes": 20 }
+  ],
+  "totalMinutes": 80
+}
+```
+
+`400` — `hoursAvailable` was present but not a number between 0.5 and 12:
+
+```json
+{
+  "error": "Send hoursAvailable as a number of hours between 0.5 and 12."
+}
+```
+
+`400` — the body was not valid JSON or was not an object:
+
+```json
+{
+  "error": "Invalid JSON body."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not belong to a current course of this student:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
+`503` — Priority's AI budget for this month is used up:
+
+```json
+{
+  "error": "Priority's AI budget for this month is used up, so it couldn't plan this assignment. Try again next month."
+}
+```
+
+`502` — any other AI failure, for example the provider was unreachable or its answer did not parse into a valid plan:
+
+```json
+{
+  "error": "Priority couldn't turn this assignment into steps right now. Try again in a little while."
 }
 ```
 
