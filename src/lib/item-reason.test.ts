@@ -17,6 +17,7 @@ function ranked(overrides: Partial<RankedItem> & { assignmentId: string }): Rank
     dueDay: null,
     overdue: false,
     score: null,
+    boundary: null,
     ...overrides,
   };
 }
@@ -228,7 +229,7 @@ describe("withReasons", () => {
     const item = ranked({ assignmentId: "a", share: 15 });
 
     const [entry] = withReasons(
-      [{ ...item, boundary: { letter: "A-", direction: "within-reach" } as const }],
+      [{ ...item, boundary: { letter: "A-", cutoff: 90, direction: "within-reach", distance: 1.1 } }],
       NOW,
     );
 
