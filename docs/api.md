@@ -1207,6 +1207,91 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
 }
 ```
 
+### `POST /api/assignments/[assignmentId]/plan`
+
+Asks the AI to break one of the student's current-course assignments into 3 to 7 concrete steps with minute estimates, so tonight can start instead of being spent staring at the work. Nothing about the plan is saved; ask again any time. The due date in the prompt is rendered in `America/New_York` campus time.
+
+- **Method**: `POST`
+- **Path**: `/api/assignments/[assignmentId]/plan`
+
+**Request**
+
+JSON body with:
+
+- `hoursAvailable` (number, optional, between 0.5 and 12) — the hours the student has tonight. When given, the plan's steps must total no more than that time; when omitted, only the per-step bounds apply. The body itself is optional.
+
+```bash
+curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"hoursAvailable": 2.5}'
+```
+
+**Response**
+
+`200` — the plan, with `totalMinutes` equal to the sum of the step minutes:
+
+```json
+{
+  "steps": [
+    { "title": "Skim the project brief and pick a topic", "minutes": 15 },
+    { "title": "Draft the two-page outline", "minutes": 45 },
+    { "title": "Review the sources and submit", "minutes": 20 }
+  ],
+  "totalMinutes": 80
+}
+```
+
+`400` — `hoursAvailable` was present but not a number between 0.5 and 12:
+
+```json
+{
+  "error": "Send hoursAvailable as a number of hours between 0.5 and 12."
+}
+```
+
+`400` — the body was not valid JSON or was not an object:
+
+```json
+{
+  "error": "Invalid JSON body."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not belong to a current course of this student:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
+`503` — Priority's AI budget for this month is used up:
+
+```json
+{
+  "error": "Priority's AI budget for this month is used up, so it couldn't plan this assignment. Try again next month."
+}
+```
+
+`502` — any other AI failure, for example the provider was unreachable or its answer did not parse into a valid plan:
+
+```json
+{
+  "error": "Priority couldn't turn this assignment into steps right now. Try again in a little while."
+}
+```
+
+---
+
 ### `POST /api/devices`
 
 Registers the device token for one of the student's devices, so push notifications reach it. Each device keeps its own row: the body carries a `deviceId` (the app's stable identifier), and re-registering from the same device replaces that device's token. Students are allowed multiple devices — registering an iPhone does not retire an iPad.
@@ -1280,6 +1365,8 @@ curl -i -X POST http://localhost:3000/api/devices \
   "error": "Couldn't register this device right now. Try again."
 }
 ```
+
+---
 
 ### `DELETE /api/devices`
 
