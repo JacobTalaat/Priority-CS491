@@ -772,7 +772,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 ### `POST /api/courses/[courseId]/grade-setup`
 
-Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
+Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, every assignment in the course must map to exactly one category, and a final exam weight above 0 requires picking which assignment is the final exam (`classDetails.finalExamAssignmentId` set to one of the course's assignment IDs). Repeating the request replaces the saved setup.
 
 - **Method**: `POST`
 - **Path**: `/api/courses/[courseId]/grade-setup`
@@ -785,7 +785,7 @@ JSON body with:
 - `assignmentMappings` — array of `{ "assignmentId": string, "category": string }` using assignment IDs belonging to this course.
 - `finalExamWeight` — number from 0 to 100. Together with category weights it must total 100.
 - `cutoffs` — object mapping grade labels to percentage cutoffs from 0 to 100.
-- `classDetails` — object mapping detail names to text, numbers, or `null`.
+- `classDetails` — object mapping detail names to text, numbers, or `null`. A `finalExamAssignmentId` entry names the assignment that is the final exam (the Weights form saves `null` when none is picked).
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
@@ -817,11 +817,17 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 }
 ```
 
-`400` — invalid setup, weights do not total 100, or assignment mappings are incomplete or refer to another course:
+`400` — invalid setup, weights do not total 100, a final exam weight above 0 without a picked final, or assignment mappings are incomplete or refer to another course:
 
 ```json
 {
   "error": "Category weights and the final exam weight must add up to 100."
+}
+```
+
+```json
+{
+  "error": "Pick which assignment is the final exam, or set the final exam weight to 0."
 }
 ```
 
@@ -1072,6 +1078,8 @@ curl -i http://localhost:3000/api/courses/course-id \
 
 Returns the overall grade for one of the student's current courses and, when the course is graded by category, the grade inside each category so the student can see what is pulling the grade down. Which engine produced the grade comes back as `engine`: `weighted` when a confirmed setup with usable category weights was used, `points` otherwise (no confirmed setup, or one whose categories carry no usable weight — the weighted math would be impossible). A points grade has an empty `breakdown`; a points course has no categories.
 
+A final exam weight is graded as its own category for the picked final: before the engine runs, the picked assignment (`finalExamAssignmentId` in the saved class details) is moved out of its mapped category, and the final exam weight becomes a `Final exam` category — added to an existing `Final exam` or `Final` category when the setup already has one. This can turn a previously points-graded setup weighted: a setup whose only positive weight was the final exam weight now has a usable category. A setup saved with no picked final has no such weight, so nothing moves.
+
 When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
 
 - `extra-credit` — a score above the points possible, or points on an assignment with no points possible, so the total could exceed 100%.
@@ -1080,11 +1088,11 @@ When the grade cannot be worked out, `grade.status` says so. `insufficient-data`
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
-The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the setup holds the final exam's weight outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
+The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the final exam is picked but mapped nowhere while its weight lives outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
 
 The needed score assumes every other ungraded assignment keeps counting the way the engine counts it today: ungraded work is left out of the grade, so the rest of the current average holds as-is. If more ungraded work is graded later, the real grade can land lower or higher than predicted, so `secured` and `out-of-reach` are only certain when nothing else is still to be graded. `otherWorkPending` on a `solved` result is `true` when other counted work has no grade yet; the student-facing sentences then say the answer holds "if your other grades stay where they are".
 
-The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. If the saved setup gives the final exam a weight outside the categories (`finalExamWeight` above 0), that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final. Make the final exam its own category to get shares.
+The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. When a picked final exam's weight lives outside the categories, the route folds that weight into the final's own category before computing shares, so the final carries the slice the syllabus gave it. If the setup holds a weight outside the categories with no final exam picked and mapped, that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final.
 
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`

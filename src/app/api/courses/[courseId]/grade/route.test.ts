@@ -232,6 +232,107 @@ describe("GET /api/courses/[courseId]/grade", () => {
     ]);
   });
 
+  it("grades a picked final as its own category instead of inside its mapped one", async () => {
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          ...setupRow,
+          categories: [{ name: "Homework", weight: 70 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 30,
+          classDetails: { finalExamAssignmentId: "final-1" },
+        },
+        assignments: [
+          { id: "hw-1", pointsPossible: 100, grade: { score: 70 } },
+          { id: "final-1", pointsPossible: 100, grade: { score: 100 } },
+        ],
+      }),
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    // Homework: 70/100 = 70% at 70, for the final exam weight of 30, and the final earns 100%:
+    // the syllabus's 70/30 split reads (70*0.7 + 30*1.0) = 79, not 50.
+    expect(body.engine).toBe("weighted");
+    expect(body.grade).toEqual({ status: "calculated", percentage: 79 });
+    expect(body.breakdown).toEqual([
+      { category: "Homework", weight: 70, percentage: 70, pointsEarned: 70, pointsPossible: 100, gradedCount: 1, ungradedCount: 0 },
+      { category: "Final exam", weight: 30, percentage: 100, pointsEarned: 100, pointsPossible: 100, gradedCount: 1, ungradedCount: 0 },
+    ]);
+  });
+
+  it("grades homework only while the picked final is still ungraded", async () => {
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          ...setupRow,
+          categories: [{ name: "Homework", weight: 70 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 30,
+          classDetails: { finalExamAssignmentId: "final-1" },
+        },
+        assignments: [
+          { id: "hw-1", pointsPossible: 100, grade: { score: 70 } },
+          { id: "final-1", pointsPossible: 100, grade: { score: null } },
+        ],
+      }),
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    // Only homework is graded, so its 70% fills the whole grade: the ungraded final never
+    // acts like a zero.
+    expect(body.grade).toEqual({ status: "calculated", percentage: 70 });
+    expect(body.breakdown).toEqual([
+      { category: "Homework", weight: 70, percentage: 70, pointsEarned: 70, pointsPossible: 100, gradedCount: 1, ungradedCount: 0 },
+      { category: "Final exam", weight: 30, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
+    ]);
+  });
+
+  it("grades a setup whose only positive weight was the final exam weight as weighted", async () => {
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          ...setupRow,
+          categories: [{ name: "Homework", weight: 0 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 100,
+          classDetails: { finalExamAssignmentId: "final-1" },
+        },
+        assignments: [
+          { id: "hw-1", pointsPossible: 100, grade: { score: null } },
+          { id: "final-1", pointsPossible: 100, grade: { score: 90 } },
+        ],
+      }),
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    // Folding the 100 into a Final exam category gives the setup a usable weight, so the
+    // weighted engine runs and the final's own score is the grade.
+    expect(body.engine).toBe("weighted");
+    expect(body.grade).toEqual({ status: "calculated", percentage: 90 });
+    expect(body.breakdown).toEqual([
+      { category: "Homework", weight: 0, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
+      { category: "Final exam", weight: 100, percentage: 90, pointsEarned: 90, pointsPossible: 100, gradedCount: 1, ungradedCount: 0 },
+    ]);
+  });
+
   it("grades with the points engine when the saved setup has no usable category weights", async () => {
     mockCourseFindFirst.mockResolvedValue(
       courseRow({
@@ -320,6 +421,77 @@ describe("GET /api/courses/[courseId]/grade", () => {
     const body = await response.json();
 
     expect(body.finalExam).toEqual({ status: "final-not-counted" });
+  });
+
+  it("solves for a final whose weight is folded into its own category", async () => {
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 70 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 30,
+          cutoffs: { A: 90, B: 80 },
+          classDetails: { finalExamAssignmentId: "final-1" },
+          confirmedAt: new Date("2026-10-11T18:30:00.000Z"),
+        },
+        assignments: [
+          { id: "hw-1", pointsPossible: 100, grade: { score: 90 } },
+          { id: "final-1", pointsPossible: 100, grade: null },
+        ],
+      }),
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    // Homework: 90% at 70. A perfect final reaches 93, so an A needs
+    // 63 + 0.3x >= 90, that is 90 of the 100 points; a B needs 56.67.
+    expect(body.finalExam).toEqual({
+      status: "solved",
+      results: [
+        { letter: "A", status: "needed", score: 90, percent: 90 },
+        { letter: "B", status: "needed", score: 56.67, percent: 56.7 },
+      ],
+      otherWorkPending: false,
+    });
+    // The normalized setup feeds the shares too: the final carries the 30 the
+    // syllabus gave it, instead of every share collapsing to null.
+    expect(body.shares).toEqual([
+      { assignmentId: "hw-1", share: 70, category: "Homework" },
+      { assignmentId: "final-1", share: 30, category: "Final exam" },
+    ]);
+  });
+
+  it("reports an already graded final whose weight is folded into its own category", async () => {
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 70 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 30,
+          cutoffs: { A: 90, B: 80 },
+          classDetails: { finalExamAssignmentId: "final-1" },
+          confirmedAt: new Date("2026-10-11T18:30:00.000Z"),
+        },
+        assignments: [
+          { id: "hw-1", pointsPossible: 100, grade: { score: 70 } },
+          { id: "final-1", pointsPossible: 100, grade: { score: 85 } },
+        ],
+      }),
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.finalExam).toEqual({ status: "already-graded" });
   });
 
   it("does not return another user's or a non-current course", async () => {

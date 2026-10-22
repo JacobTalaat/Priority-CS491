@@ -20,6 +20,60 @@ export type GradeSetupParseResult =
   | { ok: true; data: GradeSetupPayload }
   | { ok: false; error: string };
 
+// The grade engines only read weights through categories, yet a setup may park the
+// final exam's weight in finalExamWeight with the final assignment mapped into another
+// category. Folding that weight into a category here lets such a saved setup grade
+// as the syllabus stated, while the setup stays stored exactly as confirmed.
+export function withFinalExamCategory(setup: GradeSetupPayload): GradeSetupPayload {
+  const finalExamAssignmentId = setup.classDetails.finalExamAssignmentId;
+  if (
+    setup.finalExamWeight <= 0 ||
+    typeof finalExamAssignmentId !== "string" ||
+    finalExamAssignmentId.length === 0 ||
+    !setup.assignmentMappings.some((mapping) => mapping.assignmentId === finalExamAssignmentId)
+  ) {
+    return setup;
+  }
+
+  // Copy everything so the saved setup never changes under us.
+  const categories = setup.categories.map((category) => ({ ...category }));
+  // An existing "Final exam" / "Final" category takes the weight only when nothing but
+  // the picked final is graded in it. A name is not enough: a "Final" category can hold a
+  // final project, and pooling that with the exam would weight both by their combined share.
+  const existingFinal = categories.find((category) => {
+    const normalizedName = category.name.trim().toLowerCase();
+    if (normalizedName !== "final exam" && normalizedName !== "final") {
+      return false;
+    }
+    return setup.assignmentMappings.every(
+      (mapping) => mapping.category !== category.name || mapping.assignmentId === finalExamAssignmentId,
+    );
+  });
+  let finalCategoryName: string;
+  if (existingFinal) {
+    existingFinal.weight += setup.finalExamWeight;
+    finalCategoryName = existingFinal.name;
+  } else {
+    // Category names must stay unique, so a taken name gets a plain suffix.
+    const taken = new Set(categories.map((category) => category.name.trim().toLowerCase()));
+    finalCategoryName = taken.has("final exam") ? "Final exam (picked)" : "Final exam";
+    categories.push({ name: finalCategoryName, weight: setup.finalExamWeight });
+  }
+
+  const assignmentMappings = setup.assignmentMappings.filter(
+    (mapping) => mapping.assignmentId !== finalExamAssignmentId,
+  );
+  assignmentMappings.push({ assignmentId: finalExamAssignmentId, category: finalCategoryName });
+
+  return {
+    ...setup,
+    categories,
+    assignmentMappings,
+    // The weight now lives in a category; totals still sum to 100.
+    finalExamWeight: 0,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
