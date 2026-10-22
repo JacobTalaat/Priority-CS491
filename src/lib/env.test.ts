@@ -59,6 +59,29 @@ describe("readEnv", () => {
   });
 });
 
+describe("CRON_SECRET", () => {
+  it("throws naming CRON_SECRET when it is missing", () => {
+    expect(() => readEnv({}).cronSecret).toThrow(
+      "Missing required environment variable CRON_SECRET"
+    );
+  });
+
+  it("throws naming CRON_SECRET when it is empty", () => {
+    expect(() => readEnv({ CRON_SECRET: "" }).cronSecret).toThrow("CRON_SECRET");
+  });
+
+  it("throws when CRON_SECRET is shorter than 32 characters", () => {
+    expect(() => readEnv({ CRON_SECRET: "short-secret" }).cronSecret).toThrow(
+      "CRON_SECRET must be at least 32 characters"
+    );
+  });
+
+  it("accepts a secret of at least 32 characters", () => {
+    const secret = "cron-secret-that-is-at-least-thirty-two-characters-long";
+    expect(readEnv({ CRON_SECRET: secret }).cronSecret).toBe(secret);
+  });
+});
+
 describe("AI_BASE_URL", () => {
   it("throws naming AI_BASE_URL when it is missing", () => {
     expect(() => readEnv({}).aiBaseUrl).toThrow("AI_BASE_URL");

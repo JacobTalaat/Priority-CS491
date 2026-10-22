@@ -16,6 +16,7 @@ export type Env = {
   readonly aiOutputMicrosPerMillion: number;
   readonly aiMonthlyBudgetMicros: number;
   readonly aiTimeoutMs: number;
+  readonly cronSecret: string;
 };
 
 function requireValue(name: string, value: string | undefined): string {
@@ -130,6 +131,13 @@ export function readEnv(source: EnvSource): Env {
         throw new Error("AI_TIMEOUT_MS must be an integer between 1000 and 300000");
       }
       return parsed;
+    },
+    get cronSecret(): string {
+      const value = requireValue("CRON_SECRET", source.CRON_SECRET).trim();
+      if (value.length < 32) {
+        throw new Error("CRON_SECRET must be at least 32 characters");
+      }
+      return value;
     },
   };
 }

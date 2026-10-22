@@ -732,7 +732,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 **Response**
 
-`200` — the import completed; every count is the number of records written for that stage:
+`200` — the import completed; every count is the number of records written for that stage, and `gradesPosted` is the number of newly Canvas-posted grades detected during this sync (scores that went from absent to a number, recorded once per assignment in `GradePostedEvent`):
 
 ```json
 {
@@ -740,7 +740,8 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
   "courses": 4,
   "assignmentGroups": 7,
   "assignments": 62,
-  "grades": 58
+  "grades": 58,
+  "gradesPosted": 3
 }
 ```
 
@@ -757,6 +758,14 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 ```json
 {
   "error": "Canvas not connected"
+}
+```
+
+`409` — a sync (this one or the daily job) is already running for the account. The sync lock is held for the length of one sync:
+
+```json
+{
+  "error": "A sync is already running for your account. Try again in a minute."
 }
 ```
 
@@ -1103,6 +1112,183 @@ curl -i http://localhost:3000/api/courses/course-id \
 ```json
 {
   "error": "Current course not found."
+}
+```
+
+---
+
+### `GET /api/jobs/daily-sync`
+
+Runs one tick of the daily Canvas sync job. Every call counts: the job is a resumable tick rather than one long run, so a scheduler should call this every 15 minutes until the response reports `finished: true`. The tick syncs connected users (a stored Canvas token or a saved calendar feed) who have not been attempted yet in the current America/New_York calendar day, one at a time, and stops starting new users once 40 seconds of the tick are spent; every user it did start is awaited to completion. The per-day `SyncRun` is created by the first tick and later ticks add to its counters; the tick that finds nobody left sets `finishedAt`.
+
+Before each user is synced, the tick tries to take that account's sync lock. A student mid "Sync now" is recorded as `skipped-locked` for the day and never retried today, without counting as a failure. An attempt that stayed unfinished for more than 5 minutes (its process was killed) is reaped by the next tick as a timeout failure. Failures are recorded in `SyncFailure` with a fixed message per kind (`unauthorized`, `network`, `http`, `timeout`, `other`) that never contains raw error text, and each failed user also logs one fixed console line.
+
+This route is protected by a shared secret rather than an app session so any scheduler can call it. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for three ways to schedule the call (Vercel Cron, a crontab line with curl, or a GitHub Actions schedule).
+
+- **Method**: `GET`
+- **Path**: `/api/jobs/daily-sync`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i http://localhost:3000/api/jobs/daily-sync \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran. `attemptedThisTick` is how many users were attempted now, `remaining` how many connected users are still owed a sync today, and the counters are the day's totals across ticks:
+
+```json
+{
+  "day": "2026-10-22",
+  "attemptedThisTick": 2,
+  "remaining": 1,
+  "usersSucceeded": 2,
+  "usersFailed": 1,
+  "gradesPosted": 4,
+  "finished": false
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Daily sync failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+---
+
+### `POST /api/jobs/daily-sync`
+
+Runs the same tick of the daily Canvas sync job as `GET /api/jobs/daily-sync`, for curl-style schedulers. Same shared secret, same response.
+
+To check the job keeps the list current (acceptance: "checked two days in a row"): on two consecutive days, call the tick repeatedly (every 15 minutes) until `finished: true`, or open the `GET /api/jobs/daily-sync/runs` route afterwards — one `SyncRun` row per day means the job ran on both days, and that check needs no database access.
+
+- **Method**: `POST`
+- **Path**: `/api/jobs/daily-sync`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i -X POST http://localhost:3000/api/jobs/daily-sync \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran:
+
+```json
+{
+  "day": "2026-10-22",
+  "attemptedThisTick": 2,
+  "remaining": 1,
+  "usersSucceeded": 2,
+  "usersFailed": 1,
+  "gradesPosted": 4,
+  "finished": false
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Daily sync failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+---
+
+### `GET /api/jobs/daily-sync/runs`
+
+Returns the last 7 daily-sync runs (one per America/New_York day) with their day totals, so anyone can check that the job ran — for example on two consecutive days — without database access. Same shared secret as the tick routes.
+
+- **Method**: `GET`
+- **Path**: `/api/jobs/daily-sync/runs`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i http://localhost:3000/api/jobs/daily-sync/runs \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the most recent runs, newest first (up to 7):
+
+```json
+{
+  "runs": [
+    {
+      "runId": "run-id",
+      "day": "2026-10-22",
+      "startedAt": "2026-10-22T04:00:00.000Z",
+      "finishedAt": "2026-10-22T04:03:00.000Z",
+      "usersTotal": 3,
+      "usersSucceeded": 3,
+      "usersFailed": 0,
+      "gradesPosted": 4
+    }
+  ]
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 

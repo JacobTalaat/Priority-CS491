@@ -29,8 +29,12 @@ model User {
   canvasCalendarFeedIv     String?
   canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
+  syncStartedAt     DateTime?
   sessions          Session[]
   courses           Course[]
+  gradePostedEvents GradePostedEvent[]
+  syncAttempts      SyncAttempt[]
+  syncFailures      SyncFailure[]
 }
 
 model Session {
@@ -125,6 +129,7 @@ model Assignment {
   course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
   assignmentGroup AssignmentGroup? @relation(fields: [assignmentGroupId], references: [id], onDelete: SetNull)
   grade           Grade?
+  gradePostedEvents GradePostedEvent[]
 
   @@unique([courseId, canvasId])
   @@index([courseId, dueAt])
@@ -146,4 +151,60 @@ model AiSpendMonth {
   spentMicros    BigInt   @default(0)
   reservedMicros BigInt   @default(0)
   updatedAt      DateTime @updatedAt
+}
+
+model GradePostedEvent {
+  id           String    @id @default(cuid())
+  userId       String
+  assignmentId String
+  score        Float
+  postedAt     DateTime  @default(now())
+  notifiedAt   DateTime?
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId])
+}
+
+model SyncRun {
+  id             String    @id @default(cuid())
+  day            String    @unique
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  usersTotal     Int
+  usersSucceeded Int
+  usersFailed    Int
+  gradesPosted   Int
+
+  failures SyncFailure[]
+  attempts SyncAttempt[]
+}
+
+model SyncAttempt {
+  id         String    @id @default(cuid())
+  runId      String
+  userId     String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  outcome    String?
+
+  run  SyncRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, userId])
+}
+
+model SyncFailure {
+  id        String   @id @default(cuid())
+  runId     String
+  userId    String
+  kind      String
+  message   String
+  createdAt DateTime @default(now())
+
+  run  SyncRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
 }
