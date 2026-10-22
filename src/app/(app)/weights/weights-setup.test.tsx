@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createRoot } from "react-dom/client";
+import { act } from "react";
 
 const { mockGetCourses, mockUploadProps } = vi.hoisted(() => ({
   mockGetCourses: vi.fn(),
@@ -11,8 +14,8 @@ vi.mock("@/lib/grade-setup-client", () => ({
   saveGradeSetup: vi.fn(),
 }));
 
-// Captured rather than rendered so the test can inspect and invoke the props WeightsSetup
-// passes down, including onRead, without a DOM.
+// Captured rather than rendered so the tests can inspect and invoke the props WeightsSetup
+// passes down, including onRead, without going through the file input.
 vi.mock("@/components/syllabus/syllabus-upload", () => ({
   SyllabusUpload: (props: Record<string, unknown>) => {
     mockUploadProps(props);
@@ -22,6 +25,7 @@ vi.mock("@/components/syllabus/syllabus-upload", () => ({
 
 import type { GradeSetupCourse } from "@/lib/grade-setup-client";
 import type { SyllabusSuggestions } from "@/lib/syllabus-client";
+import { syllabusReadMessage } from "@/lib/weight-precedence";
 import {
   applySyllabusRead,
   applySyllabusSuggestions,
@@ -44,8 +48,43 @@ const course: GradeSetupCourse = {
   gradeSetup: null,
 };
 
-function renderWeightsSetup(): void {
-  renderToStaticMarkup(<WeightsSetup initialCourses={[course]} />);
+const canvasCourse: GradeSetupCourse = {
+  id: "c-canvas",
+  name: "Databases",
+  courseCode: "CS-331",
+  term: "Fall 2026",
+  assignmentGroups: [
+    { name: "Homework", groupWeight: 40 },
+    { name: "Projects", groupWeight: 60 },
+  ],
+  assignments: [
+    { id: "a1", title: "Homework 1", assignmentGroup: { name: "Homework", groupWeight: 40 } },
+    { id: "a2", title: "Project 1", assignmentGroup: { name: "Projects", groupWeight: 60 } },
+  ],
+  gradeSetup: null,
+};
+
+// Canvas reports 0 for the "Imported Assignments" group but its weights still total 100.
+const completeZeroCanvasCourse: GradeSetupCourse = {
+  id: "c-canvas-zero",
+  name: "Networks",
+  courseCode: "CS-352",
+  term: "Fall 2026",
+  assignmentGroups: [
+    { name: "Homework", groupWeight: 40 },
+    { name: "Imported Assignments", groupWeight: 0 },
+    { name: "Projects", groupWeight: 60 },
+  ],
+  assignments: [
+    { id: "a1", title: "Homework 1", assignmentGroup: { name: "Homework", groupWeight: 40 } },
+    { id: "a2", title: "Imported file upload", assignmentGroup: { name: "Imported Assignments", groupWeight: 0 } },
+    { id: "a3", title: "Project 1", assignmentGroup: { name: "Projects", groupWeight: 60 } },
+  ],
+  gradeSetup: null,
+};
+
+function renderWeightsSetup(courses: GradeSetupCourse[] = [course]): void {
+  renderToStaticMarkup(<WeightsSetup initialCourses={courses} />);
 }
 
 function currentForm(): FormState {
@@ -374,6 +413,36 @@ describe("applySyllabusRead", () => {
     });
     expect(silent!.extras).toBeNull();
   });
+
+  it("rebuilds a Canvas-weighted course's weights from Canvas and reports that Canvas was kept", () => {
+    const canvasForm = {
+      ...currentForm(),
+      categories: [
+        { name: "Homework", weight: "40" },
+        { name: "Projects", weight: "60" },
+      ],
+      assignmentMappings: { a1: "Homework" },
+      finalExamWeight: "0",
+    };
+    const read = applySyllabusRead(
+      "c1",
+      "c1",
+      canvasForm,
+      fullSuggestions,
+      canvasCourse.assignmentGroups,
+      canvasCourse.assignments.map((assignment) => ({
+        id: assignment.id,
+        groupName: assignment.assignmentGroup?.name ?? null,
+      }))
+    );
+    // The applied weights are Canvas's own, whatever the form held before.
+    expect(read!.form.categories).toEqual(canvasForm.categories);
+    expect(read!.form.assignmentMappings).toEqual({ a1: "Homework", a2: "Projects" });
+    // The final exam sits inside a Canvas group when the weights total 100.
+    expect(read!.form.finalExamWeight).toBe("0");
+    expect(read!.canvasKept).toBe(true);
+    expect(syllabusReadMessage(read!.canvasKept)).toContain("Canvas weights were kept");
+  });
 });
 
 describe("WeightsSetup class details", () => {
@@ -426,5 +495,105 @@ describe("WeightsSetup wiring to SyllabusUpload", () => {
     const onRead = props.onRead as (courseId: string, suggestions: SyllabusSuggestions) => void;
     expect(() => onRead("c-other", fullSuggestions)).not.toThrow();
     expect(() => onRead("c1", fullSuggestions)).not.toThrow();
+    // The resulting state is asserted through the real DOM in the test below; here the
+    // handler still runs end to end and drops a read for a course it does not belong to.
+  });
+
+  it("after a syllabus read the rendered form still shows the Canvas weights and says Canvas won", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    try {
+      await act(async () => {
+        root.render(<WeightsSetup initialCourses={[canvasCourse]} />);
+      });
+      const props = mockUploadProps.mock.calls[0][0] as Record<string, unknown>;
+      const onRead = props.onRead as (courseId: string, suggestions: SyllabusSuggestions) => void;
+      // The syllabus suggests Homework 30 with two categories Canvas does not weigh — it
+      // wins only on a course without Canvas weights, so the read must not change anything
+      // weighted here.
+      await act(async () => {
+        onRead("c-canvas", fullSuggestions);
+      });
+      const nameInputs = [
+        ...container.querySelectorAll("input:not([type])"),
+      ] as HTMLInputElement[];
+      // The first two typeless inputs are the category names; instructor and section follow.
+      expect(nameInputs.slice(0, 2).map((input) => input.value)).toEqual(["Homework", "Projects"]);
+      const numberInputs = [
+        ...container.querySelectorAll("input[type='number']"),
+      ] as HTMLInputElement[];
+      // Category weights stay Canvas's 40/60 and the final exam resets to 0 because the
+      // Canvas weights already total 100; the old bug would have shown the syllabus's 30.
+      expect(numberInputs.slice(0, 3).map((input) => input.value)).toEqual(["40", "60", "0"]);
+      expect(
+        (document.getElementById("assignment-a1") as HTMLSelectElement).value,
+      ).toBe("Homework");
+      expect(
+        (document.getElementById("assignment-a2") as HTMLSelectElement).value,
+      ).toBe("Projects");
+      expect(container.textContent).toContain(
+        "Your professor's Canvas weights were kept. The syllabus filled in the rest."
+      );
+    } finally {
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("after a read on a 40/0/60 Canvas course the form shows that shape exactly and stays confirmable", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    try {
+      await act(async () => {
+        root.render(<WeightsSetup initialCourses={[completeZeroCanvasCourse]} />);
+      });
+      const props = mockUploadProps.mock.calls[0][0] as Record<string, unknown>;
+      const onRead = props.onRead as (courseId: string, suggestions: SyllabusSuggestions) => void;
+      // The syllabus suggests Homework 30, reweights "Imported Assignments" to 10 and puts
+      // the final exam at 20: with Canvas complete (40 + 0 + 60 = 100) none of that applies.
+      await act(async () => {
+        onRead("c-canvas-zero", fullSuggestions);
+      });
+      const nameInputs = [
+        ...container.querySelectorAll("input:not([type])"),
+      ] as HTMLInputElement[];
+      expect(nameInputs.slice(0, 3).map((input) => input.value)).toEqual([
+        "Homework",
+        "Imported Assignments",
+        "Projects",
+      ]);
+      const numberInputs = [
+        ...container.querySelectorAll("input[type='number']"),
+      ] as HTMLInputElement[];
+      // Every Canvas weight shows as stated (0 stays "0", never blank) and the final exam
+      // field resets to 0.
+      expect(numberInputs.slice(0, 4).map((input) => input.value)).toEqual(["40", "0", "60", "0"]);
+      // No blank weight inputs, so buildPayload's per-field validation would accept it.
+      expect(numberInputs.slice(0, 4).every((input) => input.value.trim() !== "")).toBe(true);
+      expect(
+        (document.getElementById("assignment-a2") as HTMLSelectElement).value,
+      ).toBe("Imported Assignments");
+      // The syllabus's final exam weight of 20 was overridden, which alone says Canvas won.
+      expect(container.textContent).toContain(
+        "Your professor's Canvas weights were kept. The syllabus filled in the rest."
+      );
+    } finally {
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+    }
   });
 });
