@@ -31,6 +31,7 @@ model User {
   lastSyncedAt      DateTime?
   sessions          Session[]
   courses           Course[]
+  deviceTokens      DeviceToken[]
 }
 
 model Session {
@@ -146,4 +147,19 @@ model AiSpendMonth {
   spentMicros    BigInt   @default(0)
   reservedMicros BigInt   @default(0)
   updatedAt      DateTime @updatedAt
+}
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  deviceId  String
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
 }

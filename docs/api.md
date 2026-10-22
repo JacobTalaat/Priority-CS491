@@ -1108,4 +1108,128 @@ curl -i http://localhost:3000/api/courses/course-id \
 
 ---
 
+### `POST /api/devices`
+
+Registers the device token for one of the student's devices, so push notifications reach it. Each device keeps its own row: the body carries a `deviceId` (the app's stable identifier), and re-registering from the same device replaces that device's token. Students are allowed multiple devices — registering an iPhone does not retire an iPad.
+
+A student's devices are capped at 10. Registering an extra device past the cap removes the row with the oldest update, so a device that has not re-registered for the longest time stops receiving pushes first.
+
+A token registered by another account moves to the caller: registering a token removes it from any other row it is still tied to, including rows owned by a different student, before it is saved here. This risks breaking another app that expected its token to still report to the first account, and it is accepted on purpose: the token is an opaque per-device push address, and this app never exposes token values through any route, so a caller can only ever silence its own device.
+
+Concurrent registrations from the same device converge on the same row; if the database reports a write conflict or unique violation from a concurrent request, the registration is retried whole, and after three failed attempts it returns `503`.
+
+- **Method**: `POST`
+- **Path**: `/api/devices`
+
+**Request**
+
+JSON body with:
+
+- `token` (string) — the APNs device token, a hex string with an even number of characters, from 32 to 400 characters (case-insensitive; Apple does not fix the length in advance). It is stored lowercased.
+- `platform` (string) — only `"ios"` is accepted today.
+- `deviceId` (string) — a UUID identifying the device install (on iOS, `identifierForVendor`), case-insensitive. Stored lowercased.
+
+```bash
+curl -i -X POST http://localhost:3000/api/devices \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"9f4b1c3d2e5a60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0","platform":"ios","deviceId":"123e4567-e89b-12d3-a456-426614174000"}'
+```
+
+**Response**
+
+`200` — the token was registered for the device:
+
+```json
+{
+  "registered": true
+}
+```
+
+`400` — the body is not JSON, or a field did not validate; each error is a plain sentence naming what was wrong:
+
+```json
+{
+  "error": "Device token must be a hex string of 32 to 400 characters."
+}
+```
+
+```json
+{
+  "error": "Only the ios platform is supported."
+}
+```
+
+```json
+{
+  "error": "deviceId must be a UUID."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`503` — the registration kept losing to a concurrent registration and ran out of retries:
+
+```json
+{
+  "error": "Couldn't register this device right now. Try again."
+}
+```
+
+---
+
+### `DELETE /api/devices`
+
+Forgets a device token, used when the student logs out. The token is validated the same way POST validates it, trimmed, and matched lowercased. A token is removed only when it belongs to the student calling the route; if it is registered to nobody, or to another account, the response is the same, so no information about other accounts leaks.
+
+- **Method**: `DELETE`
+- **Path**: `/api/devices`
+
+**Request**
+
+JSON body with:
+
+- `token` (string) — the device token to forget.
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/devices \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"9f4b1c3d2e5a60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0"}'
+```
+
+**Response**
+
+`200` — whether a token owned by the student was removed:
+
+```json
+{
+  "removed": true
+}
+```
+
+`400` — the body is not JSON, or the token did not validate:
+
+```json
+{
+  "error": "Device token must be a hex string of 32 to 400 characters."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
 When you add a route, copy the section above and fill in the new route: keep the section heading in the same `METHOD /path` backticked form, and give it a **Method** line, a **Path** line, a **Request** part, and a **Response** part with a JSON example for every status code it returns.
