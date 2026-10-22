@@ -804,7 +804,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 ### `POST /api/courses/[courseId]/grade-setup`
 
-Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
+Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, every assignment in the course must map to exactly one category, and a final exam weight above 0 requires picking which assignment is the final exam (`classDetails.finalExamAssignmentId` set to one of the course's assignment IDs). Repeating the request replaces the saved setup.
 
 - **Method**: `POST`
 - **Path**: `/api/courses/[courseId]/grade-setup`
@@ -817,7 +817,7 @@ JSON body with:
 - `assignmentMappings` — array of `{ "assignmentId": string, "category": string }` using assignment IDs belonging to this course.
 - `finalExamWeight` — number from 0 to 100. Together with category weights it must total 100.
 - `cutoffs` — object mapping grade labels to percentage cutoffs from 0 to 100.
-- `classDetails` — object mapping detail names to text, numbers, or `null`.
+- `classDetails` — object mapping detail names to text, numbers, or `null`. A `finalExamAssignmentId` entry names the assignment that is the final exam (the Weights form saves `null` when none is picked).
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
@@ -849,11 +849,17 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 }
 ```
 
-`400` — invalid setup, weights do not total 100, or assignment mappings are incomplete or refer to another course:
+`400` — invalid setup, weights do not total 100, a final exam weight above 0 without a picked final, or assignment mappings are incomplete or refer to another course:
 
 ```json
 {
   "error": "Category weights and the final exam weight must add up to 100."
+}
+```
+
+```json
+{
+  "error": "Pick which assignment is the final exam, or set the final exam weight to 0."
 }
 ```
 
@@ -1111,6 +1117,8 @@ curl -i http://localhost:3000/api/courses/course-id \
 ### `GET /api/courses/[courseId]/grade`
 
 Returns the overall grade for one of the student's current courses and, when the course is graded by category, the grade inside each category so the student can see what is pulling the grade down. Which engine produced the grade comes back as `engine`: `weighted` when a confirmed setup with usable category weights was used, `points` otherwise (no confirmed setup, or one whose categories carry no usable weight — the weighted math would be impossible). A points grade has an empty `breakdown`; a points course has no categories.
+
+A final exam weight is graded as its own category for the picked final: before the engine runs, the picked assignment (`finalExamAssignmentId` in the saved class details) is moved out of its mapped category, and the final exam weight becomes a `Final exam` category — added to an existing `Final exam` or `Final` category when the setup already has one. This can turn a previously points-graded setup weighted: a setup whose only positive weight was the final exam weight now has a usable category. A setup saved with no picked final has no such weight, so nothing moves.
 
 When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
 

@@ -229,6 +229,16 @@ export function confirmProblems(form: FormState, assignments: { id: string }[]):
   if (!Number.isFinite(finalExamWeight) || finalExamWeight < 0 || finalExamWeight > 100) {
     problems.push("The final exam weight must be from 0 to 100.");
   }
+  // The save step refuses this too: a final exam weight only counts toward the grade
+  // for the assignment picked as the final.
+  if (
+    Number.isFinite(finalExamWeight) &&
+    finalExamWeight > 0 &&
+    finalExamWeight <= 100 &&
+    !assignments.some((assignment) => assignment.id === form.finalExamAssignmentId)
+  ) {
+    problems.push("Pick which assignment is the final exam, or set the final exam weight to 0.");
+  }
   const total = categories.reduce(
     (sum, category) => sum + (Number.isFinite(category.weight) ? category.weight : 0),
     Number.isFinite(finalExamWeight) ? finalExamWeight : 0,
