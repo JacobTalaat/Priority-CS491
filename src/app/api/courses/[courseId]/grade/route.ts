@@ -6,6 +6,7 @@ import { calculatePointsGrade } from "@/lib/points-grade";
 import { calculateWeightedGrade, type WeightedGradeResult } from "@/lib/weighted-grade";
 import { buildCategoryBreakdown, chooseGradeEngine, type CategoryBreakdown } from "@/lib/grade-engine";
 import { readFinalExamAssignmentId, solveFinalExam, type FinalExamResult } from "@/lib/final-exam-solver";
+import { assignmentShares, type AssignmentShare } from "@/lib/grade-share";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ type GradeResponse = {
   grade: WeightedGradeResult;
   breakdown: CategoryBreakdown[];
   finalExam: FinalExamResult;
+  shares: AssignmentShare[];
 };
 
 // A saved row is a confirmed setup: the confirm step is what writes it.
@@ -84,8 +86,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
-  const savedSetup = parseSavedSetup(course.gradeSetup);
-  const choice = chooseGradeEngine(savedSetup);
+  const setup = parseSavedSetup(course.gradeSetup);
+  const choice = chooseGradeEngine(setup);
   const assignments = course.assignments.map((assignment) => ({
     id: assignment.id,
     pointsPossible: assignment.pointsPossible,
@@ -108,9 +110,9 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
   const finalExam = solveFinalExam({
     choice,
     assignments,
-    finalAssignmentId: readFinalExamAssignmentId(savedSetup),
-    cutoffs: savedSetup?.cutoffs ?? {},
-    finalExamWeight: savedSetup?.finalExamWeight ?? 0,
+    finalAssignmentId: readFinalExamAssignmentId(setup),
+    cutoffs: setup?.cutoffs ?? {},
+    finalExamWeight: setup?.finalExamWeight ?? 0,
   });
 
   return NextResponse.json({
@@ -125,5 +127,6 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     grade,
     breakdown,
     finalExam,
+    shares: assignmentShares(setup, assignments),
   });
 }

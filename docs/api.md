@@ -1124,6 +1124,8 @@ The response also carries `finalExam`: the score the student needs on the final 
 
 The needed score assumes every other ungraded assignment keeps counting the way the engine counts it today: ungraded work is left out of the grade, so the rest of the current average holds as-is. If more ungraded work is graded later, the real grade can land lower or higher than predicted, so `secured` and `out-of-reach` are only certain when nothing else is still to be graded. `otherWorkPending` on a `solved` result is `true` when other counted work has no grade yet; the student-facing sentences then say the answer holds "if your other grades stay where they are".
 
+The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. If the saved setup gives the final exam a weight outside the categories (`finalExamWeight` above 0), that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final. Make the final exam its own category to get shares.
+
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
 
@@ -1171,7 +1173,12 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "ungradedCount": 0
     }
   ],
-  "finalExam": { "status": "no-final" }
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "hw-2", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
+  ]
 }
 ```
 
@@ -1189,7 +1196,11 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "engine": "points",
   "grade": { "status": "calculated", "percentage": 75 },
   "breakdown": [],
-  "finalExam": { "status": "no-final" }
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 25, "category": null },
+    { "assignmentId": "proj-1", "share": 75, "category": null }
+  ]
 }
 ```
 
@@ -1217,7 +1228,8 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "ungradedCount": 1
     }
   ],
-  "finalExam": { "status": "no-final" }
+  "finalExam": { "status": "no-final" },
+  "shares": [{ "assignmentId": "hw-1", "share": 40, "category": "Homework" }]
 }
 ```
 
@@ -1235,7 +1247,11 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "engine": "weighted",
   "grade": { "status": "unsupported", "reason": "extra-credit" },
   "breakdown": [],
-  "finalExam": { "status": "no-final" }
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
+  ]
 }
 ```
 
@@ -1280,7 +1296,11 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       { "letter": "C", "status": "needed", "score": 63.34, "percent": 63.4 }
     ],
     "otherWorkPending": false
-  }
+  },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 40, "category": "Homework" },
+    { "assignmentId": "final-1", "share": 60, "category": "Final Exam" }
+  ]
 }
 ```
 
