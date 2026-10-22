@@ -716,7 +716,7 @@ curl -i http://localhost:3000/api/canvas/sync \
 
 ### `POST /api/canvas/sync`
 
-Runs the Canvas import for the student right away. When the Canvas API is available, it imports courses, assignment groups, assignments, and grades. If no token is saved, or Canvas is unreachable or returns a server error, and a calendar feed is saved, it instead imports dated assignment events from that feed for the student's already imported current courses. A token that Canvas rejects is never hidden behind the feed: it returns `400` so the student knows to reconnect. All writes are idempotent upserts. The last-synced time is saved only when the selected import completes successfully.
+Runs the Canvas import for the student right away. When the Canvas API is available, it imports courses, assignment groups, assignments, and grades. If no token is saved, or Canvas is unreachable or returns a server error, and a calendar feed is saved, it instead imports dated assignment events from that feed for the student's already imported current courses. A token that Canvas rejects is never hidden behind the feed: it returns `400` so the student knows to reconnect. All writes are idempotent upserts. After a complete successful Canvas listing per course, assignments and assignment groups Canvas no longer returns are removed from that course, along with the grades of removed assignments. A failed listing removes nothing, and an empty listing for a course that holds 20 or more is treated as a Canvas glitch and skipped for that sync. The last-synced time is saved only when the selected import completes successfully.
 
 - **Method**: `POST`
 - **Path**: `/api/canvas/sync`
