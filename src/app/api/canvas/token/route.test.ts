@@ -133,6 +133,19 @@ describe("POST /api/canvas/token", () => {
     expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 
+  it("returns 400 with the redirect message when Canvas answers with a redirect", async () => {
+    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(null, { status: 302, headers: { Location: "https://canvas.njit.edu/login" } })
+    ));
+    const res = await POST(postRequest({ token: TOKEN, baseUrl: "https://canvas.example.edu" }));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Canvas redirected to https://canvas.njit.edu. Use that address instead.",
+    });
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
   it("returns 502 with a clear error when Canvas is unreachable", async () => {
     mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));

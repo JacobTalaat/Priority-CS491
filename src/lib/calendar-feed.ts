@@ -1,4 +1,5 @@
 import ICAL from "ical.js";
+import { assertPublicHost, isInternalHostname } from "@/lib/public-host";
 
 const MAX_FEED_BYTES = 2 * 1024 * 1024;
 
@@ -19,25 +20,13 @@ export function normalizeCalendarFeedUrl(value: unknown): string {
   } catch {
     throw new Error("Enter a valid Canvas calendar feed link.");
   }
-  const hostname = url.hostname.toLowerCase();
-  const isPrivateIpv4 =
-    /^(10\.|127\.|169\.254\.|192\.168\.|0\.)/.test(hostname) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
   if (
     url.protocol !== "https:" ||
     url.username !== "" ||
     url.password !== "" ||
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname.endsWith(".local") ||
-    hostname === "[::1]" ||
-    hostname.startsWith("[fc") ||
-    hostname.startsWith("[fd") ||
-    hostname.startsWith("[fe8") ||
-    hostname.startsWith("[fe9") ||
-    hostname.startsWith("[fea") ||
-    hostname.startsWith("[feb") ||
-    isPrivateIpv4
+    // .local is mDNS: not global, so a public "resolution" would be a lie
+    url.hostname.toLowerCase().endsWith(".local") ||
+    isInternalHostname(url.hostname)
   ) {
     throw new Error("Use a public HTTPS Canvas calendar feed link.");
   }
@@ -115,6 +104,16 @@ export async function fetchCalendarFeed(feedUrl: string): Promise<CalendarAssign
   let url: string;
   try {
     url = normalizeCalendarFeedUrl(feedUrl);
+  } catch {
+    throw new CalendarFeedError();
+  }
+  // assertPublicHost resolves the hostname and refuses private answers, so a
+  // public-looking feed host cannot quietly point at an internal address. Like
+  // canvasFetch this is lookup-then-fetch: DNS rebinding between our lookup and
+  // fetch's own lookup remains possible until the resolved IP is pinned into
+  // the connection. Redirects are refused here too (redirect: "error").
+  try {
+    await assertPublicHost(new URL(url).hostname);
   } catch {
     throw new CalendarFeedError();
   }

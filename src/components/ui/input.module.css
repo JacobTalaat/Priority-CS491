@@ -51,3 +51,12 @@
   color: var(--muted);
   font-size: 13px;
 }
+
+.textarea {
+  /* Textareas don't inherit the page font by default (globals.css only resets inputs). */
+  font-family: inherit;
+  min-height: 88px;
+  padding: 10px 14px;
+  line-height: 1.5;
+  resize: vertical;
+}

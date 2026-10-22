@@ -185,6 +185,27 @@
   color: var(--accent);
 }
 
+.confirmProblems {
+  padding: 12px 14px;
+  border: 1px solid var(--divider);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--secondary);
+  font-size: 14px;
+}
+
+.confirmProblemsTitle {
+  margin-bottom: 4px;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.confirmProblems ul {
+  display: grid;
+  gap: 2px;
+  padding-left: 18px;
+}
+
 @media (max-width: 560px) {
   .categoryRow {
     grid-template-columns: minmax(0, 1fr) minmax(100px, 0.5fr);
