@@ -1,3 +1,5 @@
+import type { LetterBoundary } from "@/lib/letter-boundary";
+
 export type OpenWorkItem = {
   assignmentId: string;
   courseId: string;
@@ -16,6 +18,10 @@ export type RankedItem = OpenWorkItem & {
   dueDay: string | null;
   overdue: boolean;
   score: number | null;
+  // Letter-cutoff flag attached after ranking (by ranking-data), so it never
+  // feeds the sort or the score. Computing it needs a grade, which ranking
+  // knows nothing about.
+  boundary: LetterBoundary | null;
 };
 
 // Overdue ungraded work stays on the list for seven New York calendar days so
@@ -113,6 +119,7 @@ export function rankOpenWork(items: readonly OpenWorkItem[], now: Date): RankedI
       dueDay: item.dueAt === null ? null : dueDayOf(item.dueAt),
       overdue,
       score: scoreOf(item),
+      boundary: null,
     });
   }
 
