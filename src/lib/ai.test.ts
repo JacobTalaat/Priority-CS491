@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AiError, completeChat, type AiRequest } from "./ai";
 import { costMicros, estimateInputTokens, spendPeriod } from "./ai-spend";
+import { aiUsageDay } from "./ai-usage";
 
 const { mockExecuteRaw, mockQueryRaw } = vi.hoisted(() => ({
   mockExecuteRaw: vi.fn(),
@@ -380,5 +381,241 @@ describe("completeChat", () => {
     expect(queryArgs).toEqual(
       expect.arrayContaining([expect.stringMatching(/^\d{4}-\d{2}$/), BigInt(RESERVE), BigInt(RESERVE), expect.anything(), expect.anything()])
     );
+  });
+});
+
+describe("completeChat usage tracking", () => {
+  let day: string;
+
+  beforeEach(() => {
+    day = aiUsageDay(new Date());
+  });
+
+  // One provider call issues four raw queries in order: reserve, pre-call
+  // warning claim, usage upsert, post-settlement warning claim.
+  function recordCall(): { sql: string; values: unknown[] } {
+    expect(mockQueryRaw.mock.calls.length).toBeGreaterThanOrEqual(3);
+    const call = mockQueryRaw.mock.calls[2];
+    return {
+      sql: (call[0] as unknown as string[]).join(" "),
+      values: call.slice(1),
+    };
+  }
+
+  it("records a successful provider call with tokens and settled cost", async () => {
+    fetchMock.mockResolvedValue(
+      aiResponse({
+        choices: [{ message: { content: "hi" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      })
+    );
+    const completion = await completeChat(baseRequest());
+    expect(completion.text).toBe("hi");
+    expect(mockQueryRaw.mock.calls.length).toBe(4);
+    const { sql, values } = recordCall();
+    expect(sql).toContain('INSERT INTO "AiUsageDay"');
+    expect(sql).toContain('ON CONFLICT ("day", "feature", "userId")');
+    expect(values).toEqual([
+      day,
+      "test",
+      "",
+      BigInt(1),
+      BigInt(0),
+      BigInt(10),
+      BigInt(5),
+      BigInt(costMicros(10, 5, INPUT_PRICE, OUTPUT_PRICE)),
+    ]);
+  });
+
+  it("records a failed provider call without a user and the settled cost of zero", async () => {
+    fetchMock.mockResolvedValue(new Response("broken", { status: 500 }));
+    await captureError(() => completeChat(baseRequest()));
+    const { sql, values } = recordCall();
+    expect(sql).toContain('INSERT INTO "AiUsageDay"');
+    expect(values).toEqual([day, "test", "", BigInt(1), BigInt(1), BigInt(0), BigInt(0), BigInt(0)]);
+  });
+
+  it("records the settled reservation for a call interrupted by an abort", async () => {
+    const controller = new AbortController();
+    fetchMock.mockImplementation(async () => {
+      controller.abort();
+      throw new Error("aborted mid-flight");
+    });
+    await captureError(() => completeChat(baseRequest({ signal: controller.signal })));
+    expect(recordCall().values).toEqual([
+      day,
+      "test",
+      "",
+      BigInt(1),
+      BigInt(1),
+      BigInt(0),
+      BigInt(0),
+      BigInt(RESERVE),
+    ]);
+  });
+
+  it("does not record refused calls that never reach the provider", async () => {
+    mockQueryRaw.mockResolvedValue([]);
+    await captureError(() => completeChat(baseRequest()));
+    // Reserve and the forced warning claim run; the usage upsert does not.
+    expect(mockQueryRaw.mock.calls.length).toBe(2);
+    for (const call of mockQueryRaw.mock.calls) {
+      expect((call[0] as unknown as string[]).join(" ")).not.toContain('"AiUsageDay"');
+    }
+  });
+
+  it("keeps the completion when recording the usage fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockQueryRaw
+      .mockResolvedValueOnce([{ period }])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("database unavailable"))
+      .mockResolvedValueOnce([]);
+    try {
+      fetchMock.mockResolvedValue(aiResponse({ choices: [{ message: { content: "hi" } }] }));
+      const completion = await completeChat(baseRequest());
+      expect(completion.text).toBe("hi");
+      expect(completion.costMicros).toBe(RESERVE);
+      expect(consoleSpy).toHaveBeenCalledWith("AI usage recording failed");
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("claims the warning before fetch when the reservation crosses 80 percent", async () => {
+    const events: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
+      events.push("warn");
+    });
+    mockQueryRaw
+      .mockResolvedValueOnce([{ period }])
+      .mockResolvedValueOnce([
+        { spentMicros: BigInt(80000000), reservedMicros: BigInt(0) },
+      ]);
+    try {
+      fetchMock.mockImplementation(async () => {
+        events.push("fetch");
+        return aiResponse({ choices: [{ message: { content: "ok" } }] });
+      });
+      await completeChat(baseRequest());
+      expect(events).toEqual(["warn", "fetch"]);
+      expect(console.warn).toHaveBeenCalledWith(
+        `AI spend for ${period} is at 80% of the $100 monthly cap`
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("claims the warning with force and still throws cap_reached when a call is refused", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQueryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ spentMicros: BigInt(100000000), reservedMicros: BigInt(0) }]);
+    try {
+      const error = await captureError(() => completeChat(baseRequest()));
+      expect(error).toBeInstanceOf(AiError);
+      expect((error as AiError).kind).toBe("cap_reached");
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockExecuteRaw).not.toHaveBeenCalled();
+      expect(mockQueryRaw.mock.calls.length).toBe(2);
+      expect(console.warn).toHaveBeenCalledWith(
+        `AI spend for ${period} reached the $100 monthly cap; requests are being refused`
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does not claim the warning when the cap refusal is already warned", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQueryRaw.mockResolvedValue([]);
+    try {
+      const error = await captureError(() => completeChat(baseRequest()));
+      expect((error as AiError).kind).toBe("cap_reached");
+      expect(console.warn).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("keeps the result when the pre-call warning claim fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockQueryRaw
+      .mockResolvedValueOnce([{ period }])
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    try {
+      fetchMock.mockResolvedValue(aiResponse({ choices: [{ message: { content: "hi" } }] }));
+      const completion = await completeChat(baseRequest());
+      expect(completion.text).toBe("hi");
+      expect(consoleSpy).toHaveBeenCalledWith("AI spend warning check failed");
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("keeps the result when the post-settlement warning claim fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockQueryRaw
+      .mockResolvedValueOnce([{ period }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    try {
+      fetchMock.mockResolvedValue(aiResponse({ choices: [{ message: { content: "ok" } }] }));
+      const completion = await completeChat(baseRequest());
+      expect(completion.text).toBe("ok");
+      expect(consoleSpy).toHaveBeenCalledWith("AI spend warning check failed");
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("warns once when both the pre-call and post-settlement claims would win", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQueryRaw
+      .mockResolvedValueOnce([{ period }])
+      .mockResolvedValueOnce([
+        { spentMicros: BigInt(82000000), reservedMicros: BigInt(2000000) },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    try {
+      fetchMock.mockResolvedValue(aiResponse({ choices: [{ message: { content: "ok" } }] }));
+      await completeChat(baseRequest());
+      expect(console.warn).toHaveBeenCalledTimes(1);
+      expect(console.warn).toHaveBeenCalledWith(
+        `AI spend for ${period} is at 84% of the $100 monthly cap`
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does not warn when the month already has its warning recorded", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQueryRaw
+      .mockResolvedValueOnce([{ period }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    try {
+      fetchMock.mockResolvedValue(aiResponse({ choices: [{ message: { content: "ok" } }] }));
+      await completeChat(baseRequest());
+      expect(console.warn).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does not warn when the claim update returns a row without spend counters", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      fetchMock.mockResolvedValue(aiResponse({ choices: [{ message: { content: "ok" } }] }));
+      await completeChat(baseRequest());
+      expect(console.warn).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

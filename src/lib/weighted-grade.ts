@@ -11,7 +11,7 @@ export type WeightedGradeResult =
 
 const PERCENTAGE_DECIMAL_PLACES = 10;
 
-function roundPercentage(value: number): number {
+export function roundPercentage(value: number): number {
   const factor = 10 ** PERCENTAGE_DECIMAL_PLACES;
   return Math.round(value * factor) / factor;
 }

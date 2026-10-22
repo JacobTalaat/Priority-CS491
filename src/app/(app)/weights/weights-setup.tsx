@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Button, Input, Notice, PageHeader } from "@/components/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Input, Notice, PageHeader, TextArea } from "@/components/ui";
 import { mappingSummary, unmappedAssignmentIds } from "@/lib/assignment-mapping";
+import { detailText, detailValue, formatContacts } from "@/lib/class-details";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
 import { getGradeSetupCourses, saveGradeSetup } from "@/lib/grade-setup-client";
-import { isCompleteTotal, weightTotalMessage } from "@/lib/weight-total";
 import type { GradeSetupCourse } from "@/lib/grade-setup-client";
+import { isCompleteTotal, weightTotalMessage } from "@/lib/weight-total";
+import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import { SyllabusUpload } from "@/components/syllabus/syllabus-upload";
 import styles from "./weights.module.css";
 
 type CategoryField = { name: string; weight: string };
-type FormState = {
+export type FormState = {
   categories: CategoryField[];
   assignmentMappings: Record<string, string>;
   finalExamWeight: string;
@@ -19,7 +21,16 @@ type FormState = {
   instructor: string;
   section: string;
   credits: string;
+  officeHours: string;
+  latePolicy: string;
+  contacts: string;
+  // The assignment that is the final exam, for the final exam tool; "" when there isn't one.
+  finalExamAssignmentId: string;
 };
+
+// Class details the syllabus reader can fill in, shown with a "from your syllabus" hint.
+type ReadDetailField = "instructor" | "officeHours" | "latePolicy" | "contacts";
+const READ_DETAIL_FIELDS: ReadDetailField[] = ["instructor", "officeHours", "latePolicy", "contacts"];
 
 const DEFAULT_CUTOFFS = { A: "90", B: "80", C: "70", D: "60", F: "0" };
 
@@ -32,6 +43,10 @@ function blankForm(): FormState {
     instructor: "",
     section: "",
     credits: "",
+    officeHours: "",
+    latePolicy: "",
+    contacts: "",
+    finalExamAssignmentId: "",
   };
 }
 
@@ -58,6 +73,10 @@ function formForCourse(course: GradeSetupCourse): FormState {
       section: typeof saved.classDetails.section === "string" ? saved.classDetails.section : "",
       credits:
         typeof saved.classDetails.credits === "number" ? String(saved.classDetails.credits) : "",
+      officeHours: detailText(saved.classDetails, "officeHours"),
+      latePolicy: detailText(saved.classDetails, "latePolicy"),
+      contacts: detailText(saved.classDetails, "contacts"),
+      finalExamAssignmentId: detailText(saved.classDetails, "finalExamAssignmentId"),
     };
   }
 
@@ -91,6 +110,10 @@ function formForCourse(course: GradeSetupCourse): FormState {
     instructor: "",
     section: "",
     credits: "",
+    officeHours: "",
+    latePolicy: "",
+    contacts: "",
+    finalExamAssignmentId: "",
   };
 }
 
@@ -103,12 +126,189 @@ function canvasWeightsAvailable(course: GradeSetupCourse) {
   );
 }
 
-export function WeightsSetup() {
-  const [courses, setCourses] = useState<GradeSetupCourse[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState("");
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+function firstInstructorContactIndex(contacts: SyllabusSuggestions["contacts"]): number {
+  for (let index = 0; index < contacts.length; index++) {
+    const contact = contacts[index];
+    if (
+      contact.role !== null &&
+      /instructor/i.test(contact.role) &&
+      contact.name !== null &&
+      contact.name.trim() !== ""
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+// Fills the suggested grading rules into the form state. A fact the syllabus did not state
+// leaves the form's value alone: a missing suggestion is "did not say", not a default.
+// PR-39 owns whether Canvas weights should win over an explicitly requested syllabus read.
+export function applySyllabusSuggestions(
+  current: FormState,
+  suggestions: SyllabusSuggestions
+): FormState {
+  const categories =
+    suggestions.categories.length > 0
+      ? suggestions.categories.map((suggested) => ({
+          name: suggested.name,
+          weight: suggested.weight === null ? "" : String(suggested.weight),
+        }))
+      : current.categories;
+  const exactNameBySuggestedName = new Map<string, string>();
+  for (const category of categories) {
+    exactNameBySuggestedName.set(category.name.trim().toLowerCase(), category.name);
+  }
+  // buildPayload compares mapping values to category names exactly, so a mapping kept by
+  // case-insensitive name is rewritten to the suggested category's exact name.
+  const assignmentMappings = Object.fromEntries(
+    Object.entries(current.assignmentMappings)
+      .filter(([, categoryName]) => exactNameBySuggestedName.has(categoryName.trim().toLowerCase()))
+      .map(([assignmentId, categoryName]) => [
+        assignmentId,
+        exactNameBySuggestedName.get(categoryName.trim().toLowerCase()) ?? "",
+      ]),
+  );
+  const instructorIndex = firstInstructorContactIndex(suggestions.contacts);
+  return {
+    categories,
+    assignmentMappings,
+    finalExamWeight:
+      suggestions.finalExamWeight === null
+        ? current.finalExamWeight
+        : String(suggestions.finalExamWeight),
+    // A syllabus may state only some cutoff labels, so suggestions merge over the current
+    // ones and no known label is lost.
+    cutoffs: Object.fromEntries(
+      Object.entries({ ...current.cutoffs, ...suggestions.cutoffs }).map(([label, value]) => [
+        label,
+        String(value),
+      ]),
+    ),
+
+    // Details only fill empty fields, so a read never overwrites what the student typed.
+    instructor:
+      current.instructor.trim() === "" && instructorIndex !== -1
+        ? (suggestions.contacts[instructorIndex].name ?? "").trim()
+        : current.instructor,
+    section: current.section,
+    credits: current.credits,
+    officeHours:
+      current.officeHours.trim() === "" && suggestions.officeHours !== null
+        ? suggestions.officeHours
+        : current.officeHours,
+    latePolicy:
+      current.latePolicy.trim() === "" && suggestions.latePolicy !== null
+        ? suggestions.latePolicy
+        : current.latePolicy,
+    contacts: current.contacts.trim() === "" ? formatContacts(suggestions.contacts) || current.contacts : current.contacts,
+    finalExamAssignmentId: current.finalExamAssignmentId,
+  };
+}
+
+// Everything that stops the setup from being confirmed, in the order the form shows it.
+// Confirm stays off until this is empty, and the same list explains why.
+export function confirmProblems(form: FormState, assignments: { id: string }[]): string[] {
+  const problems: string[] = [];
+  const categories = form.categories.map((category) => ({
+    name: category.name.trim(),
+    weight: numberValue(category.weight),
+  }));
+  if (
+    categories.some(
+      (category) =>
+        category.name.length === 0 || !Number.isFinite(category.weight) || category.weight < 0 || category.weight > 100,
+    )
+  ) {
+    problems.push("Give every category a name and a weight from 0 to 100.");
+  }
+  if (new Set(categories.map((category) => category.name.toLowerCase())).size !== categories.length) {
+    problems.push("Category names must be unique.");
+  }
+  const finalExamWeight = numberValue(form.finalExamWeight);
+  if (!Number.isFinite(finalExamWeight) || finalExamWeight < 0 || finalExamWeight > 100) {
+    problems.push("The final exam weight must be from 0 to 100.");
+  }
+  const total = categories.reduce(
+    (sum, category) => sum + (Number.isFinite(category.weight) ? category.weight : 0),
+    Number.isFinite(finalExamWeight) ? finalExamWeight : 0,
+  );
+  if (!isCompleteTotal(total)) {
+    problems.push(`Weights add up to ${Math.round(total * 100) / 100}%. They need to total 100%.`);
+  }
+  const unmapped = unmappedAssignmentIds(
+    assignments,
+    form.assignmentMappings,
+    categories.map((category) => category.name),
+  ).length;
+  if (unmapped > 0) {
+    problems.push(mappingSummary(assignments.length, unmapped));
+  }
+  if (
+    Object.values(form.cutoffs).some((value) => {
+      const cutoff = numberValue(value);
+      return !Number.isFinite(cutoff) || cutoff < 0 || cutoff > 100;
+    })
+  ) {
+    problems.push("Enter grade cutoffs from 0 to 100.");
+  }
+  const credits = form.credits.trim() === "" ? null : numberValue(form.credits);
+  if (credits !== null && (!Number.isFinite(credits) || credits < 0)) {
+    problems.push("Credits must be zero or greater.");
+  }
+  return problems;
+}
+
+// Which class details a read filled in, so the form can point them out for checking.
+export function detailsFilledByRead(before: FormState, after: FormState): ReadDetailField[] {
+  return READ_DETAIL_FIELDS.filter((field) => before[field] !== after[field]);
+}
+
+export type SyllabusReadExtras = {
+  unsupportedRules: string[];
+  latePolicy: string | null;
+  officeHours: string | null;
+  contacts: SyllabusSuggestions["contacts"];
+};
+
+// The form changes plus everything else the last read found. Late policy, office hours, and
+// contacts also land in the form's class details (when empty), where the student can edit
+// them; unsupported rules stay review-only. Nothing is saved until the student confirms.
+// Returns null when the read is for a course that is no longer selected, so a late reply
+// cannot populate another class's form.
+export function applySyllabusRead(
+  courseId: string,
+  selectedCourseId: string,
+  form: FormState,
+  suggestions: SyllabusSuggestions
+): { form: FormState; extras: SyllabusReadExtras | null } | null {
+  if (courseId !== selectedCourseId) {
+    return null;
+  }
+  const extras: SyllabusReadExtras = {
+    unsupportedRules: suggestions.unsupportedRules,
+    latePolicy: suggestions.latePolicy,
+    officeHours: suggestions.officeHours,
+    contacts: suggestions.contacts,
+  };
+  const hasExtras =
+    extras.unsupportedRules.length > 0 ||
+    extras.latePolicy !== null ||
+    extras.officeHours !== null ||
+    extras.contacts.length > 0;
+  return { form: applySyllabusSuggestions(form, suggestions), extras: hasExtras ? extras : null };
+}
+
+export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCourse[] } = {}) {
+  const [courses, setCourses] = useState<GradeSetupCourse[]>(initialCourses ?? []);
+  const [selectedCourseId, setSelectedCourseId] = useState(initialCourses?.[0]?.id ?? "");
+  const [state, setState] = useState<"loading" | "ready" | "error">(
+    initialCourses ? "ready" : "loading",
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(blankForm);
+  const [form, setForm] = useState<FormState>(() =>
+    initialCourses?.[0] ? formForCourse(initialCourses[0]) : blankForm(),
+  );
   const [manualMode, setManualMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
@@ -140,6 +340,10 @@ export function WeightsSetup() {
   );
 
   useEffect(() => {
+    // initialCourses is for rendering the preloaded state in tests, so there is nothing to fetch.
+    if (initialCourses) {
+      return;
+    }
     let cancelled = false;
     getGradeSetupCourses().then((result) => {
       if (cancelled) {
@@ -160,7 +364,52 @@ export function WeightsSetup() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialCourses]);
+
+  // Kept in an effect rather than during render. A syllabus read's callback fires from an
+  // event, after any committed change, so the refs are current even for a long-old request.
+  const selectedCourseIdRef = useRef(selectedCourseId);
+  const formRef = useRef(form);
+  useEffect(() => {
+    selectedCourseIdRef.current = selectedCourseId;
+    formRef.current = form;
+  }, [selectedCourseId, form]);
+  const [readExtras, setReadExtras] = useState<SyllabusReadExtras | null>(null);
+  const [filledByRead, setFilledByRead] = useState<ReadDetailField[]>([]);
+  const problems = useMemo(
+    () => (selectedCourse ? confirmProblems(form, selectedCourse.assignments) : []),
+    [form, selectedCourse],
+  );
+  const unsupportedCount = readExtras?.unsupportedRules.length ?? 0;
+
+  function updateDetail(field: ReadDetailField | "section" | "credits", value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+    // Once the student edits a filled-in detail, it's theirs and no longer needs the hint.
+    setFilledByRead((current) => current.filter((item) => item !== field));
+  }
+
+  function detailHint(field: ReadDetailField, fallback?: string) {
+    return filledByRead.includes(field) ? "Filled in from your syllabus. Check it before you confirm." : fallback;
+  }
+
+  function handleSyllabusRead(courseId: string, suggestions: SyllabusSuggestions) {
+    // A read for a course the student already left must not touch the new course's form.
+    if (courseId !== selectedCourseIdRef.current) {
+      return;
+    }
+    const read = applySyllabusRead(courseId, selectedCourseIdRef.current, formRef.current, suggestions);
+    if (read === null) {
+      return;
+    }
+    setManualMode(true);
+    setFilledByRead(detailsFilledByRead(formRef.current, read.form));
+    setForm(read.form);
+    setReadExtras(read.extras);
+    setMessage({
+      tone: "success",
+      text: "The AI's suggestions are filled in below. Nothing is saved until you confirm them.",
+    });
+  }
 
   function updateCategory(index: number, field: keyof CategoryField, value: string) {
     setForm((current) => {
@@ -194,63 +443,45 @@ export function WeightsSetup() {
     if (!selectedCourse) {
       return null;
     }
+    // The button is already off while there are problems; this guards a submit from Enter.
+    const problems = confirmProblems(form, selectedCourse.assignments);
+    if (problems.length > 0) {
+      setMessage({ tone: "error", text: problems[0] });
+      return null;
+    }
     const categories = form.categories.map((category) => ({
       name: category.name.trim(),
       weight: numberValue(category.weight),
     }));
     const finalExamWeight = numberValue(form.finalExamWeight);
-    if (
-      categories.some(
-        (category) =>
-          category.name.length === 0 ||
-          !Number.isFinite(category.weight) ||
-          category.weight < 0 ||
-          category.weight > 100,
-      )
-    ) {
-      setMessage({ tone: "error", text: "Enter a name and a weight from 0 to 100 for each category." });
-      return null;
-    }
-    if (new Set(categories.map((category) => category.name.toLowerCase())).size !== categories.length) {
-      setMessage({ tone: "error", text: "Category names must be unique." });
-      return null;
-    }
-    if (!Number.isFinite(finalExamWeight) || finalExamWeight < 0 || finalExamWeight > 100) {
-      setMessage({ tone: "error", text: "The final exam weight must be from 0 to 100." });
-      return null;
-    }
-    if (Math.abs(categories.reduce((sum, category) => sum + category.weight, finalExamWeight) - 100) > 0.001) {
-      setMessage({ tone: "error", text: "Category weights and the final exam weight must add up to 100." });
-      return null;
-    }
     const assignmentMappings = selectedCourse.assignments.map((assignment) => ({
       assignmentId: assignment.id,
-      category: form.assignmentMappings[assignment.id] ?? "",
+      category: (form.assignmentMappings[assignment.id] ?? "").trim(),
     }));
-    if (assignmentMappings.some((mapping) => !categories.some((category) => category.name === mapping.category))) {
-      setMessage({ tone: "error", text: "Map every assignment to a category before confirming." });
-      return null;
-    }
-    const cutoffs: Record<string, number> = {};
-    for (const [label, value] of Object.entries(form.cutoffs)) {
-      const cutoff = numberValue(value);
-      if (!Number.isFinite(cutoff) || cutoff < 0 || cutoff > 100) {
-        setMessage({ tone: "error", text: "Enter grade cutoffs from 0 to 100." });
-        return null;
-      }
-      cutoffs[label] = cutoff;
-    }
+    const cutoffs = Object.fromEntries(
+      Object.entries(form.cutoffs).map(([label, value]) => [label, numberValue(value)]),
+    );
     const credits = form.credits.trim() === "" ? null : numberValue(form.credits);
-    if (credits !== null && (!Number.isFinite(credits) || credits < 0)) {
-      setMessage({ tone: "error", text: "Credits must be zero or greater." });
-      return null;
-    }
     return {
       categories,
       assignmentMappings,
       finalExamWeight,
       cutoffs,
-      classDetails: { instructor: form.instructor.trim(), section: form.section.trim(), credits },
+      classDetails: {
+        instructor: form.instructor.trim(),
+        section: form.section.trim(),
+        credits,
+        // Saved under the keys GET /api/courses/[courseId] reads, as plain strings or null.
+        officeHours: detailValue(form.officeHours),
+        latePolicy: detailValue(form.latePolicy),
+        contacts: detailValue(form.contacts),
+        // Only a current assignment counts; one removed from Canvas since is saved as none.
+        finalExamAssignmentId: selectedCourse.assignments.some(
+          (assignment) => assignment.id === form.finalExamAssignmentId,
+        )
+          ? form.finalExamAssignmentId
+          : null,
+      },
     };
   }
 
@@ -310,6 +541,8 @@ export function WeightsSetup() {
                 }
                 setManualMode(false);
                 setMessage(null);
+                setReadExtras(null);
+                setFilledByRead([]);
               }}
             >
               {courses.map((course) => (
@@ -320,7 +553,9 @@ export function WeightsSetup() {
             </select>
           </div>
 
-          {selectedCourse ? <SyllabusUpload key={selectedCourse.id} course={selectedCourse} /> : null}
+          {selectedCourse ? (
+            <SyllabusUpload key={selectedCourse.id} course={selectedCourse} onRead={handleSyllabusRead} />
+          ) : null}
 
           {selectedCourse && hasCanvasWeights && !selectedCourse.gradeSetup && !manualMode ? (
             <div className={styles.canvasWeights}>
@@ -413,6 +648,30 @@ export function WeightsSetup() {
                 onChange={(event) => setForm((current) => ({ ...current, finalExamWeight: event.target.value }))}
                 required
               />
+              <div className={styles.coursePicker}>
+                <label className={styles.label} htmlFor="final-exam-assignment">Final exam</label>
+                <select
+                  className={styles.select}
+                  id="final-exam-assignment"
+                  value={
+                    selectedCourse.assignments.some((assignment) => assignment.id === form.finalExamAssignmentId)
+                      ? form.finalExamAssignmentId
+                      : ""
+                  }
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, finalExamAssignmentId: event.target.value }))
+                  }
+                  aria-describedby="final-exam-assignment-hint"
+                >
+                  <option value="">No final exam in this class</option>
+                  {selectedCourse.assignments.map((assignment) => (
+                    <option key={assignment.id} value={assignment.id}>{assignment.title}</option>
+                  ))}
+                </select>
+                <p className={styles.description} id="final-exam-assignment-hint">
+                  Pick the assignment that is your final, so Priority can show the score you need on it.
+                </p>
+              </div>
               <p className={isCompleteTotal(totalWeight) ? styles.totalValid : styles.totalInvalid} role="status">
                 {weightTotalMessage(totalWeight)}
               </p>
@@ -494,12 +753,13 @@ export function WeightsSetup() {
                   <Input
                     label="Instructor"
                     value={form.instructor}
-                    onChange={(event) => setForm((current) => ({ ...current, instructor: event.target.value }))}
+                    onChange={(event) => updateDetail("instructor", event.target.value)}
+                    hint={detailHint("instructor")}
                   />
                   <Input
                     label="Section"
                     value={form.section}
-                    onChange={(event) => setForm((current) => ({ ...current, section: event.target.value }))}
+                    onChange={(event) => updateDetail("section", event.target.value)}
                   />
                   <Input
                     label="Credits"
@@ -507,13 +767,55 @@ export function WeightsSetup() {
                     min="0"
                     step="any"
                     value={form.credits}
-                    onChange={(event) => setForm((current) => ({ ...current, credits: event.target.value }))}
+                    onChange={(event) => updateDetail("credits", event.target.value)}
                   />
                 </div>
+                <Input
+                  label="Office hours"
+                  value={form.officeHours}
+                  onChange={(event) => updateDetail("officeHours", event.target.value)}
+                  hint={detailHint("officeHours")}
+                />
+                <TextArea
+                  label="Late policy"
+                  value={form.latePolicy}
+                  onChange={(event) => updateDetail("latePolicy", event.target.value)}
+                  hint={detailHint("latePolicy")}
+                />
+                <TextArea
+                  label="Contacts"
+                  value={form.contacts}
+                  onChange={(event) => updateDetail("contacts", event.target.value)}
+                  hint={detailHint("contacts", "Name, role, and email. Separate people with semicolons.")}
+                />
               </fieldset>
 
+              {unsupportedCount > 0 ? (
+                <Notice tone="warning">
+                  This syllabus has {unsupportedCount === 1 ? "a grading rule" : `${unsupportedCount} grading rules`}{" "}
+                  Priority can&apos;t calculate, listed under &quot;What the syllabus also said&quot; below. You can still
+                  confirm, but your grade here won&apos;t include {unsupportedCount === 1 ? "it" : "them"}.
+                </Notice>
+              ) : null}
+
+              {problems.length > 0 ? (
+                <div className={styles.confirmProblems} id="confirm-problems" role="status">
+                  <p className={styles.confirmProblemsTitle}>Before you can confirm:</p>
+                  <ul>
+                    {problems.map((problem) => (
+                      <li key={problem}>{problem}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div className={styles.actions}>
-                <Button type="submit" loading={saving}>
+                <Button
+                  type="submit"
+                  loading={saving}
+                  disabled={problems.length > 0}
+                  aria-describedby={problems.length > 0 ? "confirm-problems" : undefined}
+                >
                   {saving ? "Saving setup…" : "Confirm and save"}
                 </Button>
                 {manualMode && hasCanvasWeights && !selectedCourse.gradeSetup ? (
@@ -523,6 +825,22 @@ export function WeightsSetup() {
                 ) : null}
               </div>
             </form>
+          ) : null}
+
+          {readExtras && readExtras.unsupportedRules.length > 0 ? (
+            <section className={styles.canvasWeights} aria-label="What the syllabus also said">
+              <h2 className={styles.sectionTitle}>What the syllabus also said</h2>
+              <Notice tone="warning">
+                The syllabus has grading rules Priority cannot calculate automatically. Account for these
+                yourself when you check your grades:
+              </Notice>
+              <ul className={styles.weightList}>
+                {readExtras.unsupportedRules.map((rule, index) => (
+                  // The AI can repeat a rule, so the text alone isn't a unique key.
+                  <li key={`${index}-${rule}`}>{rule}</li>
+                ))}
+              </ul>
+            </section>
           ) : null}
         </section>
       ) : null}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { readSyllabusSuggestions } from "@/lib/syllabus-reader";
 import { SYLLABUS_MAX_BYTES, readSyllabusPdf } from "@/lib/syllabus-text";
 
 export const dynamic = "force-dynamic";
@@ -95,14 +96,23 @@ export async function POST(request: Request, context: RouteContext) {
     },
   });
 
+  const syllabus = {
+    courseId: course.id,
+    fileName,
+    sizeBytes: entry.size,
+    pageCount: read.pageCount,
+    characterCount: read.text.length,
+    extractedAt: extractedAt.toISOString(),
+  };
+
+  // The text is already saved, so a failed AI read is a degraded success, not an error.
+  const readResult = await readSyllabusSuggestions(read.text, user.id);
+  if (readResult.ok) {
+    return NextResponse.json({ syllabus, suggestions: readResult.suggestions });
+  }
   return NextResponse.json({
-    syllabus: {
-      courseId: course.id,
-      fileName,
-      sizeBytes: entry.size,
-      pageCount: read.pageCount,
-      characterCount: read.text.length,
-      extractedAt: extractedAt.toISOString(),
-    },
+    syllabus,
+    suggestions: null,
+    suggestionsError: readResult.error,
   });
 }

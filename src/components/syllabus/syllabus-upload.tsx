@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
 import { Button, Notice } from "@/components/ui";
-import { uploadSyllabus, validateSyllabusFile } from "@/lib/syllabus-client";
+import { NOT_READ, uploadSyllabus, validateSyllabusFile } from "@/lib/syllabus-client";
 import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import styles from "./syllabus-upload.module.css";
 
@@ -37,6 +37,10 @@ export function SyllabusUpload({ course, onRead }: SyllabusUploadProps) {
       setMessage({ tone: "error", text: result.error });
       return;
     }
+    if (result.suggestions === null) {
+      setMessage({ tone: "error", text: result.suggestionsError ?? NOT_READ });
+      return;
+    }
     setMessage({ tone: "success", text: "Read your syllabus. Check every suggestion below before you confirm." });
     onRead?.(course.id, result.suggestions);
   }
@@ -52,8 +56,9 @@ export function SyllabusUpload({ course, onRead }: SyllabusUploadProps) {
       </h2>
 
       <p id={disclosureId} className={styles.disclosure}>
-        <strong>Uses AI.</strong> Priority sends the text of your syllabus to an AI service to suggest your
-        categories, weights, and cutoffs. It can make mistakes, and nothing is saved until you check and confirm it.
+        <strong>Uses AI.</strong> Priority saves your syllabus text and sends it to an AI service to suggest your
+        categories, weights, and cutoffs. It can make mistakes, and your weights are not saved until you check and
+        confirm them.
       </p>
 
       <form className={styles.form} onSubmit={handleSubmit} noValidate aria-describedby={disclosureId}>

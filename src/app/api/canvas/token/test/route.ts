@@ -19,6 +19,9 @@ export async function POST(request: Request) {
     await saveCanvasToken(user.id, credentials.baseUrl, credentials.token);
     return NextResponse.json({ ok: true, canvasUser });
   } catch (error) {
+    if (error instanceof CanvasError && error.kind === "redirect") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof CanvasError && error.kind === "unauthorized") {
       return NextResponse.json({ error: "Canvas rejected this token" }, { status: 400 });
     }
