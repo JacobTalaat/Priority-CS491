@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { parseGradeSetup, type GradeSetupPayload } from "@/lib/grade-setup";
 import { type WeightedGradeResult } from "@/lib/weighted-grade";
 import { buildCategoryBreakdown, calculateCourseGrade, type CategoryBreakdown } from "@/lib/grade-engine";
+import { readFinalExamAssignmentId, solveFinalExam, type FinalExamResult } from "@/lib/final-exam-solver";
+import { assignmentShares, type AssignmentShare } from "@/lib/grade-share";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,8 @@ type GradeResponse = {
   engine: "weighted" | "points";
   grade: WeightedGradeResult;
   breakdown: CategoryBreakdown[];
+  finalExam: FinalExamResult;
+  shares: AssignmentShare[];
 };
 
 // A saved row is a confirmed setup: the confirm step is what writes it.
@@ -99,6 +103,16 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
       ? buildCategoryBreakdown(choice.setup, assignments)
       : [];
 
+  // The cutoffs and the picked final both come from the saved setup, so a
+  // points course with a confirmed setup can still get final exam planning.
+  const finalExam = solveFinalExam({
+    choice,
+    assignments,
+    finalAssignmentId: readFinalExamAssignmentId(setup),
+    cutoffs: setup?.cutoffs ?? {},
+    finalExamWeight: setup?.finalExamWeight ?? 0,
+  });
+
   return NextResponse.json({
     course: {
       id: course.id,
@@ -110,5 +124,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     engine: choice.engine,
     grade,
     breakdown,
+    finalExam,
+    shares: assignmentShares(setup, assignments),
   });
 }
