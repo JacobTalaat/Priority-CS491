@@ -122,6 +122,7 @@ export function ClassesList() {
                 key={course.id}
                 title={course.name}
                 meta={meta || "Imported from Canvas"}
+                href={`/classes/${encodeURIComponent(course.id)}`}
               />
             );
           })}
