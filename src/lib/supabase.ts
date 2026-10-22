@@ -76,3 +76,40 @@ export async function deleteAuthUser(authUserId: string): Promise<void> {
     throw new Error(`Supabase refused to delete the auth user: ${error.message}`);
   }
 }
+
+// "Confirm email" being on is what stops somebody registering with an address
+// that is not theirs, but nothing in this codebase can enforce that against
+// Supabase — the dashboard setting is the only guarantee. Surfacing it on
+// /api/health turns it into a release check. The public settings endpoint
+// answers `mailer_autoconfirm`; confirmation is REQUIRED exactly when that is
+// false (auto-confirm would hand out sessions for unverified addresses). The
+// check can be slow and the failure mode must never be a broken health route,
+// so it is cached in memory for five minutes and anything that goes wrong
+// answers null instead of throwing.
+const EMAIL_SETTINGS_TTL_MS = 5 * 60 * 1000;
+
+let emailSettingsCache: { fetchedAt: number; required: boolean } | null = null;
+
+export async function emailConfirmationRequired(now = Date.now()): Promise<boolean | null> {
+  if (emailSettingsCache && now - emailSettingsCache.fetchedAt < EMAIL_SETTINGS_TTL_MS) {
+    return emailSettingsCache.required;
+  }
+  try {
+    const response = await fetch(`${env.supabaseUrl}/auth/v1/settings`, {
+      headers: { apikey: env.supabasePublishableKey },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const settings = (await response.json()) as { mailer_autoconfirm?: unknown };
+    if (typeof settings.mailer_autoconfirm !== "boolean") {
+      return null;
+    }
+    const required = !settings.mailer_autoconfirm;
+    // Only successes are cached; a failed read retries after the next route hit.
+    emailSettingsCache = { fetchedAt: now, required };
+    return required;
+  } catch {
+    return null;
+  }
+}

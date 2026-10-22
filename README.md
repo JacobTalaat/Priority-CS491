@@ -120,6 +120,10 @@ curl -i http://localhost:3000/api/auth/me
 curl -i http://localhost:3000/api/auth/me -H "Authorization: Bearer nope"
 ```
 
+New accounts are held until the student opens the confirmation link that Supabase emails them (that link only comes out when the **Confirm email** setting above is on); until then Supabase refuses logins with its `email_not_confirmed` error, and the app shows the check-your-email screen instead of a password error. Supabase completes that link only when its URL is allow listed: under **Authentication - URL Configuration**, set the Site URL to the app origin and add `<origin>/auth/confirm` (while developing, `http://localhost:3000/auth/confirm`) to the Redirect URLs.
+
+Because no code can verify what the dashboard holds, make email confirmation a release step: `GET /api/health` must show `emailConfirmationRequired: true` before real students sign up.
+
 ## API docs
 
 Every API route is documented in [`docs/api.md`](docs/api.md) with its method, path, and example request and response bodies, so the website and the iOS app can be built against it.

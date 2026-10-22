@@ -9,12 +9,16 @@ import { logIn, validateLogIn } from "@/lib/auth-client";
 import type { Credentials, FieldErrors } from "@/lib/auth-client";
 import { setToken } from "@/lib/session";
 import styles from "../auth.module.css";
+import { ResendConfirmation } from "../resend-confirmation";
 
 export function LogInForm({ next }: { next: string }) {
   const router = useRouter();
   const [values, setValues] = useState<Credentials>({ email: "", password: "" });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  // Set when the account is confirmed not yet: the error message says so and
+  // a resend button goes with it.
+  const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   function update(field: keyof Credentials, value: string) {
@@ -25,6 +29,7 @@ export function LogInForm({ next }: { next: string }) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+    setEmailSentTo(null);
 
     const errors = validateLogIn(values);
     if (Object.keys(errors).length > 0) {
@@ -37,6 +42,7 @@ export function LogInForm({ next }: { next: string }) {
     if (!result.ok) {
       setFieldErrors(result.fieldErrors);
       setFormError(result.formError ?? null);
+      setEmailSentTo(result.emailSentTo ?? null);
       setValues((current) => ({ ...current, password: "" }));
       setSubmitting(false);
       return;
@@ -49,6 +55,9 @@ export function LogInForm({ next }: { next: string }) {
     <>
       <form className={styles.form} onSubmit={handleSubmit} noValidate>
         {formError ? <Notice tone="error">{formError}</Notice> : null}
+        {emailSentTo ? (
+          <ResendConfirmation email={values.email.trim()} label="Send it again" />
+        ) : null}
         <Input
           label="Email"
           name="email"
