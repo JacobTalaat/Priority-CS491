@@ -56,8 +56,9 @@ export function SyllabusUpload({ course, onRead }: SyllabusUploadProps) {
       </h2>
 
       <p id={disclosureId} className={styles.disclosure}>
-        <strong>Uses AI.</strong> Priority saves the text of your syllabus so it can read your grading rules,
-        but your weights are not saved until you check and confirm them.
+        <strong>Uses AI.</strong> Priority saves your syllabus text and sends it to an AI service to suggest your
+        categories, weights, and cutoffs. It can make mistakes, and your weights are not saved until you check and
+        confirm them.
       </p>
 
       <form className={styles.form} onSubmit={handleSubmit} noValidate aria-describedby={disclosureId}>

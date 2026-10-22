@@ -229,7 +229,7 @@ describe("withReasons", () => {
     const item = ranked({ assignmentId: "a", share: 15 });
 
     const [entry] = withReasons(
-      [{ ...item, boundary: { letter: "A-", cutoff: 90, direction: "within-reach", distance: 1.1 } }],
+      [{ ...item, boundary: { letter: "A-", cutoff: 90, direction: "within-reach" as const, distance: 1.5 } }],
       NOW,
     );
 
