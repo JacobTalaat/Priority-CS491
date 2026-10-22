@@ -1267,7 +1267,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
 
 ### `GET /api/today`
 
-Returns the student's ranked to-do list in one call, so the website and the mobile app show the same order. Only work the student can still act on is listed: graded work, work already handed in, and excused work never appear. Items are grouped by their due calendar day in New York; overdue work from the last 7 New York calendar days is pulled into today's group — it is not simply first, and a bigger item due tonight can rank above it — while work more than 7 calendar days overdue is left out entirely. Within a day, items rank by share of the final grade divided by the estimated hours; work without a due date comes last.
+Returns the student's ranked to-do list in one call, so the website and the mobile app show the same order. Only work the student can still act on is listed: graded work, work already handed in, and excused work never appear. Work the student marked done — even if Canvas has not graded it yet — and work skipped for today's New York day never appear either; skipping comes back the next New York day, and undone work becomes eligible again. An item an undo (or a skip's expiry) makes eligible only shows up again if it is still open: not graded, not handed in, not excused, and not more than 7 New York calendar days overdue. Items are grouped by their due calendar day in New York; overdue work from the last 7 New York calendar days is pulled into today's group — it is not simply first, and a bigger item due tonight can rank above it — while work more than 7 calendar days overdue is left out entirely. Within a day, items rank by share of the final grade divided by the estimated hours; work without a due date comes last.
 
 - **Method**: `GET`
 - **Path**: `/api/today`
@@ -1374,6 +1374,168 @@ Until work estimates are stored (a later plan ticket), every item is unestimated
 ```json
 {
   "error": "Unauthorized"
+}
+```
+
+---
+
+### `POST /api/today/items/[assignmentId]/done`
+
+Marks one to-do item done: it disappears from `GET /api/today` immediately and stays gone until it is undone — even if Canvas has no grade for it yet. The assignment must belong to one of the student's CURRENT courses, or the route answers `404`. Every call also appends one record to the tap event log (`done`), which the ranking study later reads; the record keeps the item's course id and Canvas id, so it stays identifiable even after a sync removes the assignment row itself.
+
+- **Method**: `POST`
+- **Path**: `/api/today/items/[assignmentId]/done`
+
+**Request**
+
+Send an `Authorization` header with the Priority bearer token, and optionally:
+
+- `X-Priority-Client: web` or `X-Priority-Client: app` — which client sent the tap; recorded on the event as sent. Any other value — or no header at all — is recorded as `unknown`.
+- `X-Priority-Request-Id` — an idempotency key of at most 100 characters. Retrying the same action with the same key returns the first response again and never writes a second event or state change; without the key, every call counts. Clients should generate one key per tap, not per retry.
+- An optional JSON body saying what the client had on screen when the student tapped, so the study can tell whether the tested behaviour sat at the top of the list: `{ "rank": <the item's rank from GET /api/today>, "listGeneratedAt": "<that response's generatedAt>" }`. Both fields are optional; the server also stores where the item sat in the list it computes at the moment of the tap (`serverRank`). A body that is not a JSON object, or a field of the wrong form, is rejected with `400`.
+
+```bash
+curl -i http://localhost:3000/api/today/items/assignment-id-1/done \
+  -X POST \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "X-Priority-Client: web" \
+  -H "X-Priority-Request-Id: tap-0f3e2b" \
+  -d'{ "rank": 1, "listGeneratedAt": "2026-10-14T16:30:00.000Z" }'
+```
+
+**Response**
+
+`200` — the item is done:
+
+```json
+{
+  "assignmentId": "assignment-id-1",
+  "status": "done"
+}
+```
+
+The same request retried with the same `X-Priority-Request-Id` returns this exact body again, with no further writes.
+
+`400` — the body is not a JSON object, `rank` is not a positive integer, `listGeneratedAt` is not an ISO date-time, or `X-Priority-Request-Id` is longer than 100 characters:
+
+```json
+{
+  "error": "rank must be a positive integer."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not exist, does not belong to the student, or belongs to one of their not-current courses:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
+---
+
+### `POST /api/today/items/[assignmentId]/skip`
+
+Hides one to-do item for the rest of today, in New York: it disappears from `GET /api/today` immediately and reappears at midnight ET — actually, only if it is still open (not graded, not handed in, not excused, and not more than 7 New York calendar days overdue). The assignment must belong to one of the student's CURRENT courses, or the route answers `404`. Skipping never overwrites a done state: if the item is done, the tap is logged as `skip` exactly as the student made it, but the item stays done and this route reports `done`. Every call also appends one record to the tap event log, which keeps the item's course id and Canvas id even after the assignment row is synced away.
+
+- **Method**: `POST`
+- **Path**: `/api/today/items/[assignmentId]/skip`
+
+**Request**
+
+Send an `Authorization` header with the Priority bearer token, and see the done route for the `X-Priority-Client`, `X-Priority-Request-Id` and JSON body (`rank` / `listGeneratedAt` from `GET /api/today`) options and its `400` responses.
+
+```bash
+curl -i http://localhost:3000/api/today/items/assignment-id-1/skip \
+  -X POST \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "X-Priority-Client: app"
+```
+
+**Response**
+
+`200` — the item is skipped for today (or reported still `done`, when it was done):
+
+```json
+{
+  "assignmentId": "assignment-id-1",
+  "status": "skipped"
+}
+```
+
+`400` — a bad `X-Priority-Request-Id` or body, as on the done route.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not exist, does not belong to the student, or belongs to one of their not-current courses:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
+---
+
+### `DELETE /api/today/items/[assignmentId]`
+
+Undoes an item's done or skip state: the state row is removed, so `GET /api/today` lists the item again — if it is still open (not graded, not handed in, not excused, and not more than 7 New York calendar days overdue); undo does not bring back work that is no longer open. The assignment must belong to one of the student's CURRENT courses, or the route answers `404`. Every call also appends one record to the tap event log (`undo`), including a tap where there was no state left to remove — the tap itself is still what the student did. Every event keeps the item's course id and Canvas id, so study data outlives the assignment row.
+
+- **Method**: `DELETE`
+- **Path**: `/api/today/items/[assignmentId]`
+
+**Request**
+
+Send an `Authorization` header with the Priority bearer token; there is no body. See the `X-Priority-Client` and `X-Priority-Request-Id` header options and the `400` responses on the done route.
+
+```bash
+curl -i http://localhost:3000/api/today/items/assignment-id-1 \
+  -X DELETE \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "X-Priority-Client: web" \
+  -H "X-Priority-Request-Id: tap-0f3e2c"
+```
+
+**Response**
+
+`200` — `undone` is `true` when a stored state was removed, `false` when there was none (the item was neither done nor skipped); the item shows on `GET /api/today` either way, if it is still open:
+
+```json
+{
+  "assignmentId": "assignment-id-1",
+  "undone": true
+}
+```
+
+`400` — a bad `X-Priority-Request-Id`, as on the done route.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not exist, does not belong to the student, or belongs to one of their not-current courses:
+
+```json
+{
+  "error": "Assignment not found."
 }
 ```
 
