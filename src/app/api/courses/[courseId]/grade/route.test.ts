@@ -102,6 +102,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
 
     expect(response.status).toBe(200);
     // Homework: 81/100 = 81%, Exams: 120/150 = 80%, overall (81*40 + 80*60)/100 = 80.4.
+    // Shares: hw-1 and hw-2 split Homework's 40 evenly; exam-1 carries all of Exams' 60.
     expect(body).toEqual({
       course: { id: "course-1", name: "Algorithms", courseCode: "CS-341", term: "Fall 2026" },
       setupConfirmed: true,
@@ -110,6 +111,11 @@ describe("GET /api/courses/[courseId]/grade", () => {
       breakdown: [
         { category: "Homework", weight: 40, percentage: 81, pointsEarned: 81, pointsPossible: 100, gradedCount: 2, ungradedCount: 0 },
         { category: "Exams", weight: 60, percentage: 80, pointsEarned: 120, pointsPossible: 150, gradedCount: 1, ungradedCount: 0 },
+      ],
+      shares: [
+        { assignmentId: "hw-1", share: 20, category: "Homework" },
+        { assignmentId: "hw-2", share: 20, category: "Homework" },
+        { assignmentId: "exam-1", share: 60, category: "Exams" },
       ],
     });
   });
@@ -145,6 +151,10 @@ describe("GET /api/courses/[courseId]/grade", () => {
       engine: "points",
       grade: { status: "calculated", percentage: 75 },
       breakdown: [],
+      shares: [
+        { assignmentId: "hw-1", share: 25, category: null },
+        { assignmentId: "proj-1", share: 75, category: null },
+      ],
     });
   });
 
@@ -189,6 +199,11 @@ describe("GET /api/courses/[courseId]/grade", () => {
       breakdown: [
         { category: "Homework", weight: 40, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
         { category: "Exams", weight: 60, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
+      ],
+      // hw-2 is mapped but has no assignment row, so hw-1 carries all of Homework's 40.
+      shares: [
+        { assignmentId: "hw-1", share: 40, category: "Homework" },
+        { assignmentId: "exam-1", share: 60, category: "Exams" },
       ],
     });
   });
@@ -235,6 +250,10 @@ describe("GET /api/courses/[courseId]/grade", () => {
       engine: "points",
       grade: { status: "calculated", percentage: 75 },
       breakdown: [],
+      shares: [
+        { assignmentId: "hw-1", share: 25, category: null },
+        { assignmentId: "hw-2", share: 75, category: null },
+      ],
     });
   });
 
