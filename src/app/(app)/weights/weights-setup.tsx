@@ -7,6 +7,13 @@ import type { GradeSetupPayload } from "@/lib/grade-setup";
 import { getGradeSetupCourses, saveGradeSetup } from "@/lib/grade-setup-client";
 import type { GradeSetupCourse } from "@/lib/grade-setup-client";
 import { isCompleteTotal, weightTotalMessage } from "@/lib/weight-total";
+import {
+  canvasWeightsAvailable,
+  resolveWeightPrecedence,
+  syllabusReadMessage,
+  type CanvasAssignment,
+  type CanvasGroup,
+} from "@/lib/weight-precedence";
 import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import { SyllabusUpload } from "@/components/syllabus/syllabus-upload";
 import styles from "./weights.module.css";
@@ -97,15 +104,6 @@ function formForCourse(course: GradeSetupCourse): FormState {
   };
 }
 
-function canvasWeightsAvailable(course: GradeSetupCourse) {
-  const groups = course.assignmentGroups;
-  return (
-    groups.length > 0 &&
-    groups.every((group) => group.groupWeight !== null && Number.isFinite(group.groupWeight)) &&
-    Math.abs(groups.reduce((sum, group) => sum + (group.groupWeight ?? 0), 0) - 100) <= 0.001
-  );
-}
-
 function firstInstructorContactIndex(contacts: SyllabusSuggestions["contacts"]): number {
   for (let index = 0; index < contacts.length; index++) {
     const contact = contacts[index];
@@ -123,54 +121,57 @@ function firstInstructorContactIndex(contacts: SyllabusSuggestions["contacts"]):
 
 // Fills the suggested grading rules into the form state. A fact the syllabus did not state
 // leaves the form's value alone: a missing suggestion is "did not say", not a default.
-// PR-39 owns whether Canvas weights should win over an explicitly requested syllabus read.
-export function applySyllabusSuggestions(
+// PR-39: the professor's Canvas group weights outrank a syllabus read. resolveWeightPrecedence
+// keeps every weight Canvas already provides and lets the syllabus fill only what Canvas
+// leaves out; the syllabus replaces the categories wholesale only when Canvas has none.
+function applySyllabusSuggestionsWithOutcome(
   current: FormState,
-  suggestions: SyllabusSuggestions
-): FormState {
-  const categories =
-    suggestions.categories.length > 0
-      ? suggestions.categories.map((suggested) => ({
-          name: suggested.name,
-          weight: suggested.weight === null ? "" : String(suggested.weight),
-        }))
-      : current.categories;
-  const exactNameBySuggestedName = new Map<string, string>();
-  for (const category of categories) {
-    exactNameBySuggestedName.set(category.name.trim().toLowerCase(), category.name);
-  }
-  // buildPayload compares mapping values to category names exactly, so a mapping kept by
-  // case-insensitive name is rewritten to the suggested category's exact name.
-  const assignmentMappings = Object.fromEntries(
-    Object.entries(current.assignmentMappings)
-      .filter(([, categoryName]) => exactNameBySuggestedName.has(categoryName.trim().toLowerCase()))
-      .map(([assignmentId, categoryName]) => [
-        assignmentId,
-        exactNameBySuggestedName.get(categoryName.trim().toLowerCase()) ?? "",
-      ]),
-  );
+  suggestions: SyllabusSuggestions,
+  canvasGroups: CanvasGroup[],
+  canvasAssignments: CanvasAssignment[]
+): { form: FormState; canvasKept: boolean } {
+  const resolved = resolveWeightPrecedence({
+    current: {
+      categories: current.categories,
+      assignmentMappings: current.assignmentMappings,
+      finalExamWeight: current.finalExamWeight,
+    },
+    suggestedCategories: suggestions.categories,
+    suggestedFinalExamWeight: suggestions.finalExamWeight,
+    canvasGroups,
+    canvasAssignments,
+  });
   const instructorIndex = firstInstructorContactIndex(suggestions.contacts);
   return {
-    categories,
-    assignmentMappings,
-    finalExamWeight:
-      suggestions.finalExamWeight === null
-        ? current.finalExamWeight
-        : String(suggestions.finalExamWeight),
-    cutoffs: Object.fromEntries(
-      Object.entries({ ...current.cutoffs, ...suggestions.cutoffs }).map(([label, value]) => [
-        label,
-        String(value),
-      ]),
-    ),
-
-    instructor:
-      current.instructor.trim() === "" && instructorIndex !== -1
-        ? (suggestions.contacts[instructorIndex].name ?? "").trim()
-        : current.instructor,
-    section: current.section,
-    credits: current.credits,
+    form: {
+      categories: resolved.categories,
+      assignmentMappings: resolved.assignmentMappings,
+      finalExamWeight: resolved.finalExamWeight,
+      cutoffs: Object.fromEntries(
+        Object.entries({ ...current.cutoffs, ...suggestions.cutoffs }).map(([label, value]) => [
+          label,
+          String(value),
+        ]),
+      ),
+      instructor:
+        current.instructor.trim() === "" && instructorIndex !== -1
+          ? (suggestions.contacts[instructorIndex].name ?? "").trim()
+          : current.instructor,
+      section: current.section,
+      credits: current.credits,
+    },
+    canvasKept: resolved.canvasKept,
   };
+}
+
+export function applySyllabusSuggestions(
+  current: FormState,
+  suggestions: SyllabusSuggestions,
+  canvasGroups: CanvasGroup[] = [],
+  canvasAssignments: CanvasAssignment[] = []
+): FormState {
+  return applySyllabusSuggestionsWithOutcome(current, suggestions, canvasGroups, canvasAssignments)
+    .form;
 }
 
 export type SyllabusReadExtras = {
@@ -189,11 +190,19 @@ export function applySyllabusRead(
   courseId: string,
   selectedCourseId: string,
   form: FormState,
-  suggestions: SyllabusSuggestions
-): { form: FormState; extras: SyllabusReadExtras | null } | null {
+  suggestions: SyllabusSuggestions,
+  canvasGroups: CanvasGroup[] = [],
+  canvasAssignments: CanvasAssignment[] = []
+): { form: FormState; extras: SyllabusReadExtras | null; canvasKept: boolean } | null {
   if (courseId !== selectedCourseId) {
     return null;
   }
+  const { form: nextForm, canvasKept } = applySyllabusSuggestionsWithOutcome(
+    form,
+    suggestions,
+    canvasGroups,
+    canvasAssignments
+  );
   const extras: SyllabusReadExtras = {
     unsupportedRules: suggestions.unsupportedRules,
     latePolicy: suggestions.latePolicy,
@@ -205,7 +214,7 @@ export function applySyllabusRead(
     extras.latePolicy !== null ||
     extras.officeHours !== null ||
     extras.contacts.length > 0;
-  return { form: applySyllabusSuggestions(form, suggestions), extras: hasExtras ? extras : null };
+  return { form: nextForm, extras: hasExtras ? extras : null, canvasKept };
 }
 
 export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCourse[] } = {}) {
@@ -223,7 +232,9 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
   const selectedCourse = courses.find((course) => course.id === selectedCourseId) ?? null;
-  const hasCanvasWeights = selectedCourse ? canvasWeightsAvailable(selectedCourse) : false;
+  const hasCanvasWeights = selectedCourse
+    ? canvasWeightsAvailable(selectedCourse.assignmentGroups)
+    : false;
   const showForm = Boolean(selectedCourse && (selectedCourse.gradeSetup || !hasCanvasWeights || manualMode));
   const totalWeight = useMemo(
     () =>
@@ -278,11 +289,13 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
   // Kept in an effect rather than during render. A syllabus read's callback fires from an
   // event, after any committed change, so the refs are current even for a long-old request.
   const selectedCourseIdRef = useRef(selectedCourseId);
+  const selectedCourseRef = useRef(selectedCourse);
   const formRef = useRef(form);
   useEffect(() => {
     selectedCourseIdRef.current = selectedCourseId;
+    selectedCourseRef.current = selectedCourse;
     formRef.current = form;
-  }, [selectedCourseId, form]);
+  }, [selectedCourseId, selectedCourse, form]);
   const [readExtras, setReadExtras] = useState<SyllabusReadExtras | null>(null);
 
   function handleSyllabusRead(courseId: string, suggestions: SyllabusSuggestions) {
@@ -290,17 +303,25 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
     if (courseId !== selectedCourseIdRef.current) {
       return;
     }
-    const read = applySyllabusRead(courseId, selectedCourseIdRef.current, formRef.current, suggestions);
+    const selectedCourse = selectedCourseRef.current;
+    const read = applySyllabusRead(
+      courseId,
+      selectedCourseIdRef.current,
+      formRef.current,
+      suggestions,
+      selectedCourse?.assignmentGroups ?? [],
+      selectedCourse?.assignments.map((assignment) => ({
+        id: assignment.id,
+        groupName: assignment.assignmentGroup?.name ?? null,
+      })) ?? []
+    );
     if (read === null) {
       return;
     }
     setManualMode(true);
     setForm(read.form);
     setReadExtras(read.extras);
-    setMessage({
-      tone: "success",
-      text: "The AI's suggestions are filled in below. Nothing is saved until you confirm them.",
-    });
+    setMessage({ tone: "success", text: syllabusReadMessage(read.canvasKept) });
   }
 
   function updateCategory(index: number, field: keyof CategoryField, value: string) {
