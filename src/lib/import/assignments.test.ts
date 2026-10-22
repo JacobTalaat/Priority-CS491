@@ -148,6 +148,41 @@ describe("importAssignments", () => {
     expect(mockUpsert.mock.calls[0][0].update.title).toBe("Midterm exam");
   });
 
+  it("converts Canvas's HTML description to capped plain text", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      {
+        ...assignment(712345, "Project proposal", 100, "2026-10-19T03:59:00Z"),
+        description: "<p>Write  <b>two</b> pages &amp; cite&nbsp;sources.</p><script>alert(1)</script>",
+      },
+    ]));
+    await importAssignments(CREDENTIALS, COURSE);
+    expect(mockUpsert.mock.calls[0][0].update.description).toBe(
+      "Write two pages & cite sources."
+    );
+    expect(mockUpsert.mock.calls[0][0].update.description).not.toContain("alert");
+  });
+
+  it("caps a huge description at 4000 characters", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      {
+        ...assignment(712346, "Long brief", 100, "2026-10-19T03:59:00Z"),
+        description: "<p>" + "x".repeat(5000) + "</p>",
+      },
+    ]));
+    await importAssignments(CREDENTIALS, COURSE);
+    expect(mockUpsert.mock.calls[0][0].update.description).toBe("x".repeat(4000));
+  });
+
+  it("stores null when the description is absent or not a string", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      assignment(712347, "No brief", 100, "2026-10-19T03:59:00Z"),
+      { ...assignment(712348, "Odd brief", 100, "2026-10-19T03:59:00Z"), description: 5 },
+    ]));
+    await importAssignments(CREDENTIALS, COURSE);
+    expect(mockUpsert.mock.calls[0][0].update.description).toBeNull();
+    expect(mockUpsert.mock.calls[1][0].update.description).toBeNull();
+  });
+
   it("consumes three mocked pages, requesting per_page=100", async () => {
     const mockFetch = vi
       .fn()
