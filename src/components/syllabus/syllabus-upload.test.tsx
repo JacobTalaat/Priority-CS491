@@ -19,7 +19,9 @@ describe("SyllabusUpload", () => {
 
   it("shows the AI disclosure and ties it to the form", () => {
     expect(html).toContain("Uses AI.");
-    expect(html).toContain("not saved until you check and confirm them");
+    expect(html).toContain("sends it to an AI service");
+    expect(html).toContain("It can make mistakes");
+    expect(html).toContain("not saved until you check and");
     expect(html).toMatch(/<form[^>]*aria-describedby="[^"]*-disclosure"/);
   });
 

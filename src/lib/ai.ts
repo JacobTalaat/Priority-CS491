@@ -1,5 +1,13 @@
 import "server-only";
-import { costMicros, estimateInputTokens, reserveSpend, settleSpend, spendPeriod } from "@/lib/ai-spend";
+import {
+  claimSpendWarning,
+  costMicros,
+  estimateInputTokens,
+  reserveSpend,
+  settleSpend,
+  spendPeriod,
+} from "@/lib/ai-spend";
+import { aiUsageDay, recordAiUsage } from "@/lib/ai-usage";
 import { env } from "@/lib/env";
 
 export type AiMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -53,6 +61,58 @@ async function settle(period: string, reserve: number, cost: number): Promise<vo
   } catch {
     console.error("AI spend settlement failed");
   }
+}
+
+// Claims the right to emit the near-cap warning and emits it. Best-effort: a
+// failure is caught with a fixed message and never changes the call's result,
+// so every claim site can run before or after the provider call. Forced claims
+// (cap already reached) skip the threshold but still fire once per month.
+async function checkSpendWarning(period: string, capMicros: number, force: boolean): Promise<void> {
+  try {
+    const claimed = await claimSpendWarning({ period, capMicros, force });
+    if (claimed === null) {
+      return;
+    }
+    const dollars = Number(capMicros) / 1000000;
+    if (force) {
+      console.warn(
+        `AI spend for ${period} reached the $${dollars} monthly cap; requests are being refused`
+      );
+      return;
+    }
+    const used = claimed.spentMicros + claimed.reservedMicros;
+    const percent = Math.round((Number(used) / Number(capMicros)) * 100);
+    console.warn(`AI spend for ${period} is at ${percent}% of the $${dollars} monthly cap`);
+  } catch {
+    console.error("AI spend warning check failed");
+  }
+}
+
+// Records a provider call and re-checks the near-cap warning. Both are
+// bookkeeping only: any failure in them must never change the caller's
+// completion or error, so each is caught with a fixed message carrying no
+// request content.
+async function trackUsage(
+  request: AiRequest,
+  period: string,
+  day: string,
+  capMicros: number,
+  outcome: { ok: boolean; inputTokens: number | null; outputTokens: number | null; cost: number }
+): Promise<void> {
+  try {
+    await recordAiUsage({
+      day,
+      feature: request.feature,
+      userId: request.userId ?? null,
+      failed: !outcome.ok,
+      inputTokens: outcome.inputTokens,
+      outputTokens: outcome.outputTokens,
+      costMicros: outcome.cost,
+    });
+  } catch {
+    console.error("AI usage recording failed");
+  }
+  await checkSpendWarning(period, capMicros, false);
 }
 
 function throwConfig(caught: unknown): never {
@@ -160,7 +220,11 @@ export async function completeChat(request: AiRequest): Promise<AiCompletion> {
     throw new AiError("aborted", "AI request was cancelled");
   }
 
-  const period = spendPeriod(new Date());
+  // Snap both the period and the usage day to reserve time so a month or day
+  // rollover mid-call cannot split one call's accounting across buckets.
+  const now = new Date();
+  const period = spendPeriod(now);
+  const day = aiUsageDay(now);
   const reserve = costMicros(
     estimateInputTokens(request.messages),
     request.maxOutputTokens,
@@ -179,8 +243,15 @@ export async function completeChat(request: AiRequest): Promise<AiCompletion> {
     throw new AiError("accounting", "AI spend could not be reserved");
   }
   if (!reserved) {
+    // The refusals count reserved nothing, but the cap is effectively reached;
+    // warn unconditionally once per month instead of waiting for 80%.
+    await checkSpendWarning(period, budget, true);
     throw new AiError("cap_reached", "AI spending cap reached for this month");
   }
+
+  // spent+reserved already includes this call's reservation, so a call that
+  // would push the month over the threshold warns before it is sent.
+  await checkSpendWarning(period, budget, false);
 
   let response: Response;
   try {
@@ -208,12 +279,24 @@ export async function completeChat(request: AiRequest): Promise<AiCompletion> {
       new AiError("network", "AI request failed to reach the provider")
     );
     await settle(period, reserve, reserve);
+    await trackUsage(request, period, day, budget, {
+      ok: false,
+      inputTokens: null,
+      outputTokens: null,
+      cost: reserve,
+    });
     throw error;
   }
 
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
     await settle(period, reserve, 0);
+    await trackUsage(request, period, day, budget, {
+      ok: false,
+      inputTokens: null,
+      outputTokens: null,
+      cost: 0,
+    });
     throw new AiError("http", `AI provider returned ${response.status}`, response.status);
   }
 
@@ -225,12 +308,24 @@ export async function completeChat(request: AiRequest): Promise<AiCompletion> {
       new AiError("malformed", "AI provider returned a malformed response")
     );
     await settle(period, reserve, reserve);
+    await trackUsage(request, period, day, budget, {
+      ok: false,
+      inputTokens: null,
+      outputTokens: null,
+      cost: reserve,
+    });
     throw error;
   }
 
   const text = extractText(parsed);
   if (text === null) {
     await settle(period, reserve, reserve);
+    await trackUsage(request, period, day, budget, {
+      ok: false,
+      inputTokens: null,
+      outputTokens: null,
+      cost: reserve,
+    });
     throw new AiError("malformed", "AI provider returned a malformed response");
   }
 
@@ -245,6 +340,12 @@ export async function completeChat(request: AiRequest): Promise<AiCompletion> {
   }
 
   await settle(period, reserve, cost);
+  await trackUsage(request, period, day, budget, {
+    ok: true,
+    inputTokens,
+    outputTokens,
+    cost,
+  });
 
   return {
     model,
