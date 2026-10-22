@@ -10,12 +10,16 @@ import type { Credentials, FieldErrors } from "@/lib/auth-client";
 import { PASSWORD_CHANGED } from "@/lib/auth-client";
 import { setToken } from "@/lib/session";
 import styles from "../auth.module.css";
+import { ResendConfirmation } from "../resend-confirmation";
 
 export function LogInForm({ next, resetDone = false }: { next: string; resetDone?: boolean }) {
   const router = useRouter();
   const [values, setValues] = useState<Credentials>({ email: "", password: "" });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  // Set when the account is confirmed not yet: the error message says so and
+  // a resend button goes with it.
+  const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   function update(field: keyof Credentials, value: string) {
@@ -26,6 +30,7 @@ export function LogInForm({ next, resetDone = false }: { next: string; resetDone
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+    setEmailSentTo(null);
 
     const errors = validateLogIn(values);
     if (Object.keys(errors).length > 0) {
@@ -38,6 +43,7 @@ export function LogInForm({ next, resetDone = false }: { next: string; resetDone
     if (!result.ok) {
       setFieldErrors(result.fieldErrors);
       setFormError(result.formError ?? null);
+      setEmailSentTo(result.emailSentTo ?? null);
       setValues((current) => ({ ...current, password: "" }));
       setSubmitting(false);
       return;
@@ -51,6 +57,9 @@ export function LogInForm({ next, resetDone = false }: { next: string; resetDone
       <form className={styles.form} onSubmit={handleSubmit} noValidate>
         {resetDone ? <Notice tone="success">{PASSWORD_CHANGED}</Notice> : null}
         {formError ? <Notice tone="error">{formError}</Notice> : null}
+        {emailSentTo ? (
+          <ResendConfirmation email={values.email.trim()} label="Send it again" />
+        ) : null}
         <Input
           label="Email"
           name="email"

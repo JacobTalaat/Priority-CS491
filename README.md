@@ -124,6 +124,10 @@ curl -i http://localhost:3000/api/auth/me
 curl -i http://localhost:3000/api/auth/me -H "Authorization: Bearer nope"
 ```
 
+New accounts are held until the student opens the confirmation link that Supabase emails them (that link only comes out when the **Confirm email** setting above is on); until then Supabase refuses logins with its `email_not_confirmed` error, and the app shows the check-your-email screen instead of a password error. Supabase completes that link only when its URL is allow listed: under **Authentication - URL Configuration**, set the Site URL to the app origin and add `<origin>/auth/confirm` (while developing, `http://localhost:3000/auth/confirm`) to the Redirect URLs.
+
+Because no code can verify what the dashboard holds, make email confirmation a release step: `GET /api/health` must show `emailConfirmationRequired: true` before real students sign up.
+
 ## API docs
 
 Every API route is documented in [`docs/api.md`](docs/api.md) with its method, path, and example request and response bodies, so the website and the iOS app can be built against it.
@@ -141,3 +145,7 @@ Use the shared [cross-platform test plan](docs/test-plan.md) for API, website, a
 - `npm run typecheck` — type-check the project with TypeScript
 - `npm test` — run the test suite with Vitest
 - `npm run db:migrate` — create and apply Prisma migrations
+
+## Team process
+
+Report defects with the shared [Jira bug template](docs/bug-template-and-definition-of-done.md#jira-bug-template), and check a story against the team's [Definition of Done](docs/bug-template-and-definition-of-done.md#definition-of-done--agreed-by-the-team) before asking for review.

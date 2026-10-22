@@ -25,6 +25,8 @@ import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import {
   applySyllabusRead,
   applySyllabusSuggestions,
+  confirmProblems,
+  detailsFilledByRead,
   WeightsSetup,
   type FormState,
 } from "./weights-setup";
@@ -55,6 +57,10 @@ function currentForm(): FormState {
     instructor: "",
     section: "002",
     credits: "3",
+    officeHours: "",
+    latePolicy: "",
+    contacts: "",
+    finalExamAssignmentId: "",
   };
 }
 
@@ -175,6 +181,163 @@ describe("applySyllabusSuggestions", () => {
     expect(next.section).toBe("002");
     expect(next.credits).toBe("3");
   });
+
+  it("fills empty office hours, late policy, and contacts so they can be edited", () => {
+    const next = applySyllabusSuggestions(currentForm(), fullSuggestions);
+    expect(next.officeHours).toBe("Tue 2-3 pm");
+    expect(next.latePolicy).toBe("Late work loses 2 points per day.");
+    expect(next.contacts).toBe("Dr. Ruiz (Instructor) eruiz@njit.edu");
+  });
+
+  it("never overwrites class details the student already typed", () => {
+    const typed = {
+      ...currentForm(),
+      officeHours: "Mon 10-11",
+      latePolicy: "No late work.",
+      contacts: "Prof. Ortega",
+    };
+    const next = applySyllabusSuggestions(typed, fullSuggestions);
+    expect(next.officeHours).toBe("Mon 10-11");
+    expect(next.latePolicy).toBe("No late work.");
+    expect(next.contacts).toBe("Prof. Ortega");
+  });
+
+  it("leaves class details empty when the syllabus didn't state them", () => {
+    const next = applySyllabusSuggestions(currentForm(), {
+      ...fullSuggestions,
+      latePolicy: null,
+      officeHours: null,
+      contacts: [],
+    });
+    expect(next.officeHours).toBe("");
+    expect(next.latePolicy).toBe("");
+    expect(next.contacts).toBe("");
+  });
+});
+
+describe("final exam picker", () => {
+  it("keeps the picked final exam when a syllabus is read", () => {
+    const next = applySyllabusSuggestions({ ...currentForm(), finalExamAssignmentId: "a2" }, fullSuggestions);
+    expect(next.finalExamAssignmentId).toBe("a2");
+  });
+
+  it("offers every assignment, plus none, and starts on none for a new setup", () => {
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[course]} />);
+    expect(html).toMatch(/<label[^>]*for="final-exam-assignment"[^>]*>Final exam<\/label>/);
+    expect(html).toContain('<option value="" selected="">No final exam in this class</option>');
+    expect(html).toContain('<option value="a1">Homework 1</option>');
+    expect(html).toContain('<option value="a2">Project 1</option>');
+  });
+
+  it("shows the saved final exam, and none when that assignment no longer exists", () => {
+    const withFinal = (finalExamAssignmentId: string): GradeSetupCourse => ({
+      ...course,
+      gradeSetup: {
+        categories: [{ name: "Homework", weight: 100 }],
+        assignmentMappings: [
+          { assignmentId: "a1", category: "Homework" },
+          { assignmentId: "a2", category: "Homework" },
+        ],
+        finalExamWeight: 0,
+        cutoffs: { A: 90 },
+        classDetails: { finalExamAssignmentId },
+        confirmedAt: "2026-10-20T12:00:00.000Z",
+      },
+    });
+    expect(renderToStaticMarkup(<WeightsSetup initialCourses={[withFinal("a2")]} />)).toContain(
+      '<option value="a2" selected="">Project 1</option>',
+    );
+    expect(renderToStaticMarkup(<WeightsSetup initialCourses={[withFinal("gone")]} />)).toContain(
+      '<option value="" selected="">No final exam in this class</option>',
+    );
+  });
+});
+
+describe("confirmProblems", () => {
+  const assignments = [{ id: "a1" }, { id: "a2" }];
+  const valid = (): FormState => ({
+    ...currentForm(),
+    categories: [{ name: "Homework", weight: "80" }],
+    finalExamWeight: "20",
+    assignmentMappings: { a1: "Homework", a2: "Homework" },
+  });
+
+  it("is empty for a complete setup", () => {
+    expect(confirmProblems(valid(), assignments)).toEqual([]);
+  });
+
+  it("explains a total that isn't 100", () => {
+    expect(confirmProblems({ ...valid(), finalExamWeight: "15" }, assignments)).toEqual([
+      "Weights add up to 95%. They need to total 100%.",
+    ]);
+  });
+
+  it("counts unmapped assignments", () => {
+    expect(confirmProblems({ ...valid(), assignmentMappings: { a1: "Homework" } }, assignments)).toEqual([
+      "1 of 2 assignments still needs a category.",
+    ]);
+  });
+
+  it("treats a mapping that differs only by spaces as mapped, like the save route", () => {
+    const spaced = { ...valid(), categories: [{ name: "Homework ", weight: "80" }], assignmentMappings: { a1: "Homework ", a2: "Homework" } };
+    expect(confirmProblems(spaced, assignments)).toEqual([]);
+  });
+
+  it("lists every problem at once, in form order", () => {
+    const broken: FormState = {
+      ...valid(),
+      categories: [
+        { name: "", weight: "50" },
+        { name: "Exams", weight: "20" },
+        { name: "exams", weight: "10" },
+      ],
+      finalExamWeight: "200",
+      assignmentMappings: {},
+      cutoffs: { A: "105" },
+      credits: "-1",
+    };
+    expect(confirmProblems(broken, assignments)).toEqual([
+      "Give every category a name and a weight from 0 to 100.",
+      "Category names must be unique.",
+      "The final exam weight must be from 0 to 100.",
+      // The out-of-range final exam weight still counts toward the total it shows.
+      "Weights add up to 280%. They need to total 100%.",
+      "2 of 2 assignments still need a category.",
+      "Enter grade cutoffs from 0 to 100.",
+      "Credits must be zero or greater.",
+    ]);
+  });
+});
+
+describe("Confirm button", () => {
+  it("is off and says why while an assignment is unmapped", () => {
+    const partial: GradeSetupCourse = {
+      ...course,
+      assignmentGroups: [{ name: "Homework", groupWeight: 40 }],
+    };
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[partial]} />);
+    const button = html.match(/<button[^>]*>Confirm and save<\/button>/)?.[0] ?? "";
+    expect(button).toContain('disabled=""');
+    expect(button).toContain('aria-describedby="confirm-problems"');
+    expect(html).toContain("Before you can confirm:");
+    expect(html).toContain("1 of 2 assignments still needs a category.");
+  });
+
+  it("is on when the setup is complete", () => {
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[course]} />);
+    expect(html).not.toContain("Before you can confirm:");
+    const button = html.match(/<button[^>]*>Confirm and save<\/button>/)?.[0] ?? "";
+    expect(button).toContain('type="submit"');
+    expect(button).not.toContain("disabled");
+  });
+});
+
+describe("detailsFilledByRead", () => {
+  it("lists only the class details a read changed", () => {
+    const before = { ...currentForm(), latePolicy: "No late work." };
+    const after = applySyllabusSuggestions(before, fullSuggestions);
+    expect(detailsFilledByRead(before, after)).toEqual(["instructor", "officeHours", "contacts"]);
+  });
 });
 
 describe("applySyllabusRead", () => {
@@ -210,6 +373,37 @@ describe("applySyllabusRead", () => {
       contacts: [],
     });
     expect(silent!.extras).toBeNull();
+  });
+});
+
+describe("WeightsSetup class details", () => {
+  it("shows saved office hours, late policy, and contacts as editable fields", () => {
+    const saved: GradeSetupCourse = {
+      ...course,
+      gradeSetup: {
+        categories: [{ name: "Homework", weight: 100 }],
+        assignmentMappings: [
+          { assignmentId: "a1", category: "Homework" },
+          { assignmentId: "a2", category: "Homework" },
+        ],
+        finalExamWeight: 0,
+        cutoffs: { A: 90 },
+        classDetails: {
+          instructor: "Dr. Ruiz",
+          section: "002",
+          credits: 3,
+          officeHours: "Tue 2-3 pm",
+          latePolicy: "Late work loses 2 points per day.",
+          contacts: "Dr. Ruiz (Instructor) eruiz@njit.edu",
+        },
+        confirmedAt: "2026-10-20T12:00:00.000Z",
+      },
+    };
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[saved]} />);
+    expect(html).toMatch(/<label[^>]*>Office hours<\/label>/);
+    expect(html).toContain('value="Tue 2-3 pm"');
+    expect(html).toMatch(/<textarea[^>]*>Late work loses 2 points per day.<\/textarea>/);
+    expect(html).toMatch(/<textarea[^>]*>Dr. Ruiz \(Instructor\) eruiz@njit.edu<\/textarea>/);
   });
 });
 

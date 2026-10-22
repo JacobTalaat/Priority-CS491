@@ -1,0 +1,1 @@
+ALTER TABLE "AiSpendMonth" ADD COLUMN "warnedAt" TIMESTAMP(3);
