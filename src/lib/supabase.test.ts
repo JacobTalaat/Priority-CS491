@@ -16,7 +16,7 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: mockCreateClient,
 }));
 
-import { deleteAuthUser, verifyAccessToken, verifyPassword } from "./supabase";
+import { deleteAuthUser, emailConfirmationRequired, verifyAccessToken, verifyPassword } from "./supabase";
 
 function clientStub() {
   return {
@@ -123,6 +123,58 @@ describe("verifyPassword", () => {
       error: { message: "Invalid login credentials", status: 400 },
     });
     await expect(verifyPassword(IDENTITY.email, "wrong-password")).resolves.toBe(false);
+  });
+});
+
+describe("emailConfirmationRequired", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reads Supabase's public settings and reports confirmation as required when autoconfirm is off", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({ mailer: { sender_name: "Priority" }, mailer_autoconfirm: false }, { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(emailConfirmationRequired(1_000_000)).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith("https://test.supabase.co/auth/v1/settings", {
+      headers: { apikey: "test-publishable-key" },
+    });
+  });
+
+  it("reports confirmation as not required when autoconfirm hands out sessions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ mailer_autoconfirm: true }, { status: 200 })),
+    );
+    await expect(emailConfirmationRequired(2_000_000)).resolves.toBe(false);
+  });
+
+  it("serves the cached answer for five minutes without calling Supabase again", async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Response.json({ mailer_autoconfirm: true }, { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(emailConfirmationRequired(3_000_000)).resolves.toBe(false);
+    await expect(emailConfirmationRequired(3_000_000 + 5 * 60 * 1000 - 1)).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(emailConfirmationRequired(3_000_000 + 5 * 60 * 1000)).resolves.toBe(false);
+    // Right at the expiry the fetch happens again — still one cached answer.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers null without caching when Supabase cannot be reached", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(emailConfirmationRequired(4_000_000)).resolves.toBeNull();
+    // A later request retries rather than trusting the failed read.
+    await expect(emailConfirmationRequired(5_000_000)).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers null when Supabase answers without a boolean autoconfirm", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status: 200 })));
+    await expect(emailConfirmationRequired(6_000_000)).resolves.toBeNull();
   });
 });
 

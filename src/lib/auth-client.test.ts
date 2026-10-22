@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCreateClient, mockSignUp, mockSignInWithPassword, mockSignOut, mockGetSession } =
+const { mockCreateClient, mockSignUp, mockSignInWithPassword, mockSignOut, mockGetSession, mockResend } =
   vi.hoisted(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "test-publishable-key";
@@ -10,6 +10,7 @@ const { mockCreateClient, mockSignUp, mockSignInWithPassword, mockSignOut, mockG
         signInWithPassword: vi.fn(),
         signOut: vi.fn(),
         getSession: vi.fn(),
+        resend: vi.fn(),
       },
     };
     return {
@@ -18,6 +19,7 @@ const { mockCreateClient, mockSignUp, mockSignInWithPassword, mockSignOut, mockG
       mockSignInWithPassword: client.auth.signInWithPassword,
       mockSignOut: client.auth.signOut,
       mockGetSession: client.auth.getSession,
+      mockResend: client.auth.resend,
     };
   });
 
@@ -26,12 +28,15 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 import {
+  CONFIRM_EMAIL_PATH,
   MIN_PASSWORD_LENGTH,
   WRONG_CREDENTIALS,
   checkSession,
   currentToken,
   logIn,
   logOut,
+  readConfirmationResult,
+  resendConfirmation,
   signUp,
   validateLogIn,
   validateSignUp,
@@ -61,6 +66,11 @@ describe("validateSignUp", () => {
 describe("signUp", () => {
   beforeEach(() => {
     mockSignUp.mockReset();
+    vi.stubGlobal("window", { location: { origin: "http://localhost:3000" } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("creates the account with Supabase Auth and returns its access token", async () => {
@@ -76,17 +86,32 @@ describe("signUp", () => {
       token: "supabase-access-token",
       user: { id: "auth-user-1", email: "student@njit.edu" },
     });
-    expect(mockSignUp).toHaveBeenCalledWith({ email: "student@njit.edu", password: "12345678" });
+    expect(mockSignUp).toHaveBeenCalledWith({
+      email: "student@njit.edu",
+      password: "12345678",
+      options: { emailRedirectTo: `http://localhost:3000${CONFIRM_EMAIL_PATH}` },
+    });
     expect(mockSignInWithPassword).not.toHaveBeenCalled();
   });
 
-  it("sends the student to their email when the project requires confirmation", async () => {
+  it("points the confirmation email at this app's confirm page", async () => {
     mockSignUp.mockResolvedValue({ data: { session: null, user: null }, error: null });
-    const result = await signUp({ email: "student@njit.edu", password: "12345678" });
-    if (result.ok) {
-      throw new Error("expected the sign up to be held back for confirmation");
-    }
-    expect(result.formError).toMatch(/check your email/i);
+    await signUp({ email: "student@njit.edu", password: "12345678" });
+    expect(mockSignUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: { emailRedirectTo: "http://localhost:3000/auth/confirm" },
+      }),
+    );
+  });
+
+  it("switches to the check-email screen when confirmation holds the account back", async () => {
+    mockSignUp.mockResolvedValue({ data: { session: null, user: null }, error: null });
+    const result = await signUp({ email: " student@njit.edu ", password: "12345678" });
+    expect(result).toEqual({
+      ok: false,
+      fieldErrors: {},
+      emailSentTo: "student@njit.edu",
+    });
   });
 
   it("blames the email when Supabase already has an account for it", async () => {
@@ -167,12 +192,25 @@ describe("logIn", () => {
   it("shows a clear wrong password error when Supabase refuses", async () => {
     mockSignInWithPassword.mockResolvedValue({
       data: { user: null },
-      error: { message: "Invalid login credentials", status: 400 },
+      error: { message: "Invalid login credentials", status: 400, code: "invalid_credentials" },
     });
     expect(await logIn({ email: "student@njit.edu", password: "wrong-password" })).toEqual({
       ok: false,
       fieldErrors: {},
       formError: WRONG_CREDENTIALS,
+    });
+  });
+
+  it("points an unconfirmed account back to its inbox instead of blaming the password", async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Email not confirmed", status: 400, code: "email_not_confirmed" },
+    });
+    expect(await logIn({ email: "student@njit.edu", password: "12345678" })).toEqual({
+      ok: false,
+      fieldErrors: {},
+      formError: "Confirm your email first. We sent a link to student@njit.edu.",
+      emailSentTo: "student@njit.edu",
     });
   });
 
@@ -209,6 +247,75 @@ describe("currentToken", () => {
   it("answers null when the browser is signed out", async () => {
     mockGetSession.mockResolvedValue({ data: { session: null } });
     await expect(currentToken()).resolves.toBeNull();
+  });
+});
+
+describe("resendConfirmation", () => {
+  beforeEach(() => {
+    mockResend.mockReset();
+    vi.stubGlobal("window", { location: { origin: "http://localhost:3000" } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("resends with the signup type and the confirm-page redirect", async () => {
+    mockResend.mockResolvedValue({ error: null });
+    await expect(resendConfirmation(" student@njit.edu ")).resolves.toEqual({ ok: true });
+    expect(mockResend).toHaveBeenCalledWith({
+      type: "signup",
+      email: "student@njit.edu",
+      options: { emailRedirectTo: "http://localhost:3000/auth/confirm" },
+    });
+  });
+
+  it("answers ok:false instead of throwing when Supabase refuses the send", async () => {
+    mockResend.mockResolvedValue({ error: { message: "rate limited", status: 429 } });
+    await expect(resendConfirmation("student@njit.edu")).resolves.toEqual({ ok: false });
+  });
+});
+
+describe("readConfirmationResult", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("treats a session saved from the fragment as a confirmed link", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: { access_token: "link-token" } } });
+    vi.stubGlobal("window", {
+      location: { hash: "#access_token=link-token&type=signup&refresh_token=r" },
+    });
+    await expect(readConfirmationResult()).resolves.toEqual({
+      status: "confirmed",
+      token: "link-token",
+    });
+  });
+
+  it("answers expired for an error fragment even when an older session is stored", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: { access_token: "stale-token" } } });
+    vi.stubGlobal("window", {
+      location: {
+        hash: "#error=access_denied&error_code=otp_expired&error_description=Email%20link%20is%20invalid%20or%20has%20expired",
+      },
+    });
+    await expect(readConfirmationResult()).resolves.toEqual({ status: "expired" });
+  });
+
+  it("calls a stray visit without a fragment invalid, session or not", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: { access_token: "stale-token" } } });
+    vi.stubGlobal("window", { location: { hash: "" } });
+    await expect(readConfirmationResult()).resolves.toEqual({ status: "invalid" });
+  });
+
+  it("falls into the expired screen instead of throwing when it cannot check", async () => {
+    mockGetSession.mockRejectedValue(new Error("storage blocked"));
+    vi.stubGlobal("window", { location: { hash: "#access_token=link-token" } });
+    await expect(readConfirmationResult()).resolves.toEqual({ status: "expired" });
   });
 });
 

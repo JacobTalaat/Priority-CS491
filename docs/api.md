@@ -14,7 +14,7 @@ When a route is added, removed, or changed, update this file in the same pull re
 
 ### `GET /api/health`
 
-Reports whether the app can reach its PostgreSQL database. Clients can use it as a readiness probe before calling any other route.
+Reports whether the app can reach its PostgreSQL database, and whether the Supabase Auth project it talks to still requires email confirmation. Clients can use it as a readiness probe before calling any other route; releases check `emailConfirmationRequired` here (see the README's authentication section).
 
 - **Method**: `GET`
 - **Path**: `/api/health`
@@ -29,11 +29,12 @@ curl http://localhost:3000/api/health
 
 **Response**
 
-`200` — the database answered the query:
+`200` — the database answered the query. `emailConfirmationRequired` — whether the Supabase project enforces confirming the email address at sign up — is `true` when Supabase answers without autoconfirming, `false` when it signs users up without a confirmation email, and `null` when the check could not be made. Release checks expect `true` before real students sign up:
 
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "emailConfirmationRequired": true
 }
 ```
 
@@ -44,6 +45,8 @@ curl http://localhost:3000/api/health
   "status": "error"
 }
 ```
+
+Note: the confirmation check is read from Supabase's public auth settings endpoint and cached in memory for five minutes, so a freshly flipped dashboard switch can take up to five minutes to show.
 
 ---
 
