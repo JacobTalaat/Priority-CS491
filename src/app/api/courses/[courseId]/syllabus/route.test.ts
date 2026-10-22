@@ -1,22 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockSessionFindUnique,
+  mockVerifyAccessToken,
+  mockUserFindUnique,
   mockCourseFindFirst,
   mockSyllabusUpsert,
   mockReadSyllabusPdf,
   mockReadSuggestions,
 } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockCourseFindFirst: vi.fn(),
   mockSyllabusUpsert: vi.fn(),
   mockReadSyllabusPdf: vi.fn(),
   mockReadSuggestions: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     course: { findFirst: mockCourseFindFirst },
     courseSyllabus: { upsert: mockSyllabusUpsert },
   },
@@ -33,11 +39,10 @@ vi.mock("@/lib/syllabus-text", () => ({
 
 import { POST } from "./route";
 
-function sessionRow() {
+function authUserRow() {
   return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
+    id: "user-1",
+    email: "student@example.com",
   };
 }
 
@@ -125,7 +130,8 @@ const SAMPLE_SUGGESTIONS = {
 
 describe("POST /api/courses/[courseId]/syllabus", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockReset().mockResolvedValue({ authUserId: "auth-user-1", email: "student.com" });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockCourseFindFirst.mockReset().mockResolvedValue({ id: "course-1" });
     mockSyllabusUpsert.mockReset().mockResolvedValue({});
     mockReadSyllabusPdf.mockReset().mockResolvedValue(okResult);

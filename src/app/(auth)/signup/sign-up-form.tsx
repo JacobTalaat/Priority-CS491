@@ -9,12 +9,17 @@ import { MIN_PASSWORD_LENGTH, signUp, validateSignUp } from "@/lib/auth-client";
 import type { Credentials, FieldErrors } from "@/lib/auth-client";
 import { setToken } from "@/lib/session";
 import styles from "../auth.module.css";
+import { CheckEmailScreen } from "./check-email";
 
 export function SignUpForm() {
   const router = useRouter();
   const [values, setValues] = useState<Credentials>({ email: "", password: "" });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  // Set once the confirmation email has gone out: until the account is
+  // confirmed there is nothing more the form can do, so it leaves the stage to
+  // the check-your-email screen instead of staying an error notice.
+  const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   function update(field: keyof Credentials, value: string) {
@@ -37,11 +42,16 @@ export function SignUpForm() {
     if (!result.ok) {
       setFieldErrors(result.fieldErrors);
       setFormError(result.formError ?? null);
+      setEmailSentTo(result.emailSentTo ?? null);
       setSubmitting(false);
       return;
     }
     setToken(result.token);
     router.replace("/classes");
+  }
+
+  if (emailSentTo) {
+    return <CheckEmailScreen sentTo={emailSentTo} />;
   }
 
   return (

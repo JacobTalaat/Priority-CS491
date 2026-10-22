@@ -17,7 +17,7 @@ model Task {
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
-  passwordHash String
+  authUserId   String    @unique
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   canvasTokenCipher String?
@@ -29,18 +29,7 @@ model User {
   canvasCalendarFeedIv     String?
   canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
-  sessions          Session[]
   courses           Course[]
-}
-
-model Session {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
-  userId    String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Course {
