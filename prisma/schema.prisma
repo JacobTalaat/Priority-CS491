@@ -31,6 +31,7 @@ model User {
   lastSyncedAt      DateTime?
   sessions          Session[]
   courses           Course[]
+  askLogs           AskLog[]
 }
 
 model Session {
@@ -165,4 +166,21 @@ model AiUsageDay {
   updatedAt    DateTime @updatedAt
 
   @@id([day, feature, userId])
+}
+
+model AskLog {
+  id          String   @id @default(cuid())
+  userId      String
+  question    String
+  outcome     String
+  answer      String?
+  found       Boolean
+  sourceCount Int
+  courseId    String?
+  sources     Json?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
