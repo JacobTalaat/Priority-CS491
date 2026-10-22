@@ -379,4 +379,18 @@ describe("rankOpenWork edge rules", () => {
     expect(first.score).toBe(10);
     expect(second.score).toBe(10);
   });
+
+  it("ranks purely on the item itself, with the boundary flag arriving afterwards", () => {
+    // The flag is computed from each course's grade, which ranking doesn't see;
+    // it is merged onto these ranked items in ranking-data, after the sort.
+    const flagged = item({ assignmentId: "a", share: 10, hours: 1 });
+    const unflagged = item({ assignmentId: "b", share: 4, hours: 1 });
+
+    const ranked = rankOpenWork([unflagged, flagged], NOW);
+
+    expect(ranked.map((entry) => [entry.assignmentId, entry.score, entry.boundary])).toEqual([
+      ["a", 10, null],
+      ["b", 4, null],
+    ]);
+  });
 });
