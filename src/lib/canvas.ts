@@ -1,43 +1,31 @@
+import { assertPublicHost, isInternalHostname } from "./public-host";
+
 const UNAUTHORIZED_STATUSES = [401, 403];
 
+function redirectLocationMessage(location: string | null, requestUrl: string): string {
+  if (location) {
+    try {
+      const target = new URL(location, requestUrl);
+      if (target.protocol === "https:") {
+        return `Canvas redirected to ${target.origin}. Use that address instead.`;
+      }
+    } catch {
+      // fall through to the generic message
+    }
+  }
+  return "Canvas redirected this request; use your school's Canvas address directly.";
+}
+
 export class CanvasError extends Error {
-  readonly kind: "unauthorized" | "http" | "network";
+  readonly kind: "unauthorized" | "http" | "network" | "redirect";
   readonly status?: number;
 
-  constructor(kind: "unauthorized" | "http" | "network", message: string, status?: number) {
+  constructor(kind: "unauthorized" | "http" | "network" | "redirect", message: string, status?: number) {
     super(message);
     this.name = "CanvasError";
     this.kind = kind;
     this.status = status;
   }
-}
-
-function isInternalHostname(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) {
-    return true;
-  }
-  if (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) {
-    return true;
-  }
-  const octets = host.split(".");
-  if (octets.length !== 4 || octets.some((part) => !/^\d{1,3}$/.test(part))) {
-    return false;
-  }
-  const [a, b] = octets.map(Number);
-  if (octets.some((part) => Number(part) > 255)) {
-    return true;
-  }
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    a >= 224
-  );
 }
 
 export function normalizeCanvasBaseUrl(input: string): string {
@@ -64,17 +52,41 @@ export async function canvasFetch(
   path: string,
   init?: RequestInit
 ): Promise<{ data: unknown; response: Response }> {
+  const requestUrl = `${baseUrl}${path}`;
+  // We look the hostname up ourselves and refuse private answers, but fetch does
+  // its own DNS for the actual connection: an attacker who answers us publicly
+  // and fetch privately would still get a connection (DNS rebinding). Closing
+  // that gap would mean pinning the resolved IP into the connection, which needs
+  // a custom dispatcher.
+  try {
+    await assertPublicHost(new URL(baseUrl).hostname);
+  } catch {
+    throw new CanvasError("network", "Canvas request failed before a response");
+  }
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}${path}`, {
+    response = await fetch(requestUrl, {
       ...init,
+      redirect: "manual",
       headers: {
         ...(init?.headers ?? {}),
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
       },
     });
-  } catch {
+    // redirect: "manual" makes undici hand back the 3xx response itself instead
+    // of following it, so the Location header stays readable
+    if (response.status >= 300 && response.status < 400) {
+      throw new CanvasError(
+        "redirect",
+        redirectLocationMessage(response.headers.get("location"), requestUrl),
+        response.status
+      );
+    }
+  } catch (error) {
+    if (error instanceof CanvasError) {
+      throw error;
+    }
     throw new CanvasError("network", "Canvas request failed before a response");
   }
   if (UNAUTHORIZED_STATUSES.includes(response.status)) {
