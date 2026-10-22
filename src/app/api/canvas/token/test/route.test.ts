@@ -126,7 +126,7 @@ describe("POST /api/canvas/token/test", () => {
   });
 
   it("returns 400 with the redirect message when Canvas answers with a redirect", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     mockUserFindUnique.mockResolvedValue(storedRow());
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response(null, { status: 301, headers: { Location: "https://canvas.njit.edu/login" } })
