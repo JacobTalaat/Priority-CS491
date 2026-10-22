@@ -5,6 +5,7 @@ import { parseGradeSetup, type GradeSetupPayload } from "@/lib/grade-setup";
 import { calculatePointsGrade } from "@/lib/points-grade";
 import { calculateWeightedGrade, type WeightedGradeResult } from "@/lib/weighted-grade";
 import { buildCategoryBreakdown, chooseGradeEngine, type CategoryBreakdown } from "@/lib/grade-engine";
+import { readFinalExamAssignmentId, solveFinalExam, type FinalExamResult } from "@/lib/final-exam-solver";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ type GradeResponse = {
   engine: "weighted" | "points";
   grade: WeightedGradeResult;
   breakdown: CategoryBreakdown[];
+  finalExam: FinalExamResult;
 };
 
 // A saved row is a confirmed setup: the confirm step is what writes it.
@@ -82,7 +84,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
-  const choice = chooseGradeEngine(parseSavedSetup(course.gradeSetup));
+  const savedSetup = parseSavedSetup(course.gradeSetup);
+  const choice = chooseGradeEngine(savedSetup);
   const assignments = course.assignments.map((assignment) => ({
     id: assignment.id,
     pointsPossible: assignment.pointsPossible,
@@ -100,6 +103,16 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
       ? buildCategoryBreakdown(choice.setup, assignments)
       : [];
 
+  // The cutoffs and the picked final both come from the saved setup, so a
+  // points course with a confirmed setup can still get final exam planning.
+  const finalExam = solveFinalExam({
+    choice,
+    assignments,
+    finalAssignmentId: readFinalExamAssignmentId(savedSetup),
+    cutoffs: savedSetup?.cutoffs ?? {},
+    finalExamWeight: savedSetup?.finalExamWeight ?? 0,
+  });
+
   return NextResponse.json({
     course: {
       id: course.id,
@@ -111,5 +124,6 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     engine: choice.engine,
     grade,
     breakdown,
+    finalExam,
   });
 }

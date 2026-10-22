@@ -1120,6 +1120,10 @@ When the grade cannot be worked out, `grade.status` says so. `insufficient-data`
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
+The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the setup holds the final exam's weight outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
+
+The needed score assumes every other ungraded assignment keeps counting the way the engine counts it today: ungraded work is left out of the grade, so the rest of the current average holds as-is. If more ungraded work is graded later, the real grade can land lower or higher than predicted, so `secured` and `out-of-reach` are only certain when nothing else is still to be graded. `otherWorkPending` on a `solved` result is `true` when other counted work has no grade yet; the student-facing sentences then say the answer holds "if your other grades stay where they are".
+
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
 
@@ -1166,7 +1170,8 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "gradedCount": 1,
       "ungradedCount": 0
     }
-  ]
+  ],
+  "finalExam": { "status": "no-final" }
 }
 ```
 
@@ -1183,7 +1188,8 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "setupConfirmed": false,
   "engine": "points",
   "grade": { "status": "calculated", "percentage": 75 },
-  "breakdown": []
+  "breakdown": [],
+  "finalExam": { "status": "no-final" }
 }
 ```
 
@@ -1210,7 +1216,8 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "gradedCount": 0,
       "ungradedCount": 1
     }
-  ]
+  ],
+  "finalExam": { "status": "no-final" }
 }
 ```
 
@@ -1227,7 +1234,53 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "setupConfirmed": true,
   "engine": "weighted",
   "grade": { "status": "unsupported", "reason": "extra-credit" },
-  "breakdown": []
+  "breakdown": [],
+  "finalExam": { "status": "no-final" }
+}
+```
+
+`200` — the setup picked the final exam and its grade has not landed yet, so every letter in the cutoffs is priced out. Homework sits at 80% (worth 40% of the course, with the final exam worth the other 60%), which is also the current displayed grade while the final is ungraded. The grade with the final scored `x` points is 32 + 0.6x, so an A needs 96.67 of the final's 100 points (96.7%), a B exactly 80 (80%), and a C 63.34 (63.4%):
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "calculated", "percentage": 80 },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": 80,
+      "pointsEarned": 80,
+      "pointsPossible": 100,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    },
+    {
+      "category": "Final Exam",
+      "weight": 60,
+      "percentage": null,
+      "pointsEarned": 0,
+      "pointsPossible": 0,
+      "gradedCount": 0,
+      "ungradedCount": 1
+    }
+  ],
+  "finalExam": {
+    "status": "solved",
+    "results": [
+      { "letter": "A", "status": "needed", "score": 96.67, "percent": 96.7 },
+      { "letter": "B", "status": "needed", "score": 80, "percent": 80 },
+      { "letter": "C", "status": "needed", "score": 63.34, "percent": 63.4 }
+    ],
+    "otherWorkPending": false
+  }
 }
 ```
 

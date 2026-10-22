@@ -111,6 +111,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
         { category: "Homework", weight: 40, percentage: 81, pointsEarned: 81, pointsPossible: 100, gradedCount: 2, ungradedCount: 0 },
         { category: "Exams", weight: 60, percentage: 80, pointsEarned: 120, pointsPossible: 150, gradedCount: 1, ungradedCount: 0 },
       ],
+      finalExam: { status: "no-final" },
     });
   });
 
@@ -145,6 +146,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
       engine: "points",
       grade: { status: "calculated", percentage: 75 },
       breakdown: [],
+      finalExam: { status: "no-final" },
     });
   });
 
@@ -190,6 +192,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
         { category: "Homework", weight: 40, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
         { category: "Exams", weight: 60, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
       ],
+      finalExam: { status: "no-final" },
     });
   });
 
@@ -235,7 +238,69 @@ describe("GET /api/courses/[courseId]/grade", () => {
       engine: "points",
       grade: { status: "calculated", percentage: 75 },
       breakdown: [],
+      finalExam: { status: "no-final" },
     });
+  });
+
+  it("adds what the final exam is worth for each letter when the setup picked one", async () => {
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          categories: [
+            { name: "Homework", weight: 40 },
+            { name: "Final Exam", weight: 60 },
+          ],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "final-1", category: "Final Exam" },
+          ],
+          finalExamWeight: 0,
+          cutoffs: { A: 90 },
+          classDetails: { finalExamAssignmentId: "final-1" },
+          confirmedAt: new Date("2026-10-11T18:30:00.000Z"),
+        },
+        assignments: [
+          { id: "hw-1", pointsPossible: 100, grade: { score: 80 } },
+          { id: "final-1", pointsPossible: 100, grade: null },
+        ],
+      }),
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.finalExam).toEqual({
+      status: "solved",
+      // Homework: 80%, Final Exam: 60% weight, so an A needs 32 + 0.6x >= 90,
+      // that is 96.67 points of the 100-point final, rounded up.
+      results: [{ letter: "A", status: "needed", score: 96.67, percent: 96.7 }],
+      otherWorkPending: false,
+    });
+  });
+
+  it("does not solve for a final whose weight is held outside the categories", async () => {
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 40 }],
+          assignmentMappings: [{ assignmentId: "hw-1", category: "Homework" }],
+          finalExamWeight: 60,
+          cutoffs: { A: 90, B: 80 },
+          classDetails: { finalExamAssignmentId: "final-1" },
+          confirmedAt: new Date("2026-10-11T18:30:00.000Z"),
+        },
+        assignments: [
+          { id: "hw-1", pointsPossible: 100, grade: { score: 80 } },
+          { id: "final-1", pointsPossible: 100, grade: null },
+        ],
+      }),
+    );
+
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(body.finalExam).toEqual({ status: "final-not-counted" });
   });
 
   it("does not return another user's or a non-current course", async () => {
