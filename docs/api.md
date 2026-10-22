@@ -6,7 +6,7 @@ The base URL for local development is `http://localhost:3000`. Every request and
 
 Dynamic path segments keep the name of their Next.js folder, for example `/api/tasks/[id]`.
 
-Sign up, log in, and log out are handled by Supabase Auth in the browser, which issues the access token every protected route expects. There are no sign up, log in, or refresh routes here.
+Sign up, log in, forgot password, and log out are handled by Supabase Auth in the browser, which issues the access token every protected route expects. There are no sign up, log in, password reset, or refresh routes here.(Requesting a reset link and choosing a new password both happen in the browser through `/forgot-password` and `/reset-password`; Supabase emails the link with `/reset-password` as its redirect target.)
 
 When a route is added, removed, or changed, update this file in the same pull request. `src/app/api/api-doc.test.ts` reads the route files under `src/app/api` and fails when they disagree with this file, so the doc cannot drift silently.
 

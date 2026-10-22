@@ -99,11 +99,15 @@ The app is unaffected because it connects as the table owner through Prisma, and
 
 ## Authentication
 
-One account works for both the website and the iPhone app. Accounts are owned by [Supabase Auth](https://supabase.com/docs/guides/auth): sign up, log in, and log out go through it in the browser, and it issues the access token both clients send as `Authorization: Bearer <token>`. Routes that need a signed-in student verify that token and return `401` without a valid one.
+One account works for both the website and the iPhone app. Accounts are owned by [Supabase Auth](https://supabase.com/docs/guides/auth): sign up, log in, forgot password, and log out go through it in the browser, and it issues the access token both clients send as `Authorization: Bearer <token>`. Routes that need a signed-in student verify that token and return `401` without a valid one.
+
+Forgotten passwords use Supabase's emailed reset link. The link must land back on the app, so `/reset-password` (the app builds it on whatever origin it is served from, for example `https://your-deployment.example` and `http://localhost:3000`) has to be on the **Redirect URLs** allow list in the Supabase dashboard, under Authentication -> URL Configuration. Without it Supabase refuses to send the email.
 
 No password material is stored by the app itself; the Prisma `User` row is linked to the Supabase Auth account through its `authUserId` column and holds the encrypted Canvas token and calendar feed.
 
 Two Supabase dashboard settings are required before real accounts exist. **Confirm email must be enabled** on the email provider (Authentication section): with it off, anyone can sign up with somebody else's address and receive a session without proving they can read that mailbox. And the project should keep **asymmetric JWT signing keys**, so tokens are verified locally instead of by a call per request.
+
+After a password reset, the app signs out `scope: "others"`: Supabase revokes the other devices' refresh tokens, so they cannot get a new access token — but any access token already issued keeps working until it expires (about an hour). If that sign-out cannot be carried out, the reset still counts as done and the app tells the student their other devices may still have their old session.
 
 Sign up and log in happen in the browser through Supabase Auth, so they need a running client. With the app running, check the current user once you have a token from a signed-in browser:
 
