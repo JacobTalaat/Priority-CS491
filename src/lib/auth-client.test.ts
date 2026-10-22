@@ -1,27 +1,42 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCreateClient, mockSignUp, mockSignInWithPassword, mockSignOut, mockGetSession, mockResend } =
-  vi.hoisted(() => {
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "test-publishable-key";
-    const client = {
-      auth: {
-        signUp: vi.fn(),
-        signInWithPassword: vi.fn(),
-        signOut: vi.fn(),
-        getSession: vi.fn(),
-        resend: vi.fn(),
-      },
-    };
-    return {
-      mockCreateClient: vi.fn(() => client),
-      mockSignUp: client.auth.signUp,
-      mockSignInWithPassword: client.auth.signInWithPassword,
-      mockSignOut: client.auth.signOut,
-      mockGetSession: client.auth.getSession,
-      mockResend: client.auth.resend,
-    };
-  });
+const {
+  mockCreateClient,
+  mockSignUp,
+  mockSignInWithPassword,
+  mockSignOut,
+  mockGetSession,
+  mockResend,
+  mockResetPasswordForEmail,
+  mockUpdateUser,
+  mockOnAuthStateChange,
+} = vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "test-publishable-key";
+  const client = {
+    auth: {
+      signUp: vi.fn(),
+      signInWithPassword: vi.fn(),
+      signOut: vi.fn(),
+      getSession: vi.fn(),
+      resend: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
+      updateUser: vi.fn(),
+      onAuthStateChange: vi.fn(),
+    },
+  };
+  return {
+    mockCreateClient: vi.fn(() => client),
+    mockSignUp: client.auth.signUp,
+    mockSignInWithPassword: client.auth.signInWithPassword,
+    mockSignOut: client.auth.signOut,
+    mockGetSession: client.auth.getSession,
+    mockResend: client.auth.resend,
+    mockResetPasswordForEmail: client.auth.resetPasswordForEmail,
+    mockUpdateUser: client.auth.updateUser,
+    mockOnAuthStateChange: client.auth.onAuthStateChange,
+  };
+});
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: mockCreateClient,
@@ -30,15 +45,23 @@ vi.mock("@supabase/supabase-js", () => ({
 import {
   CONFIRM_EMAIL_PATH,
   MIN_PASSWORD_LENGTH,
+  RESET_COULD_NOT_SEND,
+  RESET_LINK_SENT,
   WRONG_CREDENTIALS,
+  abandonRecovery,
+  applyNewPassword,
   checkSession,
   currentToken,
   logIn,
   logOut,
+  onRecovery,
   readConfirmationResult,
   resendConfirmation,
+  sendPasswordResetEmail,
   signUp,
   validateLogIn,
+  validateNewPassword,
+  validateResetRequest,
   validateSignUp,
 } from "./auth-client";
 
@@ -224,7 +247,246 @@ describe("logIn", () => {
   });
 });
 
+describe("validateResetRequest", () => {
+  it("passes the same email rules as sign up", () => {
+    expect(validateResetRequest({ email: "student@njit.edu" })).toEqual({});
+    expect(validateResetRequest({ email: "   " }).email).toBe("Enter your email.");
+    expect(validateResetRequest({ email: "student@" }).email).toMatch(/valid email/);
+  });
+});
+
+describe("sendPasswordResetEmail", () => {
+  beforeEach(() => {
+    mockResetPasswordForEmail.mockReset();
+    vi.stubGlobal("window", { location: { origin: "https://priority.example.edu" } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the link with a redirect back to /reset-password", async () => {
+    mockResetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
+    await expect(sendPasswordResetEmail(" student@njit.edu ")).resolves.toBe("sent");
+    expect(mockResetPasswordForEmail).toHaveBeenCalledWith("student@njit.edu", {
+      redirectTo: "https://priority.example.edu/reset-password",
+    });
+  });
+
+  it("treats a rejected address the same as a success", async () => {
+    mockResetPasswordForEmail.mockResolvedValue({
+      data: {},
+      error: { message: "user not found", status: 400, code: "user_not_found" },
+    });
+    await expect(sendPasswordResetEmail("no-account@njit.edu")).resolves.toBe("sent");
+  });
+
+  it("treats a rate limit the same as a success", async () => {
+    mockResetPasswordForEmail.mockResolvedValue({
+      data: {},
+      error: { message: "Rate limit exceeded", status: 429 },
+    });
+    await expect(sendPasswordResetEmail("student@njit.edu")).resolves.toBe("sent");
+  });
+
+  it("treats any API error that had an HTTP exchange the same as a success", async () => {
+    mockResetPasswordForEmail.mockResolvedValue({
+      data: {},
+      error: { message: "Email provider is not configured", status: 500, code: "email_provider_disabled" },
+    });
+    await expect(sendPasswordResetEmail("student@njit.edu")).resolves.toBe("sent");
+    // No enumeration-visible outcome ever reports the account either way: the
+    // fixed RESET_LINK_SENT message is what the form shows for all of these.
+    expect(RESET_LINK_SENT).toMatch(/If an account exists/);
+  });
+
+  it("reports a fetch failure as unreachable", async () => {
+    mockResetPasswordForEmail.mockResolvedValue({
+      data: {},
+      error: {
+        message: "Error: fetch failed",
+        status: 0,
+        name: "AuthRetryableFetchError",
+      },
+    });
+    await expect(sendPasswordResetEmail("student@njit.edu")).resolves.toBe("unreachable");
+  });
+
+  it("reports a status 0 error as unreachable", async () => {
+    mockResetPasswordForEmail.mockResolvedValue({
+      data: {},
+      error: { message: "something odd", status: 0 },
+    });
+    await expect(sendPasswordResetEmail("student@njit.edu")).resolves.toBe("unreachable");
+  });
+
+  it("reports a thrown network failure as unreachable", async () => {
+    mockResetPasswordForEmail.mockRejectedValue(new TypeError("network down"));
+    await expect(sendPasswordResetEmail("student@njit.edu")).resolves.toBe("unreachable");
+    // The connection message says nothing about accounts.
+    expect(RESET_COULD_NOT_SEND).toMatch(/connection/);
+  });
+});
+
+describe("validateNewPassword", () => {
+  it("passes an 8 character password with a matching confirm", () => {
+    expect(validateNewPassword({ password: "12345678", confirm: "12345678" })).toEqual({});
+  });
+
+  it("rules are the same ones sign up enforces", () => {
+    expect(validateNewPassword({ password: "", confirm: "" })).toEqual({
+      password: "Choose a password.",
+      confirm: "Type the password again.",
+    });
+    expect(validateNewPassword({ password: "1234567", confirm: "1234567" }).password).toBe(
+      `Password is too weak. Use at least ${MIN_PASSWORD_LENGTH} characters.`
+    );
+    expect(
+      validateNewPassword({ password: "12345678", confirm: "123456789" }).confirm
+    ).toBe("The passwords do not match.");
+  });
+});
+
+describe("applyNewPassword", () => {
+  beforeEach(() => {
+    mockUpdateUser.mockReset();
+    mockSignOut.mockReset();
+    mockGetSession.mockReset();
+    mockSignOut.mockResolvedValue({ error: null });
+  });
+
+  it("updates the password, signs out the other sessions, and returns the fresh token", async () => {
+    mockUpdateUser.mockResolvedValue({ data: { user: { id: "auth-user-1", email: "student@njit.edu" } } });
+    mockGetSession.mockResolvedValue({ data: { session: { access_token: "fresh-token" } } });
+    await expect(applyNewPassword("12345678")).resolves.toEqual({
+      status: "saved",
+      token: "fresh-token",
+      otherSessionsEnded: true,
+    });
+    expect(mockUpdateUser).toHaveBeenCalledWith({ password: "12345678" });
+    expect(mockSignOut).toHaveBeenCalledWith({ scope: "others" });
+  });
+
+  it("still reports the password as saved when reading the session afterwards fails", async () => {
+    mockUpdateUser.mockResolvedValue({ data: { user: { id: "auth-user-1", email: "student@njit.edu" } } });
+    mockGetSession.mockRejectedValue(new Error("storage unavailable"));
+    await expect(applyNewPassword("12345678")).resolves.toEqual({
+      status: "saved",
+      token: null,
+      otherSessionsEnded: true,
+    });
+  });
+
+  it("lands Supabase's weak-password complaint on the password field", async () => {
+    mockUpdateUser.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Password should be at least 8 characters", status: 422, code: "weak_password" },
+    });
+    expect(await applyNewPassword("12345678")).toEqual({
+      status: "failed",
+      fieldErrors: { password: "Password is too weak. Password should be at least 8 characters" },
+    });
+  });
+
+  it("keeps other failures generic", async () => {
+    mockUpdateUser.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Session missing", status: 400 },
+    });
+    expect(await applyNewPassword("12345678")).toEqual({
+      status: "failed",
+      fieldErrors: {},
+      formError: "The new password did not save. Try again.",
+    });
+  });
+
+  it("still counts the save as done when signing out the other sessions fails", async () => {
+    mockUpdateUser.mockResolvedValue({ data: { user: { id: "auth-user-1", email: "student@njit.edu" } } });
+    mockSignOut.mockResolvedValue({ error: { message: "service unavailable", status: 503 } });
+    mockGetSession.mockResolvedValue({ data: { session: { access_token: "fresh-token" } } });
+    await expect(applyNewPassword("12345678")).resolves.toEqual({
+      status: "saved",
+      token: "fresh-token",
+      otherSessionsEnded: false,
+    });
+  });
+
+  it("still counts the save as done when signing out the other sessions throws", async () => {
+    mockUpdateUser.mockResolvedValue({ data: { user: { id: "auth-user-1", email: "student@njit.edu" } } });
+    mockSignOut.mockRejectedValue(new TypeError("network down"));
+    mockGetSession.mockResolvedValue({ data: { session: { access_token: "fresh-token" } } });
+    await expect(applyNewPassword("12345678")).resolves.toEqual({
+      status: "saved",
+      token: "fresh-token",
+      otherSessionsEnded: false,
+    });
+  });
+
+  it("returns no token when the session has gone, never a failure for a saved password", async () => {
+    mockUpdateUser.mockResolvedValue({ data: { user: { id: "auth-user-1", email: "student@njit.edu" } } });
+    mockGetSession.mockResolvedValue({ data: { session: null } });
+    expect(await applyNewPassword("12345678")).toEqual({
+      status: "saved",
+      token: null,
+      otherSessionsEnded: true,
+    });
+  });
+
+  it("counts a throwing updateUser as a plain failure", async () => {
+    mockUpdateUser.mockRejectedValue(new TypeError("network down"));
+    expect(await applyNewPassword("12345678")).toEqual({
+      status: "failed",
+      fieldErrors: {},
+      formError: "The new password did not save. Try again.",
+    });
+  });
+});
+
+describe("abandonRecovery", () => {
+  beforeEach(() => {
+    mockSignOut.mockReset();
+  });
+
+  it("forgets the session locally only", async () => {
+    mockSignOut.mockResolvedValue({ error: null });
+    await abandonRecovery();
+    expect(mockSignOut).toHaveBeenCalledWith({ scope: "local" });
+  });
+
+  it("does not throw even when Supabase cannot be reached", async () => {
+    mockSignOut.mockRejectedValue(new TypeError("network down"));
+    await expect(abandonRecovery()).resolves.toBeUndefined();
+  });
+});
+
+describe("onRecovery", () => {
+  beforeEach(() => {
+    mockOnAuthStateChange.mockReset();
+  });
+
+  it("fires only for the PASSWORD_RECOVERY event and unsubscribes afterwards", () => {
+    const recovered = vi.fn();
+    const subscribers: ((event: string, session: unknown) => void)[] = [];
+    const unsubscribe = vi.fn();
+    mockOnAuthStateChange.mockImplementation((subscriber: (event: string, session: unknown) => void) => {
+      subscribers.push(subscriber);
+      return { data: { subscription: { unsubscribe } } };
+    });
+    const stop = onRecovery(recovered);
+    subscribers[0]!("INITIAL_SESSION", { access_token: "old" });
+    expect(recovered).not.toHaveBeenCalled();
+    subscribers[0]!("PASSWORD_RECOVERY", { access_token: "link" });
+    expect(recovered).toHaveBeenCalledTimes(1);
+    stop();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("logOut", () => {
+  beforeEach(() => {
+    mockSignOut.mockReset();
+  });
+
   it("tells Supabase, not just localStorage", async () => {
     mockSignOut.mockResolvedValue({ error: null });
     await logOut();

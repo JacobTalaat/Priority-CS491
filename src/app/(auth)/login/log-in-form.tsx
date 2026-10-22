@@ -7,11 +7,12 @@ import type { FormEvent } from "react";
 import { Button, Input, Notice } from "@/components/ui";
 import { logIn, validateLogIn } from "@/lib/auth-client";
 import type { Credentials, FieldErrors } from "@/lib/auth-client";
+import { PASSWORD_CHANGED } from "@/lib/auth-client";
 import { setToken } from "@/lib/session";
 import styles from "../auth.module.css";
 import { ResendConfirmation } from "../resend-confirmation";
 
-export function LogInForm({ next }: { next: string }) {
+export function LogInForm({ next, resetDone = false }: { next: string; resetDone?: boolean }) {
   const router = useRouter();
   const [values, setValues] = useState<Credentials>({ email: "", password: "" });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -54,6 +55,7 @@ export function LogInForm({ next }: { next: string }) {
   return (
     <>
       <form className={styles.form} onSubmit={handleSubmit} noValidate>
+        {resetDone ? <Notice tone="success">{PASSWORD_CHANGED}</Notice> : null}
         {formError ? <Notice tone="error">{formError}</Notice> : null}
         {emailSentTo ? (
           <ResendConfirmation email={values.email.trim()} label="Send it again" />
@@ -81,6 +83,9 @@ export function LogInForm({ next }: { next: string }) {
           {submitting ? "Logging in…" : "Log in"}
         </Button>
       </form>
+      <p className={styles.switch}>
+        <Link href="/forgot-password">Forgot your password?</Link>
+      </p>
       <p className={styles.switch}>
         New to Priority? <Link href="/signup">Create an account</Link>
       </p>
