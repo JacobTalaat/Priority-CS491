@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockUpsert, mockFindMany } = vi.hoisted(() => ({
+const { mockUpsert, mockFindMany, mockDeleteMany, mockCount } = vi.hoisted(() => ({
   mockUpsert: vi.fn(),
   mockFindMany: vi.fn(),
+  mockDeleteMany: vi.fn(),
+  mockCount: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    assignment: { upsert: mockUpsert },
+    assignment: { upsert: mockUpsert, deleteMany: mockDeleteMany, count: mockCount },
     assignmentGroup: { findMany: mockFindMany },
   },
 }));
@@ -62,11 +64,16 @@ describe("importAssignments", () => {
     mockUpsert.mockResolvedValue({});
     mockFindMany.mockReset();
     mockFindMany.mockResolvedValue(STORED_GROUPS);
+    mockDeleteMany.mockReset();
+    mockDeleteMany.mockResolvedValue({ count: 0 });
+    mockCount.mockReset();
+    mockCount.mockResolvedValue(0);
     vi.stubGlobal("fetch", vi.fn());
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("skips an assignment with points_possible: 0", async () => {
@@ -74,7 +81,7 @@ describe("importAssignments", () => {
       assignment(712331, "Academic Engagement: Fall 2026", 0, "2026-10-12T03:59:00Z"),
       assignment(712332, "Project proposal", 100, "2026-10-19T03:59:00Z"),
     ]));
-    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 1 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 1, removed: 0 });
     const canvasIds = mockUpsert.mock.calls.map((c) => c[0].where.courseId_canvasId.canvasId);
     expect(canvasIds).toEqual(["712332"]);
   });
@@ -84,14 +91,14 @@ describe("importAssignments", () => {
       assignment(712333, "Ungraded note", null, "2026-10-12T03:59:00Z"),
       assignment(712332, "Project proposal", 100, "2026-10-19T03:59:00Z"),
     ]));
-    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 1 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 1, removed: 0 });
   });
 
   it("stores an assignment with due_at: null, kept and marked", async () => {
     vi.stubGlobal("fetch", singlePage([
       assignment(712334, "No deadline survey", 100, null),
     ]));
-    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 0 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 0, removed: 0 });
     expect(mockUpsert.mock.calls[0][0].update).toMatchObject({
       dueAt: null,
       hasDueDate: false,
@@ -136,7 +143,7 @@ describe("importAssignments", () => {
     vi.stubGlobal("fetch", singlePage([
       assignment(712337, "Orphan item", 100, "2026-10-12T03:59:00Z", 999999),
     ]));
-    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 0 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 0, removed: 0 });
     expect(mockUpsert.mock.calls[0][0].update.assignmentGroupId).toBeNull();
   });
 
@@ -190,7 +197,7 @@ describe("importAssignments", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify([assignment(2, "B", 100, null)]), { status: 200, headers: { Link: linkHeader(3) } }))
       .mockResolvedValueOnce(new Response(JSON.stringify([assignment(3, "C", 100, null)]), { status: 200 }));
     vi.stubGlobal("fetch", mockFetch);
-    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 3, skipped: 0 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 3, skipped: 0, removed: 0 });
     expect(mockFetch).toHaveBeenCalledTimes(3);
     expect(mockFetch.mock.calls[0][0]).toBe(`${BASE_URL}${PATH}`);
     expect(mockFetch.mock.calls[1][0]).toBe(`${BASE_URL}/api/v1/courses/67506/assignments?page=2&per_page=100`);
@@ -208,7 +215,7 @@ describe("importAssignments", () => {
     vi.stubGlobal("fetch", singlePage(items));
     const second = await importAssignments(CREDENTIALS, COURSE);
     expect(first).toEqual(second);
-    expect(first).toEqual({ imported: 2, skipped: 0 });
+    expect(first).toEqual({ imported: 2, skipped: 0, removed: 0 });
     expect(mockUpsert).toHaveBeenCalledTimes(4);
     const firstWheres = firstCalls.map((c) => c[0].where);
     const secondWheres = mockUpsert.mock.calls.slice(2).map((c) => c[0].where);
@@ -230,9 +237,97 @@ describe("importAssignments", () => {
       assignment(712344, "Final exam", 100, "2026-12-14T03:59:00Z"),
     ];
     vi.stubGlobal("fetch", singlePage(items));
-    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 7, skipped: 1 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 7, skipped: 1, removed: 0 });
     expect(mockUpsert).toHaveBeenCalledTimes(7);
     const kept = mockUpsert.mock.calls.map((c) => c[0].where.courseId_canvasId.canvasId);
     expect(kept).toEqual(["712334", "712332", "712340", "712341", "712342", "712343", "712344"]);
+  });
+
+  it("deletes an assignment a later complete listing no longer returns", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      assignment(712332, "Project proposal", 100, "2026-10-19T03:59:00Z"),
+    ]));
+    mockDeleteMany.mockResolvedValue({ count: 1 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 0, removed: 1 });
+    expect(mockDeleteMany).toHaveBeenCalledTimes(1);
+    expect(mockDeleteMany).toHaveBeenCalledWith({
+      where: {
+        courseId: "course-1",
+        canvasId: { notIn: ["712332"] },
+      },
+    });
+  });
+
+  it("keeps skipped rows Canvas still returns, so a point-less listing is not mass-deleted", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      assignment(712331, "Academic Engagement: Fall 2026", 0, "2026-10-12T03:59:00Z"),
+    ]));
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 0, skipped: 1, removed: 0 });
+    expect(mockDeleteMany).toHaveBeenCalledWith({
+      where: {
+        courseId: "course-1",
+        canvasId: { notIn: ["712331"] },
+      },
+    });
+  });
+
+  it("scopes removal to this course only", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      assignment(712332, "Project proposal", 100, "2026-10-19T03:59:00Z"),
+    ]));
+    mockDeleteMany.mockResolvedValue({ count: 1 });
+    await importAssignments(CREDENTIALS, COURSE);
+    expect(mockDeleteMany).toHaveBeenCalledWith({
+      where: { courseId: "course-1", canvasId: { notIn: ["712332"] } },
+    });
+  });
+
+  it("deletes nothing when a page fetch fails part-way", async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([assignment(1, "A", 100, null)]), { status: 200, headers: { Link: linkHeader(2) } }))
+      .mockRejectedValueOnce(new Error("Canvas request failed before a response"));
+    vi.stubGlobal("fetch", mockFetch);
+    await expect(importAssignments(CREDENTIALS, COURSE)).rejects.toThrow(
+      "Canvas request failed before a response"
+    );
+    expect(mockDeleteMany).not.toHaveBeenCalled();
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("deletes on an empty listing when the course had few assignments", async () => {
+    vi.stubGlobal("fetch", singlePage([]));
+    mockCount.mockResolvedValue(3);
+    mockDeleteMany.mockResolvedValue({ count: 3 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 0, skipped: 0, removed: 3 });
+    expect(mockCount).toHaveBeenCalledWith({ where: { courseId: "course-1" } });
+    expect(mockDeleteMany).toHaveBeenCalledTimes(1);
+    expect(mockDeleteMany).toHaveBeenCalledWith({
+      where: {
+        courseId: "course-1",
+      },
+    });
+  });
+
+  it("skips the empty-listing deletion when 20 or more API assignments are stored, logging the fixed line", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", singlePage([]));
+    mockCount.mockResolvedValue(20);
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 0, skipped: 0, removed: 0 });
+    expect(mockDeleteMany).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Canvas returned an empty assignment list; skipping assignment removal for this sync",
+    );
+  });
+
+  it("logs and deletes nothing on an empty listing exactly at the 19-row boundary", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", singlePage([]));
+    mockCount.mockResolvedValue(19);
+    mockDeleteMany.mockResolvedValue({ count: 19 });
+    await expect(importAssignments(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 0, skipped: 0, removed: 19 });
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(mockDeleteMany).toHaveBeenCalledTimes(1);
   });
 });
