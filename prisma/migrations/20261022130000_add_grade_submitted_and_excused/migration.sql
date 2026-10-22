@@ -1,0 +1,3 @@
+ALTER TABLE "Grade" ADD COLUMN "submittedAt" TIMESTAMP(3);
+
+ALTER TABLE "Grade" ADD COLUMN "excused" BOOLEAN NOT NULL DEFAULT false;
