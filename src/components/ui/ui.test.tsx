@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Button, ButtonLink, Input, List, ListRow, Notice, PageHeader } from ".";
+import { Button, ButtonLink, Input, List, ListRow, Notice, PageHeader, TextArea } from ".";
 
 describe("Button", () => {
   it("defaults to type=button so it never submits a form by accident", () => {
@@ -111,5 +111,25 @@ describe("Notice", () => {
 
   it("announces success politely", () => {
     expect(renderToStaticMarkup(<Notice tone="success">Saved</Notice>)).toContain('role="status"');
+  });
+
+  it("announces warnings politely", () => {
+    expect(renderToStaticMarkup(<Notice tone="warning">Check this</Notice>)).toContain('role="status"');
+  });
+});
+
+describe("TextArea", () => {
+  it("ties the label to a multi-line field and shows the hint", () => {
+    const html = renderToStaticMarkup(<TextArea id="late" label="Late policy" hint="From your syllabus" />);
+    expect(html).toContain('for="late"');
+    expect(html).toMatch(/<textarea[^>]*id="late"[^>]*rows="3"/);
+    expect(html).toContain('aria-describedby="late-hint"');
+  });
+
+  it("shows an error in place of the hint", () => {
+    const html = renderToStaticMarkup(<TextArea id="late" label="Late policy" hint="From your syllabus" error="Too long" />);
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain('aria-describedby="late-error"');
+    expect(html).not.toContain("From your syllabus");
   });
 });
