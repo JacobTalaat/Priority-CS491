@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { costMicros, estimateInputTokens, reserveSpend, settleSpend, spendPeriod } from "./ai-spend";
+import {
+  claimSpendWarning,
+  costMicros,
+  estimateInputTokens,
+  reserveSpend,
+  settleSpend,
+  spendPeriod,
+} from "./ai-spend";
 
 const { mockExecuteRaw, mockQueryRaw } = vi.hoisted(() => ({
   mockExecuteRaw: vi.fn(),
@@ -130,5 +137,49 @@ describe("settleSpend", () => {
     await expect(settleSpend({ period: "2026-11", reserveMicros: 5000, costMicros: 3000 })).rejects.toThrow(
       "AI spend settlement updated no row"
     );
+  });
+});
+
+describe("claimSpendWarning", () => {
+  it("claims the warning with an atomic conditional update returning the month's spend", async () => {
+    mockQueryRaw.mockResolvedValue([{ spentMicros: BigInt(85000000), reservedMicros: BigInt(0) }]);
+    const claimed = await claimSpendWarning({ period: "2026-10", capMicros: 100000000 });
+    expect(claimed).toEqual({ spentMicros: BigInt(85000000), reservedMicros: BigInt(0) });
+    expect(mockQueryRaw).toHaveBeenCalledTimes(1);
+    const sql = mockQueryRaw.mock.calls[0][0].join(" ");
+    expect(sql).toContain('UPDATE "AiSpendMonth"');
+    expect(sql).toContain('"warnedAt" = now()');
+    expect(sql).toContain('"warnedAt" IS NULL');
+    expect(sql).toContain("RETURNING");
+  });
+
+  it("only claims usage at 80 percent of the cap or above", async () => {
+    mockQueryRaw.mockResolvedValue([{ spentMicros: BigInt(85000000), reservedMicros: BigInt(0) }]);
+    await claimSpendWarning({ period: "2026-10", capMicros: 100000000 });
+    const values = mockQueryRaw.mock.calls[0].slice(1);
+    expect(values).toEqual(["2026-10", BigInt(80000000)]);
+    const sql = mockQueryRaw.mock.calls[0][0].join(" ");
+    expect(sql).toContain(">=");
+  });
+
+  it("returns null when the warning was already sent or usage is below the threshold", async () => {
+    mockQueryRaw.mockResolvedValue([]);
+    await expect(claimSpendWarning({ period: "2026-11", capMicros: 100000000 })).resolves.toBeNull();
+  });
+
+  it("floors the threshold for caps that do not split evenly", async () => {
+    mockQueryRaw.mockResolvedValue([]);
+    await claimSpendWarning({ period: "2026-11", capMicros: 333 });
+    expect(mockQueryRaw.mock.calls[0].slice(1)).toEqual(["2026-11", BigInt(266)]);
+  });
+
+  it("keeps warnedAt IS NULL and drops the threshold condition when forced", async () => {
+    mockQueryRaw.mockResolvedValue([{ spentMicros: BigInt(50000000), reservedMicros: BigInt(0) }]);
+    const claimed = await claimSpendWarning({ period: "2026-10", capMicros: 100000000, force: true });
+    expect(claimed).toEqual({ spentMicros: BigInt(50000000), reservedMicros: BigInt(0) });
+    const sql = mockQueryRaw.mock.calls[0][0].join(" ");
+    expect(sql).toContain('"warnedAt" IS NULL');
+    expect(sql).toContain('SET "warnedAt" = now()');
+    expect(mockQueryRaw.mock.calls[0].slice(1)).toEqual(["2026-10", BigInt(0)]);
   });
 });

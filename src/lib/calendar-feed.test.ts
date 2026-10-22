@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchCalendarFeed, normalizeCalendarFeedUrl, parseCalendarFeed } from "./calendar-feed";
+import { setDnsResolverForTests } from "./public-host";
 
 const ICALENDAR = `BEGIN:VCALENDAR
 VERSION:2.0
@@ -72,5 +73,16 @@ describe("fetchCalendarFeed", () => {
     await expect(fetchCalendarFeed("https://canvas.example.edu/feed.ics")).rejects.toThrow(
       "Could not read the Canvas calendar feed",
     );
+  });
+
+  it("rejects a feed host resolving to a private address instead of fetching", async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    setDnsResolverForTests(vi.fn().mockResolvedValue([{ address: "192.168.0.9" }]));
+    await expect(fetchCalendarFeed("https://feed.example.edu/feeds/calendar.ics")).rejects.toThrow(
+      "Could not read the Canvas calendar feed",
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+    setDnsResolverForTests(async () => [{ address: "93.184.216.34" }]);
   });
 });

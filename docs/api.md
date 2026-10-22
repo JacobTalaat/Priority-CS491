@@ -434,11 +434,11 @@ curl -i -X POST http://localhost:3000/api/canvas/token \
 }
 ```
 
-`400` — the body was invalid, the Canvas URL was not a valid `https` origin, or Canvas rejected the token:
+`400` — the body was invalid, the Canvas URL was not a valid `https` origin, Canvas rejected the token, or Canvas answered with a redirect (redirects are never followed; the message names the redirect target so the student can paste that address instead):
 
 ```json
 {
-  "error": "Canvas rejected this token"
+  "error": "Canvas redirected to https://canvas.njit.edu. Use that address instead."
 }
 ```
 
@@ -450,7 +450,7 @@ curl -i -X POST http://localhost:3000/api/canvas/token \
 }
 ```
 
-`502` — Canvas could not be reached:
+`502` — Canvas could not be reached (including an address that resolves to a private IP):
 
 ```json
 {
@@ -564,11 +564,11 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
 }
 ```
 
-`400` — Canvas rejected the stored token:
+`400` — Canvas rejected the stored token, or Canvas answered with a redirect (redirects are never followed; the message names the redirect target so the student can correct the stored address):
 
 ```json
 {
-  "error": "Canvas rejected this token"
+  "error": "Canvas redirected to https://canvas.njit.edu. Use that address instead."
 }
 ```
 
@@ -1188,6 +1188,147 @@ curl -i http://localhost:3000/api/courses/course-id \
       "grade": { "score": 9.5, "gradedAt": "2026-09-12T15:00:00.000Z" }
     }
   ]
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
+
+---
+
+### `GET /api/courses/[courseId]/grade`
+
+Returns the overall grade for one of the student's current courses and, when the course is graded by category, the grade inside each category so the student can see what is pulling the grade down. Which engine produced the grade comes back as `engine`: `weighted` when a confirmed setup with usable category weights was used, `points` otherwise (no confirmed setup, or one whose categories carry no usable weight — the weighted math would be impossible). A points grade has an empty `breakdown`; a points course has no categories.
+
+When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
+
+- `extra-credit` — a score above the points possible, or points on an assignment with no points possible, so the total could exceed 100%.
+- `negative-score` — a stored grade below zero.
+- `non-finite-result` — the arithmetic produced a number that is not usable.
+
+Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
+
+- **Method**: `GET`
+- **Path**: `/api/courses/[courseId]/grade`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/courses/course-id/grade \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — a weighted course with a confirmed setup, graded in both categories:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "calculated", "percentage": 80.4 },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": 81,
+      "pointsEarned": 81,
+      "pointsPossible": 100,
+      "gradedCount": 2,
+      "ungradedCount": 0
+    },
+    {
+      "category": "Exams",
+      "weight": 60,
+      "percentage": 80,
+      "pointsEarned": 120,
+      "pointsPossible": 150,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    }
+  ]
+}
+```
+
+`200` — a course graded on total points instead, so there is no breakdown:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": false,
+  "engine": "points",
+  "grade": { "status": "calculated", "percentage": 75 },
+  "breakdown": []
+}
+```
+
+`200` — nothing graded enough to produce a grade:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "insufficient-data" },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": null,
+      "pointsEarned": 0,
+      "pointsPossible": 0,
+      "gradedCount": 0,
+      "ungradedCount": 1
+    }
+  ]
+}
+```
+
+`200` — a grading rule the engine cannot express, with the reason carried through:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "unsupported", "reason": "extra-credit" },
+  "breakdown": []
 }
 ```
 
