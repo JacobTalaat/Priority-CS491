@@ -117,6 +117,20 @@ describe("POST /api/canvas/token/test", () => {
     expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 
+  it("returns 400 with the redirect message when Canvas answers with a redirect", async () => {
+    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue(storedRow());
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(null, { status: 301, headers: { Location: "https://canvas.njit.edu/login" } })
+    ));
+    const res = await POST(tokenRequest());
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Canvas redirected to https://canvas.njit.edu. Use that address instead.",
+    });
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
   it("returns 500 and does not blame Canvas when the failure is not a Canvas error", async () => {
     mockSessionFindUnique.mockResolvedValue(sessionRow());
     mockUserFindUnique.mockRejectedValue(new Error("database connection terminated"));

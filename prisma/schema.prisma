@@ -148,8 +148,26 @@ model Grade {
 }
 
 model AiSpendMonth {
-  period         String   @id
-  spentMicros    BigInt   @default(0)
-  reservedMicros BigInt   @default(0)
-  updatedAt      DateTime @updatedAt
+  period         String    @id
+  spentMicros    BigInt    @default(0)
+  reservedMicros BigInt    @default(0)
+  updatedAt      DateTime  @updatedAt
+  warnedAt       DateTime?
+}
+
+model AiUsageDay {
+  // Postgres treats NULLs as distinct in unique constraints, so a missing userId
+  // is stored as "" to keep the usage upsert reading and writing exactly one row.
+  day          String
+  feature      String
+  userId       String
+  // counts up. calls counts every provider call; failedCalls the failed subset.
+  calls        BigInt   @default(0)
+  failedCalls  BigInt   @default(0)
+  inputTokens  BigInt   @default(0)
+  outputTokens BigInt   @default(0)
+  costMicros   BigInt   @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@id([day, feature, userId])
 }
