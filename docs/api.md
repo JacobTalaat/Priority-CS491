@@ -333,11 +333,11 @@ curl -i -X POST http://localhost:3000/api/canvas/token \
 }
 ```
 
-`400` — the body was invalid, the Canvas URL was not a valid `https` origin, or Canvas rejected the token:
+`400` — the body was invalid, the Canvas URL was not a valid `https` origin, Canvas rejected the token, or Canvas answered with a redirect (redirects are never followed; the message names the redirect target so the student can paste that address instead):
 
 ```json
 {
-  "error": "Canvas rejected this token"
+  "error": "Canvas redirected to https://canvas.njit.edu. Use that address instead."
 }
 ```
 
@@ -349,7 +349,7 @@ curl -i -X POST http://localhost:3000/api/canvas/token \
 }
 ```
 
-`502` — Canvas could not be reached:
+`502` — Canvas could not be reached (including an address that resolves to a private IP):
 
 ```json
 {
@@ -463,11 +463,11 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
 }
 ```
 
-`400` — Canvas rejected the stored token:
+`400` — Canvas rejected the stored token, or Canvas answered with a redirect (redirects are never followed; the message names the redirect target so the student can correct the stored address):
 
 ```json
 {
-  "error": "Canvas rejected this token"
+  "error": "Canvas redirected to https://canvas.njit.edu. Use that address instead."
 }
 ```
 

@@ -2,6 +2,9 @@ import { prisma } from "@/lib/prisma";
 
 const MICROS_PER_MILLION = BigInt(1000000);
 
+// Fraction of the monthly cap above which the server log gets one warning.
+const SPEND_WARNING_THRESHOLD_PERCENT = 80;
+
 export function spendPeriod(date: Date): string {
   return date.toISOString().slice(0, 7);
 }
@@ -76,4 +79,40 @@ export async function settleSpend({
   if (affected !== 1) {
     throw new Error("AI spend settlement updated no row");
   }
+}
+
+// Claims the right to emit the near-cap warning for a period: the conditional
+// update lets exactly one concurrent caller or server win, so the warning is
+// sent once per month even across restarts. Returns the month's spend when the
+// claim was won, null when the warning was already sent or usage is not over
+// the threshold yet. A forced claim drops the threshold (spent+reserved >= 0
+// always holds) for the refusal path, where the cap is already reached.
+export async function claimSpendWarning({
+  period,
+  capMicros,
+  force = false,
+}: {
+  period: string;
+  capMicros: number;
+  force?: boolean;
+}): Promise<{ spentMicros: bigint; reservedMicros: bigint } | null> {
+  const cap = BigInt(capMicros);
+  const threshold = (cap * BigInt(SPEND_WARNING_THRESHOLD_PERCENT)) / BigInt(100);
+  const rows = (await prisma.$queryRaw`
+    UPDATE "AiSpendMonth"
+    SET "warnedAt" = now()
+    WHERE "period" = ${period}::text
+      AND "warnedAt" IS NULL
+      AND "spentMicros" + "reservedMicros" >= ${force ? BigInt(0) : threshold}::bigint
+    RETURNING "spentMicros", "reservedMicros"
+  `) as unknown as readonly unknown[];
+  const row = rows[0];
+  if (typeof row !== "object" || row === null) {
+    return null;
+  }
+  const claimed = row as { spentMicros: unknown; reservedMicros: unknown };
+  if (typeof claimed.spentMicros !== "bigint" || typeof claimed.reservedMicros !== "bigint") {
+    return null;
+  }
+  return { spentMicros: claimed.spentMicros, reservedMicros: claimed.reservedMicros };
 }
