@@ -235,4 +235,23 @@ describe("stored setup to engine handoff", () => {
 
     expect(parsed.ok).toBe(false);
   });
+
+  it("reads a manually saved grade exactly the way it reads an imported one", () => {
+    const setup = makeSetup(
+      [{ name: "Homework", weight: 60 }],
+      [{ assignmentId: "homework", category: "Homework" }],
+      40,
+    );
+    // isManual marks who wrote the row; the engine reads only the score
+    const manuallyTyped = {
+      id: "homework",
+      pointsPossible: 20,
+      grade: { score: 18, isManual: true },
+    };
+
+    expect(calculateWeightedGrade(setup, [manuallyTyped])).toEqual({
+      status: "calculated",
+      percentage: 90,
+    });
+  });
 });
