@@ -26,6 +26,7 @@ const EXPECTED_SELECT = {
       finalExamWeight: true,
       cutoffs: true,
       classDetails: true,
+      unsupportedRules: true,
       confirmedAt: true,
     },
   },
@@ -230,6 +231,29 @@ describe("GET /api/courses/[courseId]/grade", () => {
       { category: "Homework", weight: 40, percentage: 0, pointsEarned: 0, pointsPossible: 50, gradedCount: 1, ungradedCount: 0 },
       { category: "Exams", weight: 60, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
     ]);
+  });
+
+  it("refuses a points-based course whose saved setup carries an unsupported rule", async () => {
+    // No category has weight, so the points engine is chosen; the stored "drop the lowest
+    // quiz" rule must still stop a confident number, because the points engine never sees
+    // the setup.
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          ...setupRow,
+          categories: [{ name: "Quizzes", weight: 0 }],
+          assignmentMappings: [{ assignmentId: "hw-1", category: "Quizzes" }],
+          finalExamWeight: 100,
+          unsupportedRules: ["Lowest quiz dropped"],
+        },
+        assignments: [{ id: "hw-1", pointsPossible: 10, grade: { score: 9 } }],
+      }),
+    );
+
+    const body = await (await GET(request(), context)).json();
+
+    expect(body.engine).toBe("points");
+    expect(body.grade).toEqual({ status: "unsupported", reason: "unsupported-rule" });
   });
 
   it("grades with the points engine when the saved setup has no usable category weights", async () => {
