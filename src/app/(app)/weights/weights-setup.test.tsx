@@ -242,6 +242,7 @@ describe("final exam picker", () => {
         cutoffs: { A: 90 },
         classDetails: { finalExamAssignmentId },
         confirmedAt: "2026-10-20T12:00:00.000Z",
+        unsupportedRules: [],
       },
     });
     expect(renderToStaticMarkup(<WeightsSetup initialCourses={[withFinal("a2")]} />)).toContain(
@@ -397,6 +398,7 @@ describe("WeightsSetup class details", () => {
           contacts: "Dr. Ruiz (Instructor) eruiz@njit.edu",
         },
         confirmedAt: "2026-10-20T12:00:00.000Z",
+        unsupportedRules: [],
       },
     };
     const html = renderToStaticMarkup(<WeightsSetup initialCourses={[saved]} />);

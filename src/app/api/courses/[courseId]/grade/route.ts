@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseGradeSetup, type GradeSetupPayload } from "@/lib/grade-setup";
-import { calculatePointsGrade } from "@/lib/points-grade";
-import { calculateWeightedGrade, type WeightedGradeResult } from "@/lib/weighted-grade";
-import { buildCategoryBreakdown, chooseGradeEngine, type CategoryBreakdown } from "@/lib/grade-engine";
+import { type WeightedGradeResult } from "@/lib/weighted-grade";
+import { buildCategoryBreakdown, calculateCourseGrade, type CategoryBreakdown } from "@/lib/grade-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +33,7 @@ function parseSavedSetup(
         finalExamWeight: unknown;
         cutoffs: unknown;
         classDetails: unknown;
+        unsupportedRules: unknown;
       }
     | null,
 ): GradeSetupPayload | null {
@@ -41,7 +41,8 @@ function parseSavedSetup(
     return null;
   }
   const parsed = parseGradeSetup(row);
-  return parsed.ok ? parsed.data : null;
+  // A row saved before unsupported rules existed has none on record.
+  return parsed.ok ? { ...parsed.data, unsupportedRules: parsed.data.unsupportedRules ?? [] } : null;
 }
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse<GradeResponse | { error: string }>> {
@@ -65,6 +66,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
           finalExamWeight: true,
           cutoffs: true,
           classDetails: true,
+          unsupportedRules: true,
           confirmedAt: true,
         },
       },
@@ -82,17 +84,14 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
-  const choice = chooseGradeEngine(parseSavedSetup(course.gradeSetup));
+  const setup = parseSavedSetup(course.gradeSetup);
   const assignments = course.assignments.map((assignment) => ({
     id: assignment.id,
     pointsPossible: assignment.pointsPossible,
     grade: assignment.grade,
   }));
 
-  const grade =
-    choice.engine === "weighted"
-      ? calculateWeightedGrade(choice.setup, assignments)
-      : calculatePointsGrade(assignments);
+  const { choice, grade } = calculateCourseGrade(setup, assignments);
   // Only an unsupported grade has nothing to break down: the engine gave up
   // on the course as a whole, so per-category figures would be misleading.
   const breakdown =
