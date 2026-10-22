@@ -298,6 +298,107 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 
 ---
 
+### `GET /api/notifications/preferences`
+
+Returns the authenticated student's notification toggles and the nightly reminder time. Times and days are in New York time.
+
+- **Method**: `GET`
+- **Path**: `/api/notifications/preferences`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/notifications/preferences \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the saved preferences. `notifyTonight` controls the "Tonight" nudge, `notifyGradePosted` the "Grade posted" message, and `notifyDueTomorrow` the "Due tomorrow" message. `nightlyReminderTime` is a zero-padded `HH:MM` string used by the nightly reminder job:
+
+```json
+{
+  "notifyTonight": true,
+  "notifyGradePosted": true,
+  "notifyDueTomorrow": true,
+  "nightlyReminderTime": "20:00"
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
+### `PATCH /api/notifications/preferences`
+
+Updates some or all of the notification preferences. Only the fields present in the body are changed; the others are left as they are.
+
+- **Method**: `PATCH`
+- **Path**: `/api/notifications/preferences`
+
+**Request**
+
+JSON body with any subset of:
+
+- `notifyTonight` (boolean) — whether the student gets the "Tonight" nudge
+- `notifyGradePosted` (boolean) — whether the student gets the "Grade posted" message
+- `notifyDueTomorrow` (boolean) — whether the student gets the "Due tomorrow" message
+- `nightlyReminderTime` (string) — `HH:MM` between `00:00` and `23:59`, New York time
+
+```bash
+curl -i -X PATCH http://localhost:3000/api/notifications/preferences \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"notifyTonight":false,"nightlyReminderTime":"21:30"}'
+```
+
+**Response**
+
+`200` — the preferences after the update, same shape as `GET`:
+
+```json
+{
+  "notifyTonight": false,
+  "notifyGradePosted": true,
+  "notifyDueTomorrow": true,
+  "nightlyReminderTime": "21:30"
+}
+```
+
+`400` — an unknown field, a non-boolean toggle, or an invalid `nightlyReminderTime` (wrong format or outside `00:00`–`23:59`):
+
+```json
+{
+  "error": "Send notifyTonight, notifyGradePosted and notifyDueTomorrow as true or false, and nightlyReminderTime as HH:MM from 00:00 to 23:59."
+}
+```
+
+`400` — the body is not valid JSON or not an object:
+
+```json
+{
+  "error": "Invalid JSON body."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
 ### `POST /api/canvas/token`
 
 Saves the student's Canvas personal access token. The token is checked against Canvas first and only stored if Canvas accepts it. It is encrypted before it is written and is never returned by any route.
