@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockFindMany,
+  mockUserFindUnique,
   mockUserUpdate,
+  mockAssignmentFindMany,
+  mockGradePostedEventCreate,
   mockGetCanvasToken,
   mockGetCanvasStatus,
   mockImportCourses,
@@ -13,7 +16,10 @@ const {
   mockGetCalendarFeedUrl,
 } = vi.hoisted(() => ({
   mockFindMany: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockUserUpdate: vi.fn(),
+  mockAssignmentFindMany: vi.fn(),
+  mockGradePostedEventCreate: vi.fn(),
   mockGetCanvasToken: vi.fn(),
   mockGetCanvasStatus: vi.fn(),
   mockImportCourses: vi.fn(),
@@ -27,7 +33,9 @@ const {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     course: { findMany: mockFindMany },
-    user: { update: mockUserUpdate },
+    user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
+    assignment: { findMany: mockAssignmentFindMany },
+    gradePostedEvent: { create: mockGradePostedEventCreate },
   },
 }));
 
@@ -57,21 +65,34 @@ import { syncUser } from "./sync";
 const USER_ID = "user-1";
 const CREDENTIALS = { baseUrl: "https://canvas.example.edu", token: "canvas-token-123" };
 const CLOCKS_AT = "2026-10-07T19:00:00Z";
+const SYNCED_AT = new Date("2026-10-06T19:00:00Z");
 
 function storedCourse(id: string) {
   return { id, userId: USER_ID, canvasId: id.replace("course", "canvas") };
 }
 
+function gradedAssignment(id: string, score: number | null) {
+  return { id, grade: score === null ? null : { score } };
+}
+
 describe("syncUser", () => {
   beforeEach(() => {
     mockFindMany.mockReset();
+    mockFindMany.mockResolvedValue([]);
+    mockUserFindUnique.mockReset();
+    mockUserFindUnique.mockResolvedValue({ lastSyncedAt: SYNCED_AT });
     mockUserUpdate.mockReset();
     mockUserUpdate.mockResolvedValue({});
+    mockAssignmentFindMany.mockReset();
+    mockAssignmentFindMany.mockResolvedValue([]);
+    mockGradePostedEventCreate.mockReset();
+    mockGradePostedEventCreate.mockResolvedValue({});
     mockGetCanvasToken.mockReset();
     mockGetCanvasToken.mockResolvedValue(CREDENTIALS);
     mockGetCanvasStatus.mockReset();
     mockGetCanvasStatus.mockResolvedValue({ connected: false, baseUrl: null, checkedAt: null });
     mockImportCourses.mockReset();
+    mockImportCourses.mockResolvedValue({ imported: 0, skipped: 0, courseIds: [] });
     mockImportAssignmentGroups.mockReset();
     mockImportAssignments.mockReset();
     mockImportGrades.mockReset();
@@ -142,6 +163,7 @@ describe("syncUser", () => {
       assignmentGroups: 7,
       assignments: 11,
       grades: 15,
+      gradesPosted: 0,
     });
     expect(mockFindMany).toHaveBeenCalledWith({
       where: { userId: USER_ID, id: { in: ["c1", "c2"] } },
@@ -195,6 +217,7 @@ describe("syncUser", () => {
       assignmentGroups: 0,
       assignments: 3,
       grades: 0,
+      gradesPosted: 0,
     });
     expect(mockImportCalendarAssignments).toHaveBeenCalledWith(
       USER_ID,
@@ -252,5 +275,45 @@ describe("syncUser", () => {
     mockImportCalendarAssignments.mockRejectedValue(new CalendarFeedError());
     await expect(syncUser(USER_ID)).rejects.toThrow("Could not read the Canvas calendar feed");
     expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("records a posted grade only when a score went from absent to a number after a prior sync", async () => {
+    mockAssignmentFindMany
+      .mockResolvedValueOnce([gradedAssignment("assignment-1", 80)])
+      .mockResolvedValueOnce([gradedAssignment("assignment-1", 80), gradedAssignment("assignment-2", 95)]);
+    const result = await syncUser(USER_ID);
+    expect(mockGradePostedEventCreate).toHaveBeenCalledTimes(1);
+    expect(mockGradePostedEventCreate).toHaveBeenCalledWith({
+      data: { userId: USER_ID, assignmentId: "assignment-2", score: 95 },
+    });
+    expect(result.gradesPosted).toBe(1);
+  });
+
+  it("does not create events for the grades a user already had on a first sync", async () => {
+    mockUserFindUnique.mockResolvedValue({ lastSyncedAt: null });
+    const result = await syncUser(USER_ID);
+    expect(mockAssignmentFindMany).not.toHaveBeenCalled();
+    expect(mockGradePostedEventCreate).not.toHaveBeenCalled();
+    expect(result.gradesPosted).toBe(0);
+  });
+
+  it("counts only events actually created: an existing event is not a second one", async () => {
+    mockAssignmentFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([gradedAssignment("assignment-1", 88), gradedAssignment("assignment-2", 90)]);
+    mockGradePostedEventCreate.mockImplementation(({ data }: { data: { assignmentId: string } }) => {
+      if (data.assignmentId === "assignment-1") {
+        return Promise.reject(Object.assign(new Error("Unique constraint failed"), { code: "P2002" }));
+      }
+      return Promise.resolve({});
+    });
+    const result = await syncUser(USER_ID);
+    expect(result.gradesPosted).toBe(1);
+    expect(mockGradePostedEventCreate).toHaveBeenCalledWith({
+      data: { userId: USER_ID, assignmentId: "assignment-1", score: 88 },
+    });
+    expect(mockGradePostedEventCreate).toHaveBeenCalledWith({
+      data: { userId: USER_ID, assignmentId: "assignment-2", score: 90 },
+    });
   });
 });
