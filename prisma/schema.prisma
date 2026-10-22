@@ -121,6 +121,7 @@ model Assignment {
   hasDueDate        Boolean
   pointsPossible    Float
   htmlUrl           String?
+  description       String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
