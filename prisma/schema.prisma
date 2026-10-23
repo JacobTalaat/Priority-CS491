@@ -31,6 +31,7 @@ model User {
   lastSyncedAt      DateTime?
   sessions          Session[]
   courses           Course[]
+  deviceTokens      DeviceToken[]
 }
 
 model Session {
@@ -165,4 +166,19 @@ model AiUsageDay {
   updatedAt    DateTime @updatedAt
 
   @@id([day, feature, userId])
+}
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  deviceId  String
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
 }
