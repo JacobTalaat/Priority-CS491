@@ -20,6 +20,27 @@ export type GradeSetupParseResult =
   | { ok: true; data: GradeSetupPayload }
   | { ok: false; error: string };
 
+// A saved row is a confirmed setup: the confirm step is what writes it.
+// The stored JSON is re-validated because the database could hold anything;
+// an invalid setup is treated as no setup.
+export type SavedGradeSetupRow =
+  | {
+      categories: unknown;
+      assignmentMappings: unknown;
+      finalExamWeight: unknown;
+      cutoffs: unknown;
+      classDetails: unknown;
+    }
+  | null;
+
+export function parseSavedSetup(row: SavedGradeSetupRow): GradeSetupPayload | null {
+  if (!row) {
+    return null;
+  }
+  const parsed = parseGradeSetup(row);
+  return parsed.ok ? parsed.data : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
