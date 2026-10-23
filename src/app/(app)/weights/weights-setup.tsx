@@ -8,8 +8,16 @@ import type { GradeSetupPayload } from "@/lib/grade-setup";
 import { getGradeSetupCourses, saveGradeSetup } from "@/lib/grade-setup-client";
 import type { GradeSetupCourse } from "@/lib/grade-setup-client";
 import { isCompleteTotal, weightTotalMessage } from "@/lib/weight-total";
+import {
+  canvasWeightsAvailable,
+  resolveWeightPrecedence,
+  syllabusReadMessage,
+  type CanvasAssignment,
+  type CanvasGroup,
+} from "@/lib/weight-precedence";
 import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import { SyllabusUpload } from "@/components/syllabus/syllabus-upload";
+import { logEvent } from "@/lib/usage";
 import styles from "./weights.module.css";
 
 type CategoryField = { name: string; weight: string };
@@ -117,15 +125,6 @@ function formForCourse(course: GradeSetupCourse): FormState {
   };
 }
 
-function canvasWeightsAvailable(course: GradeSetupCourse) {
-  const groups = course.assignmentGroups;
-  return (
-    groups.length > 0 &&
-    groups.every((group) => group.groupWeight !== null && Number.isFinite(group.groupWeight)) &&
-    Math.abs(groups.reduce((sum, group) => sum + (group.groupWeight ?? 0), 0) - 100) <= 0.001
-  );
-}
-
 function firstInstructorContactIndex(contacts: SyllabusSuggestions["contacts"]): number {
   for (let index = 0; index < contacts.length; index++) {
     const contact = contacts[index];
@@ -143,71 +142,102 @@ function firstInstructorContactIndex(contacts: SyllabusSuggestions["contacts"]):
 
 // Fills the suggested grading rules into the form state. A fact the syllabus did not state
 // leaves the form's value alone: a missing suggestion is "did not say", not a default.
-// PR-39 owns whether Canvas weights should win over an explicitly requested syllabus read.
-export function applySyllabusSuggestions(
+// PR-39: the professor's Canvas group weights outrank a syllabus read. resolveWeightPrecedence
+// keeps every weight Canvas already provides and lets the syllabus fill only what Canvas
+// leaves out; the syllabus replaces the categories wholesale only when Canvas has none.
+function applySyllabusSuggestionsWithOutcome(
   current: FormState,
-  suggestions: SyllabusSuggestions
-): FormState {
-  const categories =
-    suggestions.categories.length > 0
-      ? suggestions.categories.map((suggested) => ({
-          name: suggested.name,
-          weight: suggested.weight === null ? "" : String(suggested.weight),
-        }))
-      : current.categories;
-  const exactNameBySuggestedName = new Map<string, string>();
-  for (const category of categories) {
-    exactNameBySuggestedName.set(category.name.trim().toLowerCase(), category.name);
-  }
-  // buildPayload compares mapping values to category names exactly, so a mapping kept by
-  // case-insensitive name is rewritten to the suggested category's exact name.
-  const assignmentMappings = Object.fromEntries(
-    Object.entries(current.assignmentMappings)
-      .filter(([, categoryName]) => exactNameBySuggestedName.has(categoryName.trim().toLowerCase()))
-      .map(([assignmentId, categoryName]) => [
-        assignmentId,
-        exactNameBySuggestedName.get(categoryName.trim().toLowerCase()) ?? "",
-      ]),
-  );
+  suggestions: SyllabusSuggestions,
+  canvasGroups: CanvasGroup[],
+  canvasAssignments: CanvasAssignment[]
+): { form: FormState; canvasKept: boolean } {
+  const resolved = resolveWeightPrecedence({
+    current: {
+      categories: current.categories,
+      assignmentMappings: current.assignmentMappings,
+      finalExamWeight: current.finalExamWeight,
+    },
+    suggestedCategories: suggestions.categories,
+    suggestedFinalExamWeight: suggestions.finalExamWeight,
+    canvasGroups,
+    canvasAssignments,
+  });
   const instructorIndex = firstInstructorContactIndex(suggestions.contacts);
   return {
-    categories,
-    assignmentMappings,
-    finalExamWeight:
-      suggestions.finalExamWeight === null
-        ? current.finalExamWeight
-        : String(suggestions.finalExamWeight),
-    // A syllabus may state only some cutoff labels, so suggestions merge over the current
-    // ones and no known label is lost.
-    cutoffs: Object.fromEntries(
-      Object.entries({ ...current.cutoffs, ...suggestions.cutoffs }).map(([label, value]) => [
-        label,
-        String(value),
-      ]),
-    ),
-
-    // Details only fill empty fields, so a read never overwrites what the student typed.
-    instructor:
-      current.instructor.trim() === "" && instructorIndex !== -1
-        ? (suggestions.contacts[instructorIndex].name ?? "").trim()
-        : current.instructor,
-    section: current.section,
-    credits: current.credits,
-    officeHours:
-      current.officeHours.trim() === "" && suggestions.officeHours !== null
-        ? suggestions.officeHours
-        : current.officeHours,
-    latePolicy:
-      current.latePolicy.trim() === "" && suggestions.latePolicy !== null
-        ? suggestions.latePolicy
-        : current.latePolicy,
-    contacts: current.contacts.trim() === "" ? formatContacts(suggestions.contacts) || current.contacts : current.contacts,
-    finalExamAssignmentId: current.finalExamAssignmentId,
+    form: {
+      categories: resolved.categories,
+      assignmentMappings: resolved.assignmentMappings,
+      finalExamWeight: resolved.finalExamWeight,
+      // A syllabus may state only some cutoff labels, so suggestions merge over the current
+      // ones and no known label is lost.
+      cutoffs: Object.fromEntries(
+        Object.entries({ ...current.cutoffs, ...suggestions.cutoffs }).map(([label, value]) => [
+          label,
+          String(value),
+        ]),
+      ),
+      // Details only fill empty fields, so a read never overwrites what the student typed.
+      instructor:
+        current.instructor.trim() === "" && instructorIndex !== -1
+          ? (suggestions.contacts[instructorIndex].name ?? "").trim()
+          : current.instructor,
+      section: current.section,
+      credits: current.credits,
+      officeHours:
+        current.officeHours.trim() === "" && suggestions.officeHours !== null
+          ? suggestions.officeHours
+          : current.officeHours,
+      latePolicy:
+        current.latePolicy.trim() === "" && suggestions.latePolicy !== null
+          ? suggestions.latePolicy
+          : current.latePolicy,
+      contacts: current.contacts.trim() === "" ? formatContacts(suggestions.contacts) || current.contacts : current.contacts,
+      finalExamAssignmentId: current.finalExamAssignmentId,
+    },
+    canvasKept: resolved.canvasKept,
   };
+}
+
+export function applySyllabusSuggestions(
+  current: FormState,
+  suggestions: SyllabusSuggestions,
+  canvasGroups: CanvasGroup[] = [],
+  canvasAssignments: CanvasAssignment[] = []
+): FormState {
+  return applySyllabusSuggestionsWithOutcome(current, suggestions, canvasGroups, canvasAssignments)
+    .form;
 }
 
 // Everything that stops the setup from being confirmed, in the order the form shows it.
 // Confirm stays off until this is empty, and the same list explains why.
+// The class to open first: the one named in ?course= when it is one of the student's
+// current classes, otherwise the first class.
+export function pickCourse(courses: GradeSetupCourse[], courseId?: string): GradeSetupCourse | null {
+  return courses.find((course) => course.id === courseId) ?? courses[0] ?? null;
+}
+
+const confirmedDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+// Assignments imported after the setup was confirmed have no category until it's edited.
+export function assignmentsMissingFromSetup(course: GradeSetupCourse): number {
+  const saved = course.gradeSetup;
+  if (!saved) {
+    return 0;
+  }
+  const categories = new Set(saved.categories.map((category) => category.name.trim().toLowerCase()));
+  const mapped = new Set(
+    saved.assignmentMappings
+      .filter((mapping) => categories.has(mapping.category.trim().toLowerCase()))
+      .map((mapping) => mapping.assignmentId),
+  );
+  return course.assignments.filter((assignment) => !mapped.has(assignment.id)).length;
+}
+
 export function confirmProblems(form: FormState, assignments: { id: string }[]): string[] {
   const problems: string[] = [];
   const categories = form.categories.map((category) => ({
@@ -280,11 +310,19 @@ export function applySyllabusRead(
   courseId: string,
   selectedCourseId: string,
   form: FormState,
-  suggestions: SyllabusSuggestions
-): { form: FormState; extras: SyllabusReadExtras | null } | null {
+  suggestions: SyllabusSuggestions,
+  canvasGroups: CanvasGroup[] = [],
+  canvasAssignments: CanvasAssignment[] = []
+): { form: FormState; extras: SyllabusReadExtras | null; canvasKept: boolean } | null {
   if (courseId !== selectedCourseId) {
     return null;
   }
+  const { form: nextForm, canvasKept } = applySyllabusSuggestionsWithOutcome(
+    form,
+    suggestions,
+    canvasGroups,
+    canvasAssignments
+  );
   const extras: SyllabusReadExtras = {
     unsupportedRules: suggestions.unsupportedRules,
     latePolicy: suggestions.latePolicy,
@@ -296,26 +334,37 @@ export function applySyllabusRead(
     extras.latePolicy !== null ||
     extras.officeHours !== null ||
     extras.contacts.length > 0;
-  return { form: applySyllabusSuggestions(form, suggestions), extras: hasExtras ? extras : null };
+  return { form: nextForm, extras: hasExtras ? extras : null, canvasKept };
 }
 
-export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCourse[] } = {}) {
+export function WeightsSetup({
+  initialCourses,
+  initialCourseId,
+}: { initialCourses?: GradeSetupCourse[]; initialCourseId?: string } = {}) {
   const [courses, setCourses] = useState<GradeSetupCourse[]>(initialCourses ?? []);
-  const [selectedCourseId, setSelectedCourseId] = useState(initialCourses?.[0]?.id ?? "");
+  const [selectedCourseId, setSelectedCourseId] = useState(
+    () => pickCourse(initialCourses ?? [], initialCourseId)?.id ?? "",
+  );
   const [state, setState] = useState<"loading" | "ready" | "error">(
     initialCourses ? "ready" : "loading",
   );
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(() =>
-    initialCourses?.[0] ? formForCourse(initialCourses[0]) : blankForm(),
-  );
+  const [form, setForm] = useState<FormState>(() => {
+    const first = pickCourse(initialCourses ?? [], initialCourseId);
+    return first ? formForCourse(first) : blankForm();
+  });
   const [manualMode, setManualMode] = useState(false);
+  // A confirmed class opens as a read-only summary; Edit opens the form on its saved setup.
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
   const selectedCourse = courses.find((course) => course.id === selectedCourseId) ?? null;
-  const hasCanvasWeights = selectedCourse ? canvasWeightsAvailable(selectedCourse) : false;
-  const showForm = Boolean(selectedCourse && (selectedCourse.gradeSetup || !hasCanvasWeights || manualMode));
+  const hasCanvasWeights = selectedCourse
+    ? canvasWeightsAvailable(selectedCourse.assignmentGroups)
+    : false;
+  const confirmed = Boolean(selectedCourse?.gradeSetup);
+  const showForm = Boolean(selectedCourse && (confirmed ? editing : !hasCanvasWeights || manualMode));
   const totalWeight = useMemo(
     () =>
       form.categories.reduce((sum, category) => {
@@ -354,26 +403,29 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
         setState("error");
         return;
       }
+      const first = pickCourse(result.data.courses, initialCourseId);
       setCourses(result.data.courses);
-      setSelectedCourseId(result.data.courses[0]?.id ?? "");
-      if (result.data.courses[0]) {
-        setForm(formForCourse(result.data.courses[0]));
+      setSelectedCourseId(first?.id ?? "");
+      if (first) {
+        setForm(formForCourse(first));
       }
       setState("ready");
     });
     return () => {
       cancelled = true;
     };
-  }, [initialCourses]);
+  }, [initialCourses, initialCourseId]);
 
   // Kept in an effect rather than during render. A syllabus read's callback fires from an
   // event, after any committed change, so the refs are current even for a long-old request.
   const selectedCourseIdRef = useRef(selectedCourseId);
+  const selectedCourseRef = useRef(selectedCourse);
   const formRef = useRef(form);
   useEffect(() => {
     selectedCourseIdRef.current = selectedCourseId;
+    selectedCourseRef.current = selectedCourse;
     formRef.current = form;
-  }, [selectedCourseId, form]);
+  }, [selectedCourseId, selectedCourse, form]);
   const [readExtras, setReadExtras] = useState<SyllabusReadExtras | null>(null);
   const [filledByRead, setFilledByRead] = useState<ReadDetailField[]>([]);
   const problems = useMemo(
@@ -397,18 +449,27 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
     if (courseId !== selectedCourseIdRef.current) {
       return;
     }
-    const read = applySyllabusRead(courseId, selectedCourseIdRef.current, formRef.current, suggestions);
+    const selectedCourse = selectedCourseRef.current;
+    const read = applySyllabusRead(
+      courseId,
+      selectedCourseIdRef.current,
+      formRef.current,
+      suggestions,
+      selectedCourse?.assignmentGroups ?? [],
+      selectedCourse?.assignments.map((assignment) => ({
+        id: assignment.id,
+        groupName: assignment.assignmentGroup?.name ?? null,
+      })) ?? []
+    );
     if (read === null) {
       return;
     }
     setManualMode(true);
+    setEditing(true);
     setFilledByRead(detailsFilledByRead(formRef.current, read.form));
     setForm(read.form);
     setReadExtras(read.extras);
-    setMessage({
-      tone: "success",
-      text: "The AI's suggestions are filled in below. Nothing is saved until you confirm them.",
-    });
+    setMessage({ tone: "success", text: syllabusReadMessage(read.canvasKept) });
   }
 
   function updateCategory(index: number, field: keyof CategoryField, value: string) {
@@ -493,18 +554,44 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
     }
     setSaving(true);
     setMessage(null);
+    const wasConfirmed = Boolean(selectedCourse.gradeSetup);
     const result = await saveGradeSetup(selectedCourse.id, payload);
     setSaving(false);
     if (!result.ok) {
       setMessage({ tone: "error", text: result.error });
       return;
     }
+    logEvent("setup_confirmed");
     const savedCourse = {
       ...selectedCourse,
       gradeSetup: { ...payload, confirmedAt: result.data.confirmedAt },
     };
     setCourses((current) => current.map((course) => (course.id === savedCourse.id ? savedCourse : course)));
-    setMessage({ tone: "success", text: "Your grade setup is confirmed and saved." });
+    setEditing(false);
+    setFilledByRead([]);
+    setMessage({
+      tone: "success",
+      text: wasConfirmed ? "Your changes are saved." : "Your grade setup is confirmed and saved.",
+    });
+  }
+
+  function startEditing() {
+    if (selectedCourse) {
+      setForm(formForCourse(selectedCourse));
+    }
+    setMessage(null);
+    setEditing(true);
+  }
+
+  // Throws away every unsaved change, including a syllabus read, and shows the saved setup again.
+  function cancelEditing() {
+    if (selectedCourse) {
+      setForm(formForCourse(selectedCourse));
+    }
+    setEditing(false);
+    setMessage(null);
+    setReadExtras(null);
+    setFilledByRead([]);
   }
 
   return (
@@ -540,6 +627,7 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
                   setForm(formForCourse(course));
                 }
                 setManualMode(false);
+                setEditing(false);
                 setMessage(null);
                 setReadExtras(null);
                 setFilledByRead([]);
@@ -567,6 +655,10 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
               </ul>
               <Button onClick={() => setManualMode(true)}>Enter weights manually</Button>
             </div>
+          ) : null}
+
+          {selectedCourse?.gradeSetup && !editing ? (
+            <ConfirmedSummary course={selectedCourse} message={message} onEdit={startEditing} />
           ) : null}
 
           {showForm && selectedCourse ? (
@@ -800,7 +892,9 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
 
               {problems.length > 0 ? (
                 <div className={styles.confirmProblems} id="confirm-problems" role="status">
-                  <p className={styles.confirmProblemsTitle}>Before you can confirm:</p>
+                  <p className={styles.confirmProblemsTitle}>
+                    {confirmed ? "Before you can save:" : "Before you can confirm:"}
+                  </p>
                   <ul>
                     {problems.map((problem) => (
                       <li key={problem}>{problem}</li>
@@ -816,8 +910,13 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
                   disabled={problems.length > 0}
                   aria-describedby={problems.length > 0 ? "confirm-problems" : undefined}
                 >
-                  {saving ? "Saving setup…" : "Confirm and save"}
+                  {saving ? "Saving setup…" : confirmed ? "Save changes" : "Confirm and save"}
                 </Button>
+                {confirmed ? (
+                  <Button type="button" variant="ghost" onClick={cancelEditing} disabled={saving}>
+                    Cancel
+                  </Button>
+                ) : null}
                 {manualMode && hasCanvasWeights && !selectedCourse.gradeSetup ? (
                   <Button type="button" variant="ghost" onClick={() => setManualMode(false)}>
                     Use Canvas weights
@@ -845,5 +944,66 @@ export function WeightsSetup({ initialCourses }: { initialCourses?: GradeSetupCo
         </section>
       ) : null}
     </>
+  );
+}
+
+function ConfirmedSummary({
+  course,
+  message,
+  onEdit,
+}: {
+  course: GradeSetupCourse;
+  message: { tone: "success" | "error"; text: string } | null;
+  onEdit: () => void;
+}) {
+  const saved = course.gradeSetup;
+  if (!saved) {
+    return null;
+  }
+  const missing = assignmentsMissingFromSetup(course);
+  const confirmedOn = new Date(saved.confirmedAt);
+  const cutoffs = Object.entries(saved.cutoffs)
+    .sort(([, a], [, b]) => b - a)
+    .map(([label, value]) => `${label} ${value}`)
+    .join(" · ");
+  return (
+    <section className={styles.canvasWeights} aria-labelledby="confirmed-setup">
+      {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
+      <div className={styles.formHeading}>
+        <h2 className={styles.sectionTitle} id="confirmed-setup">
+          Confirmed setup
+        </h2>
+        <p className={styles.description}>
+          {Number.isNaN(confirmedOn.getTime())
+            ? "Your grade for this class uses these weights."
+            : `Confirmed ${confirmedDateFormatter.format(confirmedOn)}. Your grade for this class uses these weights.`}
+        </p>
+      </div>
+      <ul className={styles.weightList} aria-label="Confirmed weights">
+        {saved.categories.map((category) => (
+          <li key={category.name}>
+            <span>{category.name}</span>
+            <span>{category.weight}%</span>
+          </li>
+        ))}
+        {saved.finalExamWeight > 0 ? (
+          <li>
+            <span>Final exam</span>
+            <span>{saved.finalExamWeight}%</span>
+          </li>
+        ) : null}
+      </ul>
+      {cutoffs ? <p className={styles.description}>Cutoffs: {cutoffs}</p> : null}
+      {missing > 0 ? (
+        <Notice tone="warning">
+          {missing === 1 ? "1 assignment was" : `${missing} assignments were`} added since you confirmed and{" "}
+          {missing === 1 ? "isn’t" : "aren’t"} in a category yet. Edit the setup to add{" "}
+          {missing === 1 ? "it" : "them"}.
+        </Notice>
+      ) : null}
+      <div className={styles.actions}>
+        <Button onClick={onEdit}>Edit setup</Button>
+      </div>
+    </section>
   );
 }
