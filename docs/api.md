@@ -1074,9 +1074,10 @@ Returns the overall grade for one of the student's current courses and, when the
 
 When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
 
-- `extra-credit` — a score above the points possible, or points on an assignment with no points possible, so the total could exceed 100%.
 - `negative-score` — a stored grade below zero.
 - `non-finite-result` — the arithmetic produced a number that is not usable.
+
+Extra credit is not a stop condition: a score above the assignment's points possible counts as-is, and a positive score on an assignment with no points possible is pure bonus, so a calculated `percentage` can exceed 100 for the course and in `breakdown`. A category whose only graded work is bonus points has no points possible to divide by, so its `breakdown.percentage` stays `null` while `pointsEarned` shows the bonus.
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
@@ -1193,6 +1194,47 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
 }
 ```
 
+`200` — extra credit is counted as Canvas counts it, so a grade can land above 100. The exam scored 110 of 100 and counts as-is; a positive score on an assignment with no points possible would instead be pure bonus, adding to the earned totals without touching the possible ones:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "calculated", "percentage": 102 },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": 90,
+      "pointsEarned": 45,
+      "pointsPossible": 50,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    },
+    {
+      "category": "Exams",
+      "weight": 60,
+      "percentage": 110,
+      "pointsEarned": 110,
+      "pointsPossible": 100,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    }
+  ],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
+  ]
+}
+```
+
 `200` — a grading rule the engine cannot express, with the reason carried through:
 
 ```json
@@ -1205,7 +1247,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
-  "grade": { "status": "unsupported", "reason": "extra-credit" },
+  "grade": { "status": "unsupported", "reason": "negative-score" },
   "breakdown": [],
   "finalExam": { "status": "no-final" },
   "shares": [

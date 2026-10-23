@@ -17,7 +17,6 @@ export function formatPercent(value: number): string {
 }
 
 const UNSUPPORTED_REASONS: Record<UnsupportedReason, string> = {
-  "extra-credit": "A score is above its points possible (extra credit), which Priority can't grade yet.",
   "negative-score": "A grade below zero is stored for this class.",
   "non-finite-result": "The grade math didn't produce a usable number.",
 };
@@ -37,8 +36,19 @@ export function gradeSummary(grade: WeightedGradeResult): { headline: string; de
 }
 
 // One category line in the breakdown, e.g. "81% · 81 of 100 points · 2 graded, 1 to go".
+// A null percentage means no graded points to divide by, but bonus points can
+// still have been earned there.
 export function categoryLine(category: CategoryBreakdown): string {
   if (category.percentage === null) {
+    if (category.pointsEarned > 0) {
+      const parts = [
+        `${pointsFormatter.format(category.pointsEarned)} bonus points`,
+        category.ungradedCount > 0
+          ? `${category.gradedCount} graded, ${category.ungradedCount} to go`
+          : `${category.gradedCount} graded`,
+      ];
+      return parts.join(" · ");
+    }
     return category.ungradedCount > 0
       ? `Nothing graded yet · ${category.ungradedCount} to go`
       : "No assignments in this category";
