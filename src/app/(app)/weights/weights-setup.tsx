@@ -17,6 +17,7 @@ import {
 } from "@/lib/weight-precedence";
 import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import { SyllabusUpload } from "@/components/syllabus/syllabus-upload";
+import { logEvent } from "@/lib/usage";
 import styles from "./weights.module.css";
 
 type CategoryField = { name: string; weight: string };
@@ -560,6 +561,7 @@ export function WeightsSetup({
       setMessage({ tone: "error", text: result.error });
       return;
     }
+    logEvent("setup_confirmed");
     const savedCourse = {
       ...selectedCourse,
       gradeSetup: { ...payload, confirmedAt: result.data.confirmedAt },

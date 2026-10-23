@@ -9,6 +9,7 @@ import {
 } from "@/lib/canvas-client";
 import type { ImportedCoursesResponse } from "@/lib/canvas-client";
 import type { ApiResult } from "@/lib/api-client";
+import { logEvent } from "@/lib/usage";
 import styles from "./classes.module.css";
 
 type LoadState =
@@ -58,6 +59,7 @@ export function ClassesList() {
       setSyncError(canvasErrorMessage(result));
       return;
     }
+    logEvent("sync_now");
     await loadCourses();
   }
 
