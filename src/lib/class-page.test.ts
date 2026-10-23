@@ -14,9 +14,9 @@ describe("gradeSummary", () => {
   });
 
   it("says why a grade can't be worked out", () => {
-    expect(gradeSummary({ status: "unsupported", reason: "extra-credit" })).toEqual({
+    expect(gradeSummary({ status: "unsupported", reason: "negative-score" })).toEqual({
       headline: "Can't work out a grade",
-      detail: "A score is above its points possible (extra credit), which Priority can't grade yet.",
+      detail: "A grade below zero is stored for this class.",
     });
   });
 });
@@ -33,6 +33,12 @@ describe("categoryLine", () => {
     const empty = { ...base, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0 };
     expect(categoryLine({ ...empty, ungradedCount: 3 })).toBe("Nothing graded yet · 3 to go");
     expect(categoryLine({ ...empty, ungradedCount: 0 })).toBe("No assignments in this category");
+  });
+
+  it("shows bonus points earned in a category with no points possible", () => {
+    const bonus = { ...base, percentage: null, pointsEarned: 5, pointsPossible: 0, gradedCount: 1 };
+    expect(categoryLine({ ...bonus, ungradedCount: 0 })).toBe("5 bonus points · 1 graded");
+    expect(categoryLine({ ...bonus, ungradedCount: 2 })).toBe("5 bonus points · 1 graded, 2 to go");
   });
 });
 
