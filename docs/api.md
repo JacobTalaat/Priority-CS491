@@ -530,6 +530,53 @@ When Canvas is not connected, the response is `{"connected":false,"courses":[]}`
 }
 ```
 
+### `GET /api/today`
+
+Returns ungraded assignments from the authenticated student's current courses, ordered by due date with undated assignments last. The evening hours limit is applied in the website and saved in that browser; it is not part of this response.
+
+- **Method**: `GET`
+- **Path**: `/api/today`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/today \
+  -H "Authorization: ******"
+```
+
+**Response**
+
+`200` — assignments with their class details:
+
+```json
+{
+  "assignments": [
+    {
+      "id": "assignment-id",
+      "title": "Project 1",
+      "dueAt": "2026-10-28T23:59:00.000Z",
+      "hasDueDate": true,
+      "pointsPossible": 20,
+      "course": {
+        "id": "course-id",
+        "name": "Algorithms",
+        "courseCode": "CS-341"
+      }
+    }
+  ]
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
 ### `GET /api/canvas/calendar-feed`
 
 Reports whether a private Canvas calendar feed link is saved for the authenticated student. The feed URL is never returned because it grants access to calendar data.
