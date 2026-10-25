@@ -96,22 +96,15 @@ export function ClassesList() {
       ) : null}
       {syncError ? <Notice tone="error">{syncError}</Notice> : null}
 
-      {state.status === "ready" && !state.data.connected ? (
+      {state.status === "ready" && (!connected || courses.length === 0) ? (
         <div className={styles.emptyState}>
-          <h2 className={styles.emptyTitle}>Canvas isn’t connected</h2>
+          <h2 className={styles.emptyTitle}>No classes yet</h2>
           <p className={styles.emptyDescription}>
-            Connect Canvas to import and see your current classes here.
+            {connected
+              ? "Sync Canvas to import the courses in your current term."
+              : "Connect Canvas to import and see your current classes here."}
           </p>
           <ButtonLink href="/settings">Connect Canvas</ButtonLink>
-        </div>
-      ) : null}
-
-      {connected && courses.length === 0 ? (
-        <div className={styles.emptyState}>
-          <h2 className={styles.emptyTitle}>No current classes yet</h2>
-          <p className={styles.emptyDescription}>
-            Sync Canvas to import the courses in your current term.
-          </p>
         </div>
       ) : null}
 
