@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Button, ButtonLink, List, ListRow, Notice, PageHeader } from "@/components/ui";
-import { getCourseDetails, getCourseGrade } from "@/lib/course-client";
+import type { FormEvent } from "react";
+import { Button, ButtonLink, Input, List, ListRow, Notice, PageHeader } from "@/components/ui";
+import { getCourseDetails, getCourseGrade, saveManualGrade } from "@/lib/course-client";
 import type { CourseDetailsResponse, CourseGradeResponse } from "@/lib/course-client";
 import { categoryLine, dueText, formatPercent, gradeSummary, scoreText, shareText } from "@/lib/class-page";
 import styles from "./class-page.module.css";
@@ -35,6 +36,10 @@ export function ClassPage({ courseId }: { courseId: string }) {
 
   const reload = useCallback(async () => {
     setState({ status: "loading" });
+    setState(await loadClass(courseId));
+  }, [courseId]);
+
+  const refresh = useCallback(async () => {
     setState(await loadClass(courseId));
   }, [courseId]);
 
@@ -76,10 +81,18 @@ export function ClassPage({ courseId }: { courseId: string }) {
       </div>
     );
   }
-  return <ClassPageView details={state.details} grade={state.grade} />;
+  return <ClassPageView details={state.details} grade={state.grade} onGradeSaved={refresh} />;
 }
 
-export function ClassPageView({ details, grade }: { details: CourseDetailsResponse; grade: GradeState }) {
+export function ClassPageView({
+  details,
+  grade,
+  onGradeSaved,
+}: {
+  details: CourseDetailsResponse;
+  grade: GradeState;
+  onGradeSaved?: () => Promise<void>;
+}) {
   const { course } = details;
   const setupHref = `/weights?course=${encodeURIComponent(course.id)}`;
   const eyebrow = [course.courseCode, course.term].filter(Boolean).join(" · ");
@@ -127,6 +140,16 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
                   title={assignment.title}
                   meta={meta}
                   trailing={scoreText(assignment.grade, assignment.pointsPossible)}
+                  below={
+                    <ManualGradeField
+                      courseId={course.id}
+                      assignmentId={assignment.id}
+                      assignmentTitle={assignment.title}
+                      pointsPossible={assignment.pointsPossible}
+                      score={assignment.grade?.score ?? null}
+                      onSaved={onGradeSaved}
+                    />
+                  }
                 />
               );
             })}
@@ -141,6 +164,74 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
         <ClassDetails details={details.details} setupHref={setupHref} />
       </section>
     </div>
+  );
+}
+
+function ManualGradeField({
+  courseId,
+  assignmentId,
+  assignmentTitle,
+  pointsPossible,
+  score,
+  onSaved,
+}: {
+  courseId: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  pointsPossible: number;
+  score: number | null;
+  onSaved?: () => Promise<void>;
+}) {
+  const [value, setValue] = useState(score === null ? "" : String(score));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const parsedScore = Number(value);
+    if (value.trim() === "" || !Number.isFinite(parsedScore)) {
+      setMessage({ tone: "error", text: "Enter a valid score." });
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+    const result = await saveManualGrade(courseId, assignmentId, parsedScore);
+    setSaving(false);
+    if (!result.ok) {
+      setMessage({ tone: "error", text: result.error });
+      return;
+    }
+    setMessage({ tone: "success", text: "Grade saved." });
+    await onSaved?.();
+  }
+
+  return (
+    <form className={styles.gradeEntry} onSubmit={handleSubmit}>
+      <Input
+        label={`Grade for ${assignmentTitle}`}
+        className={styles.gradeInput}
+        type="number"
+        min="0"
+        max={pointsPossible}
+        step="any"
+        value={value}
+        onChange={(event) => {
+          setValue(event.target.value);
+          setMessage(null);
+        }}
+        disabled={saving}
+        required
+      />
+      <Button className={styles.gradeButton} type="submit" loading={saving}>
+        Save
+      </Button>
+      {message ? (
+        <span className={message.tone === "error" ? styles.gradeError : styles.gradeSuccess} role={message.tone === "error" ? "alert" : "status"}>
+          {message.text}
+        </span>
+      ) : null}
+    </form>
   );
 }
 

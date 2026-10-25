@@ -98,6 +98,38 @@
   letter-spacing: -0.02em;
 }
 
+.gradeEntry {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gradeInput {
+  width: 92px;
+  min-height: 40px;
+}
+
+.gradeButton {
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.gradeError,
+.gradeSuccess {
+  flex-basis: 100%;
+  font-size: 12px;
+  text-align: left;
+}
+
+.gradeError {
+  color: var(--danger);
+}
+
+.gradeSuccess {
+  color: var(--accent);
+}
+
 @media (max-width: 520px) {
   .detailRow {
     grid-template-columns: 1fr;

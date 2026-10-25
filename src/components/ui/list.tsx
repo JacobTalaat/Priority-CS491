@@ -14,10 +14,11 @@ type ListRowProps = {
   title: ReactNode;
   meta?: ReactNode;
   trailing?: ReactNode;
+  below?: ReactNode;
   href?: string;
 };
 
-export function ListRow({ title, meta, trailing, href }: ListRowProps) {
+export function ListRow({ title, meta, trailing, below, href }: ListRowProps) {
   const content = (
     <>
       <span className={styles.text}>
@@ -31,11 +32,17 @@ export function ListRow({ title, meta, trailing, href }: ListRowProps) {
   return (
     <li className={styles.item}>
       {href ? (
-        <Link className={`${styles.row} ${styles.link}`} href={href}>
-          {content}
-        </Link>
+        <>
+          <Link className={`${styles.row} ${styles.link}`} href={href}>
+            {content}
+          </Link>
+          {below ? <div className={styles.below}>{below}</div> : null}
+        </>
       ) : (
-        <div className={styles.row}>{content}</div>
+        <>
+          <div className={styles.row}>{content}</div>
+          {below ? <div className={styles.below}>{below}</div> : null}
+        </>
       )}
     </li>
   );

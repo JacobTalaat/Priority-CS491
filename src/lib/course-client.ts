@@ -56,3 +56,14 @@ export function getCourseGrade(courseId: string) {
     token: getToken(),
   });
 }
+
+export function saveManualGrade(courseId: string, assignmentId: string, score: number) {
+  return apiRequest<{ grade: { score: number; gradedAt: string; isManual: true } }>(
+    `/api/courses/${encodeURIComponent(courseId)}/grades`,
+    {
+      method: "POST",
+      token: getToken(),
+      body: { assignmentId, score },
+    },
+  );
+}
