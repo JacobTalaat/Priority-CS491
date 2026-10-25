@@ -2,17 +2,20 @@
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ApiResult } from "@/lib/api-client";
-import type { ImportedCoursesResponse } from "@/lib/canvas-client";
 
-const { mockGetImportedCourses } = vi.hoisted(() => ({
+const { mockGetImportedCourses, mockGetGradeSetupCourses } = vi.hoisted(() => ({
   mockGetImportedCourses: vi.fn(),
+  mockGetGradeSetupCourses: vi.fn(),
 }));
 
 vi.mock("@/lib/canvas-client", () => ({
   canvasErrorMessage: vi.fn(),
   getImportedCourses: mockGetImportedCourses,
   syncNow: vi.fn(),
+}));
+
+vi.mock("@/lib/grade-setup-client", () => ({
+  getGradeSetupCourses: mockGetGradeSetupCourses,
 }));
 
 vi.mock("@/lib/usage", () => ({
@@ -47,8 +50,41 @@ describe("ClassesList", () => {
     vi.clearAllMocks();
   });
 
+  function setCourseResults(connected: boolean, courseIds: string[], confirmedIds: string[] = []) {
+    mockGetImportedCourses.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        connected,
+        courses: courseIds.map((id) => ({
+          id,
+          name: `Class ${id}`,
+          courseCode: `CS-${id}`,
+          term: "Fall 2026",
+          termEndsAt: null,
+        })),
+      },
+    });
+    mockGetGradeSetupCourses.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        courses: courseIds.map((id) => ({
+          id,
+          name: `Class ${id}`,
+          courseCode: `CS-${id}`,
+          term: "Fall 2026",
+          assignmentGroups: [],
+          assignments: [],
+          gradeSetup: confirmedIds.includes(id) ? { confirmedAt: "2026-10-20T12:00:00.000Z" } : null,
+        })),
+      },
+    });
+  }
+
   it("announces that classes are loading", async () => {
     mockGetImportedCourses.mockReturnValue(new Promise(() => {}));
+    mockGetGradeSetupCourses.mockReturnValue(new Promise(() => {}));
 
     await withMounted(<ClassesList />, async (container) => {
       expect(container.querySelector('[role="status"]')?.textContent).toContain("Loading your classes…");
@@ -56,12 +92,7 @@ describe("ClassesList", () => {
   });
 
   it.each([true, false])("shows the empty state and Canvas link when connected is %s", async (connected) => {
-    const result: ApiResult<ImportedCoursesResponse> = {
-      ok: true,
-      status: 200,
-      data: { connected, courses: [] },
-    };
-    mockGetImportedCourses.mockResolvedValue(result);
+    setCourseResults(connected, []);
 
     await withMounted(<ClassesList />, async (container) => {
       expect(container.textContent).toContain("No classes yet");
@@ -70,6 +101,17 @@ describe("ClassesList", () => {
       expect(container.textContent).toContain(
         connected ? "Sync Canvas to import the courses in your current term." : "Connect Canvas to import",
       );
+    });
+  });
+
+  it("shows setup status and links each class to its own setup", async () => {
+    setCourseResults(true, ["1", "2"], ["1"]);
+
+    await withMounted(<ClassesList />, async (container) => {
+      const classOneLink = container.querySelector('a[href="/weights?course=1"]');
+      const classTwoLink = container.querySelector('a[href="/weights?course=2"]');
+      expect(classOneLink?.textContent).toContain("Confirmed");
+      expect(classTwoLink?.textContent).toContain("Not confirmed");
     });
   });
 });

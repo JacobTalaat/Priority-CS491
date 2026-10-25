@@ -9,22 +9,53 @@ import {
 } from "@/lib/canvas-client";
 import type { ImportedCoursesResponse } from "@/lib/canvas-client";
 import type { ApiResult } from "@/lib/api-client";
+import { getGradeSetupCourses } from "@/lib/grade-setup-client";
 import { logEvent } from "@/lib/usage";
 import styles from "./classes.module.css";
+
+type ClassesData = {
+  connected: boolean;
+  courses: (ImportedCoursesResponse["courses"][number] & { setupConfirmed: boolean })[];
+};
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; data: ImportedCoursesResponse };
+  | { status: "ready"; data: ClassesData };
+
+async function getClassesData(): Promise<ApiResult<ClassesData>> {
+  const [importedResult, setupResult] = await Promise.all([getImportedCourses(), getGradeSetupCourses()]);
+  if (!importedResult.ok) {
+    return { ...importedResult, error: canvasErrorMessage(importedResult) };
+  }
+  if (!setupResult.ok) {
+    return { ...setupResult, error: canvasErrorMessage(setupResult) };
+  }
+
+  const setupByCourseId = new Map(
+    setupResult.data.courses.map((course) => [course.id, Boolean(course.gradeSetup)]),
+  );
+  return {
+    ok: true,
+    status: importedResult.status,
+    data: {
+      connected: importedResult.data.connected,
+      courses: importedResult.data.courses.map((course) => ({
+        ...course,
+        setupConfirmed: setupByCourseId.get(course.id) ?? false,
+      })),
+    },
+  };
+}
 
 function applyCourseResult(
-  result: ApiResult<ImportedCoursesResponse>,
+  result: ApiResult<ClassesData>,
   setState: (state: LoadState) => void,
 ) {
   if (result.ok) {
     setState({ status: "ready", data: result.data });
   } else {
-    setState({ status: "error", message: canvasErrorMessage(result) });
+    setState({ status: "error", message: result.error });
   }
 }
 
@@ -34,13 +65,13 @@ export function ClassesList() {
   const [syncError, setSyncError] = useState<string | null>(null);
 
   const loadCourses = useCallback(async () => {
-    const result = await getImportedCourses();
+    const result = await getClassesData();
     applyCourseResult(result, setState);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    getImportedCourses().then((result) => {
+    getClassesData().then((result) => {
       if (!cancelled) {
         applyCourseResult(result, setState);
       }
@@ -117,7 +148,8 @@ export function ClassesList() {
                 key={course.id}
                 title={course.name}
                 meta={meta || "Imported from Canvas"}
-                href={`/classes/${encodeURIComponent(course.id)}`}
+                trailing={course.setupConfirmed ? "Confirmed" : "Not confirmed"}
+                href={`/weights?course=${encodeURIComponent(course.id)}`}
               />
             );
           })}
