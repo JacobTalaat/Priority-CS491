@@ -93,7 +93,9 @@ export async function serverRankOf(userId: string, assignmentId: string, now: Da
 // transaction ends, so no other action on the same item can run between this
 // transaction's state change and its event.
 export async function lockItem(tx: Tx, userId: string, assignmentId: string): Promise<void> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}), hashtext(${assignmentId}))`;
+  // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void, which the driver
+  // adapter cannot read back as a row, so $queryRaw fails at runtime on every action.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}), hashtext(${assignmentId}))`;
 }
 
 // A retried request with the same idempotency key must return the response the

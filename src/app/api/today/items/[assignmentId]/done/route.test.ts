@@ -4,7 +4,7 @@ const {
   mockSessionFindUnique,
   mockAssignmentFindFirst,
   mockTransaction,
-  mockQueryRaw,
+  mockExecuteRaw,
   mockStateFindUnique,
   mockStateUpsert,
   mockStateDeleteMany,
@@ -15,7 +15,7 @@ const {
   mockSessionFindUnique: vi.fn(),
   mockAssignmentFindFirst: vi.fn(),
   mockTransaction: vi.fn(),
-  mockQueryRaw: vi.fn(),
+  mockExecuteRaw: vi.fn(),
   mockStateFindUnique: vi.fn(),
   mockStateUpsert: vi.fn(),
   mockStateDeleteMany: vi.fn(),
@@ -82,7 +82,7 @@ describe("POST /api/today/items/[assignmentId]/done", () => {
     mockLoadOpenWork.mockReset().mockResolvedValue([{ assignmentId: "assignment-1" }]);
 
     const tx = {
-      $queryRaw: mockQueryRaw,
+      $executeRaw: mockExecuteRaw,
       itemState: {
         findUnique: mockStateFindUnique,
         upsert: mockStateUpsert,
@@ -99,7 +99,7 @@ describe("POST /api/today/items/[assignmentId]/done", () => {
       committed = attempt;
       return result;
     });
-    mockQueryRaw.mockReset().mockImplementation(async (...args: unknown[]) => {
+    mockExecuteRaw.mockReset().mockImplementation(async (...args: unknown[]) => {
       attempt.locks.push(args);
       return [];
     });
@@ -199,7 +199,7 @@ describe("POST /api/today/items/[assignmentId]/done", () => {
     const lock = committed.locks[0] as [TemplateStringsArray, string, string];
     expect(lock[0].join("")).toContain("pg_advisory_xact_lock");
     expect(lock.slice(1)).toEqual(["user-1", "assignment-1"]);
-    expect(mockQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(mockStateUpsert.mock.invocationCallOrder[0]);
+    expect(mockExecuteRaw.mock.invocationCallOrder[0]).toBeLessThan(mockStateUpsert.mock.invocationCallOrder[0]);
   });
 
   it("takes the lock and writes state and event in one transaction", async () => {

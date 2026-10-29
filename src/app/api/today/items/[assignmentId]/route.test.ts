@@ -4,7 +4,7 @@ const {
   mockSessionFindUnique,
   mockAssignmentFindFirst,
   mockTransaction,
-  mockQueryRaw,
+  mockExecuteRaw,
   mockStateFindUnique,
   mockStateUpsert,
   mockStateDeleteMany,
@@ -14,7 +14,7 @@ const {
   mockSessionFindUnique: vi.fn(),
   mockAssignmentFindFirst: vi.fn(),
   mockTransaction: vi.fn(),
-  mockQueryRaw: vi.fn(),
+  mockExecuteRaw: vi.fn(),
   mockStateFindUnique: vi.fn(),
   mockStateUpsert: vi.fn(),
   mockStateDeleteMany: vi.fn(),
@@ -75,7 +75,7 @@ describe("DELETE /api/today/items/[assignmentId] (undo)", () => {
     mockAssignmentFindFirst.mockReset().mockResolvedValue(ASSIGNMENT_ROW);
 
     const tx = {
-      $queryRaw: mockQueryRaw,
+      $executeRaw: mockExecuteRaw,
       itemState: {
         findUnique: mockStateFindUnique,
         upsert: mockStateUpsert,
@@ -92,7 +92,7 @@ describe("DELETE /api/today/items/[assignmentId] (undo)", () => {
       committed = attempt;
       return result;
     });
-    mockQueryRaw.mockReset().mockImplementation(async (...args: unknown[]) => {
+    mockExecuteRaw.mockReset().mockImplementation(async (...args: unknown[]) => {
       attempt.locks.push(args);
       return [];
     });
@@ -212,7 +212,7 @@ describe("DELETE /api/today/items/[assignmentId] (undo)", () => {
     const lock = committed.locks[0] as [TemplateStringsArray, string, string];
     expect(lock[0].join("")).toContain("pg_advisory_xact_lock");
     expect(lock.slice(1)).toEqual(["user-1", "assignment-1"]);
-    expect(mockQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(mockStateDeleteMany.mock.invocationCallOrder[0]);
+    expect(mockExecuteRaw.mock.invocationCallOrder[0]).toBeLessThan(mockStateDeleteMany.mock.invocationCallOrder[0]);
   });
 
   it("leaves no state change when the event insert fails", async () => {

@@ -4,7 +4,7 @@ const {
   mockSessionFindUnique,
   mockAssignmentFindFirst,
   mockTransaction,
-  mockQueryRaw,
+  mockExecuteRaw,
   mockStateFindUnique,
   mockStateUpsert,
   mockStateDeleteMany,
@@ -15,7 +15,7 @@ const {
   mockSessionFindUnique: vi.fn(),
   mockAssignmentFindFirst: vi.fn(),
   mockTransaction: vi.fn(),
-  mockQueryRaw: vi.fn(),
+  mockExecuteRaw: vi.fn(),
   mockStateFindUnique: vi.fn(),
   mockStateUpsert: vi.fn(),
   mockStateDeleteMany: vi.fn(),
@@ -88,7 +88,7 @@ describe("POST /api/today/items/[assignmentId]/skip", () => {
     mockLoadOpenWork.mockReset().mockResolvedValue([{ assignmentId: "assignment-1" }]);
 
     const tx = {
-      $queryRaw: mockQueryRaw,
+      $executeRaw: mockExecuteRaw,
       itemState: {
         findUnique: mockStateFindUnique,
         upsert: mockStateUpsert,
@@ -105,7 +105,7 @@ describe("POST /api/today/items/[assignmentId]/skip", () => {
       committed = attempt;
       return result;
     });
-    mockQueryRaw.mockReset().mockImplementation(async (...args: unknown[]) => {
+    mockExecuteRaw.mockReset().mockImplementation(async (...args: unknown[]) => {
       attempt.locks.push(args);
       return [];
     });
@@ -237,7 +237,7 @@ describe("POST /api/today/items/[assignmentId]/skip", () => {
     await POST(post(), context);
 
     expect(committed.stateReads).toHaveLength(1);
-    expect(mockQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mockExecuteRaw.mock.invocationCallOrder[0]).toBeLessThan(
       mockStateFindUnique.mock.invocationCallOrder[0],
     );
   });
