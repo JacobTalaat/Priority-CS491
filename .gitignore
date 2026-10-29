@@ -55,3 +55,6 @@ CLAUDE.md
 xcuserdata/
 *.xcuserstate
 ios/build/
+
+# Developer-local Xcode config (real keys live here, never committed)
+ios/Config.local.xcconfig
