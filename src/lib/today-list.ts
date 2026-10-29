@@ -35,3 +35,9 @@ export function boundaryTag(boundary: LetterBoundary | null): string | null {
   }
   return boundary.direction === "at-risk" ? `${boundary.letter} at risk` : `${boundary.letter} within reach`;
 }
+
+// Puts an item back where it was, or at the end if the list has since shrunk below that spot.
+export function insertAt<T>(items: readonly T[], item: T, index: number): T[] {
+  const at = Math.max(0, Math.min(index, items.length));
+  return [...items.slice(0, at), item, ...items.slice(at)];
+}
