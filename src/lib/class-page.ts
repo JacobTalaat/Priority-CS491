@@ -1,3 +1,4 @@
+import { describeFinalExamResult, type FinalExamLetterResult, type FinalExamResult } from "./final-exam-solver";
 import type { CategoryBreakdown } from "./grade-engine";
 import type { UnsupportedReason, WeightedGradeResult } from "./weighted-grade";
 
@@ -73,4 +74,47 @@ export function shareText(share: number | null | undefined): string | null {
     return null;
   }
   return `Worth ${formatPercent(share)} of your grade`;
+}
+
+export type FinalExamRow = { letter: string; sentence: string; badge: string };
+
+// One row per letter the solver answered, worded by the solver itself so the page and any
+// other client say exactly the same thing.
+export function finalExamRows(finalExam: FinalExamResult): FinalExamRow[] {
+  if (finalExam.status !== "solved") {
+    return [];
+  }
+  return finalExam.results.map((result) => ({
+    letter: result.letter,
+    sentence: describeFinalExamResult(result, finalExam.otherWorkPending),
+    badge: finalExamBadge(result),
+  }));
+}
+
+function finalExamBadge(result: FinalExamLetterResult): string {
+  switch (result.status) {
+    case "needed":
+      return `Need ${formatPercent(result.percent)}`;
+    case "secured":
+      return "Secured";
+    case "out-of-reach":
+      return "Out of reach";
+    case "unknown":
+      return "Can't tell yet";
+  }
+}
+
+// When an A (or the lowest A the setup has, like A-) can't be reached, say so up front and
+// point at the best letter that still can be, so the news comes with something to aim for.
+export function finalExamOutOfReachNotice(finalExam: FinalExamResult): string | null {
+  if (finalExam.status !== "solved") {
+    return null;
+  }
+  const a = finalExam.results.find((result) => /^A/.test(result.letter));
+  if (!a || a.status !== "out-of-reach") {
+    return null;
+  }
+  const headline = describeFinalExamResult(a, finalExam.otherWorkPending);
+  const reachable = finalExam.results.find((result) => result.status === "needed" || result.status === "secured");
+  return reachable ? `${headline} ${describeFinalExamResult(reachable, finalExam.otherWorkPending)}` : headline;
 }
