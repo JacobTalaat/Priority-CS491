@@ -1365,6 +1365,57 @@ curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
 
 ---
 
+### `POST /api/events`
+
+Records one usage event for the study. Both the website and the iOS app call it. Only the signed-in user's id, the event name, the client, and the time are stored — the body cannot carry any other fields, and event names are short identifiers, never free text.
+
+The website currently sends `app_open` (a signed-in page load), `sync_now` (a successful Canvas sync), and `setup_confirmed` (a saved grade setup). The iOS app sends its own events with `client` set to `app`.
+
+- **Method**: `POST`
+- **Path**: `/api/events`
+
+**Request**
+
+JSON body with exactly:
+
+- `event` (string) — lowercase identifier, letters, digits, and `_`, with optional `.` sections, at most 64 characters, for example `app_open` or `today.mark_done`
+- `client` (string) — `web` or `app`
+
+```bash
+curl -i -X POST http://localhost:3000/api/events \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"event":"app_open","client":"web"}'
+```
+
+**Response**
+
+`201` — the event was stored:
+
+```json
+{
+  "ok": true
+}
+```
+
+`400` — malformed body, an event name that isn't an identifier, an unknown client, or extra fields:
+
+```json
+{
+  "error": "Invalid body"
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
 ### `GET /api/today`
 
 Returns the student's ranked to-do list in one call, so the website and the mobile app show the same order. Only work the student can still act on is listed: graded work, work already handed in, and excused work never appear. Items are grouped by their due calendar day in New York; overdue work from the last 7 New York calendar days is pulled into today's group — it is not simply first, and a bigger item due tonight can rank above it — while work more than 7 calendar days overdue is left out entirely. Within a day, items rank by share of the final grade divided by the estimated hours; work without a due date comes last.
