@@ -1,8 +1,6 @@
-import { createHash, randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-
-export const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+import { verifyAccessToken } from "@/lib/supabase";
 
 function getBearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
@@ -16,53 +14,54 @@ function getBearerToken(request: Request): string | null {
   return token;
 }
 
-export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
-  const token = randomBytes(32).toString("base64url");
-  const tokenHash = createHash("sha256").update(token).digest("hex");
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
-  await prisma.session.create({
-    data: { tokenHash, userId, expiresAt },
-  });
-  return { token, expiresAt };
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
 }
 
-export async function getSessionFromRequest(request: Request) {
+export async function getUserFromRequest(request: Request) {
   const token = getBearerToken(request);
   if (!token) {
     return null;
   }
-  const tokenHash = createHash("sha256").update(token).digest("hex");
-  const session = await prisma.session.findUnique({
-    where: { tokenHash },
-    include: { user: { select: { id: true, email: true } } },
-  });
-  if (!session || session.expiresAt.getTime() <= Date.now()) {
+  const identity = await verifyAccessToken(token);
+  if (!identity) {
     return null;
   }
-  return session;
-}
-
-export async function getUserFromRequest(request: Request) {
-  const session = await getSessionFromRequest(request);
-  return session?.user ?? null;
-}
-
-export async function rotateSession(
-  sessionId: string,
-  userId: string
-): Promise<{ token: string; expiresAt: Date }> {
-  const token = randomBytes(32).toString("base64url");
-  const tokenHash = createHash("sha256").update(token).digest("hex");
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
-  await prisma.$transaction([
-    prisma.session.delete({ where: { id: sessionId } }),
-    prisma.session.create({ data: { tokenHash, userId, expiresAt } }),
-  ]);
-  return { token, expiresAt };
-}
-
-export async function deleteSession(sessionId: string): Promise<void> {
-  await prisma.session.delete({ where: { id: sessionId } });
+  const existing = await prisma.user.findUnique({
+    where: { authUserId: identity.authUserId },
+  });
+  if (existing) {
+    // The token's verified email is what routes see, even when the row's copy
+    // has gone stale (the student changed their email in Supabase).
+    return { id: existing.id, email: identity.email };
+  }
+  try {
+    const created = await prisma.user.create({
+      data: { authUserId: identity.authUserId, email: identity.email },
+    });
+    return { id: created.id, email: created.email };
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+    // Two first logins raced with the same Supabase id: whichever create won,
+    // its row is the one to hand back.
+    const winner = await prisma.user.findUnique({
+      where: { authUserId: identity.authUserId },
+    });
+    if (winner) {
+      return { id: winner.id, email: identity.email };
+    }
+    // The conflict is on the email: another row holds it and no row belongs to
+    // this Supabase account. That leaves the owner of the address unproven — a
+    // signup with someone else's address succeeds until email confirmation is
+    // on — so adopting that row could hand its Canvas token to the wrong
+    // person. Fail closed: the request is unauthorized, and the row stays.
+    console.error(
+      "Refusing to reassign a user row to a Supabase account that does not already own it"
+    );
+    return null;
+  }
 }
 
 export function unauthorized() {

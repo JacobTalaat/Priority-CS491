@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique, mockUserFindUnique, mockUserUpdate } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+const { mockVerifyAccessToken, mockUserFindUnique, mockUserUpdate } = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
   mockUserFindUnique: vi.fn(),
   mockUserUpdate: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
     user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
   },
 }));
@@ -30,12 +33,8 @@ function request(method: string, body?: unknown, withSession = true) {
   });
 }
 
-function sessionRow() {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
-  };
+function authUserRow() {
+  return { id: "user-1", email: "student@example.com" };
 }
 
 function preferencesRow() {
@@ -49,8 +48,11 @@ function preferencesRow() {
 
 describe("/api/notifications/preferences", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockReset().mockResolvedValue(preferencesRow());
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockUserUpdate.mockReset().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
       ...preferencesRow(),
       ...args.data,
@@ -58,6 +60,7 @@ describe("/api/notifications/preferences", () => {
   });
 
   it("returns the authenticated student's saved preferences", async () => {
+    mockUserFindUnique.mockResolvedValueOnce(authUserRow()).mockResolvedValue(preferencesRow());
     const response = await GET(request("GET"));
 
     expect(response.status).toBe(200);

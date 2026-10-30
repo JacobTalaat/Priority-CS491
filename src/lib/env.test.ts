@@ -170,6 +170,72 @@ describe("AI_API_KEY", () => {
   });
 });
 
+describe("Supabase variables", () => {
+  it("throws naming NEXT_PUBLIC_SUPABASE_URL when it is missing", () => {
+    expect(() => readEnv({}).supabaseUrl).toThrow(
+      "Missing required environment variable NEXT_PUBLIC_SUPABASE_URL"
+    );
+  });
+
+  it("throws naming NEXT_PUBLIC_SUPABASE_URL when it is not a URL", () => {
+    expect(() => readEnv({ NEXT_PUBLIC_SUPABASE_URL: "not a url" }).supabaseUrl).toThrow(
+      "NEXT_PUBLIC_SUPABASE_URL must be an https URL"
+    );
+  });
+
+  it("rejects a remote http Supabase URL", () => {
+    expect(() => readEnv({ NEXT_PUBLIC_SUPABASE_URL: "http://abc123.supabase.co" }).supabaseUrl).toThrow(
+      "NEXT_PUBLIC_SUPABASE_URL must be an https URL"
+    );
+  });
+
+  it("accepts a local http Supabase URL for Supabase CLI development", () => {
+    expect(readEnv({ NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321" }).supabaseUrl).toBe(
+      "http://localhost:54321"
+    );
+  });
+
+  it("rejects a Supabase URL with a query string, fragment, or credentials", () => {
+    expect(() =>
+      readEnv({ NEXT_PUBLIC_SUPABASE_URL: "https://abc123.supabase.co/?key=x" }).supabaseUrl
+    ).toThrow("NEXT_PUBLIC_SUPABASE_URL must not include a query string or fragment");
+    expect(() => readEnv({ NEXT_PUBLIC_SUPABASE_URL: "https://abc123.supabase.co/#y" }).supabaseUrl).toThrow(
+      "NEXT_PUBLIC_SUPABASE_URL must not include a query string or fragment"
+    );
+    expect(() => readEnv({ NEXT_PUBLIC_SUPABASE_URL: "https://u:p@abc123.supabase.co" }).supabaseUrl).toThrow(
+      "NEXT_PUBLIC_SUPABASE_URL must not include credentials"
+    );
+  });
+
+  it("strips a trailing slash from the Supabase URL", () => {
+    expect(readEnv({ NEXT_PUBLIC_SUPABASE_URL: "https://abc123.supabase.co/" }).supabaseUrl).toBe(
+      "https://abc123.supabase.co"
+    );
+  });
+
+  it("throws naming the publishable key when it is missing or blank", () => {
+    expect(() => readEnv({}).supabasePublishableKey).toThrow(
+      "Missing required environment variable NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+    expect(() => readEnv({ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "   " }).supabasePublishableKey).toThrow(
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+  });
+
+  it("returns a trimmed publishable key", () => {
+    expect(readEnv({ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: " sb_publishable_x " }).supabasePublishableKey).toBe(
+      "sb_publishable_x"
+    );
+  });
+
+  it("throws naming SUPABASE_SECRET_KEY when it is missing or blank", () => {
+    expect(() => readEnv({}).supabaseSecretKey).toThrow(
+      "Missing required environment variable SUPABASE_SECRET_KEY"
+    );
+    expect(() => readEnv({ SUPABASE_SECRET_KEY: "    " }).supabaseSecretKey).toThrow("SUPABASE_SECRET_KEY");
+  });
+});
+
 describe("AI price and budget variables", () => {
   function setup(): Record<string, string | undefined> {
     return {

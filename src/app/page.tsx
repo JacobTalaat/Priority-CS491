@@ -249,7 +249,7 @@ export default function Home() {
                 </div>
                 <div className={styles.spec}>
                   <span className={styles.microLabel}>Accounts</span>
-                  <span className={styles.specValue}>scrypt passwords, hashed sessions</span>
+                  <span className={styles.specValue}>Supabase Auth, encrypted Canvas tokens</span>
                 </div>
                 <div className={styles.spec}>
                   <span className={styles.microLabel}>Import</span>

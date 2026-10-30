@@ -6,13 +6,15 @@ The base URL for local development is `http://localhost:3000`. Every request and
 
 Dynamic path segments keep the name of their Next.js folder, for example `/api/tasks/[id]`.
 
+Sign up, log in, forgot password, and log out are handled by Supabase Auth in the browser, which issues the access token every protected route expects. There are no sign up, log in, password reset, or refresh routes here. (Requesting a reset link and choosing a new password both happen in the browser through `/forgot-password` and `/reset-password`; Supabase emails the link with `/reset-password` as its redirect target.)
+
 When a route is added, removed, or changed, update this file in the same pull request. `src/app/api/api-doc.test.ts` reads the route files under `src/app/api` and fails when they disagree with this file, so the doc cannot drift silently.
 
 ## Routes
 
 ### `GET /api/health`
 
-Reports whether the app can reach its PostgreSQL database. Clients can use it as a readiness probe before calling any other route.
+Reports whether the app can reach its PostgreSQL database, and whether the Supabase Auth project it talks to still requires email confirmation. Clients can use it as a readiness probe before calling any other route; releases check `emailConfirmationRequired` here (see the README's authentication section).
 
 - **Method**: `GET`
 - **Path**: `/api/health`
@@ -27,11 +29,12 @@ curl http://localhost:3000/api/health
 
 **Response**
 
-`200` — the database answered the query:
+`200` — the database answered the query. `emailConfirmationRequired` — whether the Supabase project enforces confirming the email address at sign up — is `true` when Supabase answers without autoconfirming, `false` when it signs users up without a confirmation email, and `null` when the check could not be made. Release checks expect `true` before real students sign up:
 
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "emailConfirmationRequired": true
 }
 ```
 
@@ -43,165 +46,18 @@ curl http://localhost:3000/api/health
 }
 ```
 
-### `POST /api/auth/signup`
-
-Creates a student account, then creates a session token for that account.
-
-- **Method**: `POST`
-- **Path**: `/api/auth/signup`
-
-**Request**
-
-JSON body with:
-
-- `email` (string)
-- `password` (string, minimum 8 characters)
-
-```bash
-curl -i -X POST http://localhost:3000/api/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{"email":"student@example.com","password":"correct-horse"}'
-```
-
-**Response**
-
-`201` — account and session created:
-
-```json
-{
-  "token": "opaque-bearer-token",
-  "expiresAt": "2026-11-06T18:00:00.000Z",
-  "user": {
-    "id": 1,
-    "email": "student@example.com"
-  }
-}
-```
-
-`400` — malformed body, invalid email, or password shorter than 8 characters:
-
-```json
-{
-  "error": "Invalid body"
-}
-```
-
-`409` — email already registered:
-
-```json
-{
-  "error": "Email already registered"
-}
-```
-
-### `POST /api/auth/login`
-
-Authenticates an existing account and returns a new session token.
-
-- **Method**: `POST`
-- **Path**: `/api/auth/login`
-
-**Request**
-
-JSON body with:
-
-- `email` (string)
-- `password` (string, minimum 8 characters)
-
-```bash
-curl -i -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"student@example.com","password":"correct-horse"}'
-```
-
-**Response**
-
-`200` — credentials valid:
-
-```json
-{
-  "token": "opaque-bearer-token",
-  "expiresAt": "2026-11-06T18:00:00.000Z",
-  "user": {
-    "id": 1,
-    "email": "student@example.com"
-  }
-}
-```
-
-`400` — malformed body, invalid email, or password shorter than 8 characters:
-
-```json
-{
-  "error": "Invalid body"
-}
-```
-
-`401` — email/password pair is not valid:
-
-```json
-{
-  "error": "Invalid email or password"
-}
-```
-
-`429` — too many failed login attempts within the rate limit window. The response includes a `Retry-After` header with the whole seconds remaining:
-
-```json
-{
-  "error": "Too many login attempts"
-}
-```
-
-### `POST /api/auth/refresh`
-
-Rotates the current session: deletes the row for the presented token and creates a fresh session with a new token and expiry.
-
-- **Method**: `POST`
-- **Path**: `/api/auth/refresh`
-
-**Request**
-
-No body. Send an `Authorization` header with the bearer token from sign up, log in, or a previous refresh. The presented token is invalidated by the response.
-
-```bash
-curl -i -X POST http://localhost:3000/api/auth/refresh \
-  -H "Authorization: ******"
-```
-
-**Response**
-
-`200` — session rotated:
-
-```json
-{
-  "token": "new-opaque-bearer-token",
-  "expiresAt": "2026-11-06T18:00:00.000Z",
-  "user": {
-    "id": 1,
-    "email": "student@example.com"
-  }
-}
-```
-
-`401` — token missing, malformed, invalid, or expired:
-
-```json
-{
-  "error": "Unauthorized"
-}
-```
+Note: the confirmation check is read from Supabase's public auth settings endpoint and cached in memory for five minutes, so a freshly flipped dashboard switch can take up to five minutes to show.
 
 ### `GET /api/auth/me`
 
-Returns the currently authenticated user from the bearer token in `Authorization`.
+Returns the currently authenticated user from the Supabase Auth bearer token in `Authorization`. The first request from a new Supabase account also creates the app's own user row for it.
 
 - **Method**: `GET`
 - **Path**: `/api/auth/me`
 
 **Request**
 
-No body. Send an `Authorization` header with the bearer token from sign up or log in.
+No body. Send an `Authorization` header with the access token Supabase Auth issued at sign up or log in.
 
 ```bash
 curl -i http://localhost:3000/api/auth/me \
@@ -210,7 +66,7 @@ curl -i http://localhost:3000/api/auth/me \
 
 **Response**
 
-`200` — token valid and session active:
+`200` — token verified:
 
 ```json
 {
@@ -326,7 +182,7 @@ The `kind` is `syllabus`, `assignment`, or `class-details`. The `source` object 
 
 ### `POST /api/account/delete`
 
-Deletes the currently authenticated account after confirming its password.
+Deletes the currently authenticated account after confirming its password. The password is checked against Supabase Auth, and the Supabase auth user is deleted along with the app's own user row so the email can sign up again.
 
 - **Method**: `POST`
 - **Path**: `/api/account/delete`
@@ -380,6 +236,22 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 ```json
 {
   "error": "Too many password attempts."
+}
+```
+
+`500` — the deletion could not be finished. Either the app's own row could not be removed (nothing was deleted):
+
+```json
+{
+  "error": "Could not delete your account. Try again."
+}
+```
+
+or the row was removed but the Supabase auth account could not be deleted, so the data is gone while the login remains:
+
+```json
+{
+  "error": "Your data was deleted, but your account is still there. Try again."
 }
 ```
 
@@ -688,7 +560,7 @@ Returns the current-term courses imported for the authenticated student. Courses
 
 **Request**
 
-No body. Send an `Authorization` header with the Priority bearer token.
+No body. Send an `Authorization` header with the Supabase access token.
 
 ```bash
 curl -i http://localhost:3000/api/canvas/courses \
@@ -983,7 +855,7 @@ JSON body with:
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
-  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Authorization: Bearer supabase-access-token" \
   -H "Content-Type: application/json" \
   -d '{
     "categories": [
@@ -1048,7 +920,7 @@ No body.
 
 ```bash
 curl -i http://localhost:3000/api/courses/grade-setups \
-  -H "Authorization: Bearer opaque-bearer-token"
+  -H "Authorization: Bearer supabase-access-token"
 ```
 
 **Response**
@@ -1100,7 +972,7 @@ Extracts the text of a syllabus PDF and saves it for one of the student's curren
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/syllabus \
-  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Authorization: Bearer supabase-access-token" \
   -F "file=@/Users/student/Downloads/syllabus.pdf"
 ```
 
@@ -1202,11 +1074,11 @@ Returns one of the student's current courses with its saved class details and it
 
 **Request**
 
-No body. Send an `Authorization` header with the Priority bearer token.
+No body. Send an `Authorization` header with the Supabase access token.
 
 ```bash
 curl -i http://localhost:3000/api/courses/course-id \
-  -H "Authorization: Bearer opaque-bearer-token"
+  -H "Authorization: Bearer supabase-access-token"
 ```
 
 **Response**

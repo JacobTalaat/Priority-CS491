@@ -1,20 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockSessionFindUnique,
+  mockVerifyAccessToken,
+  mockUserFindUnique,
   mockCourseFindFirst,
   mockAssignmentFindMany,
   mockGradeSetupUpsert,
 } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockCourseFindFirst: vi.fn(),
   mockAssignmentFindMany: vi.fn(),
   mockGradeSetupUpsert: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     course: { findFirst: mockCourseFindFirst },
     assignment: { findMany: mockAssignmentFindMany },
     courseGradeSetup: { upsert: mockGradeSetupUpsert },
@@ -46,11 +52,10 @@ function request(body: unknown = SETUP, withSession = true) {
   });
 }
 
-function sessionRow() {
+function authUserRow() {
   return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
+    id: "user-1",
+    email: "student@example.com",
   };
 }
 
@@ -58,7 +63,11 @@ const context = { params: Promise.resolve({ courseId: "course-1" }) };
 
 describe("POST /api/courses/[courseId]/grade-setup", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockCourseFindFirst.mockReset().mockResolvedValue({ id: "course-1" });
     mockAssignmentFindMany.mockReset().mockResolvedValue([{ id: "assignment-1" }]);
     mockGradeSetupUpsert.mockReset().mockResolvedValue({});

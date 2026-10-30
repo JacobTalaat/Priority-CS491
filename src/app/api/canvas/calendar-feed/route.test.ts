@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique, mockFeedStatus, mockSaveFeed, mockClearFeed } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
-  mockFeedStatus: vi.fn(),
-  mockSaveFeed: vi.fn(),
-  mockClearFeed: vi.fn(),
+const { mockVerifyAccessToken, mockUserFindUnique, mockFeedStatus, mockSaveFeed, mockClearFeed } =
+  vi.hoisted(() => ({
+    mockVerifyAccessToken: vi.fn(),
+    mockUserFindUnique: vi.fn(),
+    mockFeedStatus: vi.fn(),
+    mockSaveFeed: vi.fn(),
+    mockClearFeed: vi.fn(),
+  }));
+
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
 }));
 
 vi.mock("@/lib/calendar-feed-credentials", () => ({
@@ -14,7 +20,7 @@ vi.mock("@/lib/calendar-feed-credentials", () => ({
 }));
 
 vi.mock("@/lib/prisma", () => ({
-  prisma: { session: { findUnique: mockSessionFindUnique } },
+  prisma: { user: { findUnique: mockUserFindUnique } },
 }));
 
 import { DELETE, GET, POST } from "./route";
@@ -34,17 +40,20 @@ function request(method: string, body?: unknown, withSession = true) {
   });
 }
 
-function sessionRow() {
+function authUserRow() {
   return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
+    id: "user-1",
+    email: "student@example.com",
   };
 }
 
 describe("/api/canvas/calendar-feed", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockFeedStatus.mockReset().mockResolvedValue({ configured: false });
     mockSaveFeed.mockReset().mockResolvedValue(undefined);
     mockClearFeed.mockReset().mockResolvedValue(undefined);
