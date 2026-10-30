@@ -29,11 +29,22 @@ model User {
   canvasCalendarFeedIv     String?
   canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
+  syncStartedAt     DateTime?
+  notifyTonight      Boolean @default(true)
+  notifyGradePosted  Boolean @default(true)
+  notifyDueTomorrow  Boolean @default(true)
+  nightlyReminderTime String @default("20:00")
   sessions          Session[]
   courses           Course[]
-  usageEvents       UsageEvent[]
+  pushSubscriptions PushSubscription[]
   itemStates        ItemState[]
   itemEvents        ItemEvent[]
+  askLogs           AskLog[]
+  deviceTokens      DeviceToken[]
+  usageEvents       UsageEvent[]
+  gradePostedEvents GradePostedEvent[]
+  syncAttempts      SyncAttempt[]
+  syncFailures      SyncFailure[]
 }
 
 model Session {
@@ -129,6 +140,7 @@ model Assignment {
   course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
   assignmentGroup AssignmentGroup? @relation(fields: [assignmentGroupId], references: [id], onDelete: SetNull)
   grade           Grade?
+  gradePostedEvents GradePostedEvent[]
   states          ItemState[]
   events          ItemEvent[]
 
@@ -147,6 +159,23 @@ model Grade {
   updatedAt    DateTime  @updatedAt
 
   assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  lastSuccessAt DateTime?
+  failureCount  Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model AiSpendMonth {
@@ -172,25 +201,6 @@ model AiUsageDay {
   updatedAt    DateTime @updatedAt
 
   @@id([day, feature, userId])
-}
-
-enum UsageClient {
-  web
-  app
-}
-
-// One row per tester action for the study. Only the user id is stored, never free text.
-model UsageEvent {
-  id        String      @id @default(cuid())
-  userId    String
-  event     String
-  client    UsageClient
-  createdAt DateTime    @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, createdAt])
-  @@index([event, createdAt])
 }
 
 // Per-student state of a to-do item: done until undone, or skipped for one
@@ -247,4 +257,111 @@ model ItemEvent {
 
   @@unique([userId, requestId])
   @@index([userId, createdAt])
+}
+
+model AskLog {
+  id          String   @id @default(cuid())
+  userId      String
+  question    String
+  outcome     String
+  answer      String?
+  found       Boolean
+  sourceCount Int
+  courseId    String?
+  sources     Json?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  deviceId  String
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+}
+
+enum UsageClient {
+  web
+  app
+}
+
+// One row per tester action for the study. Only the user id is stored, never free text.
+model UsageEvent {
+  id        String      @id @default(cuid())
+  userId    String
+  event     String
+  client    UsageClient
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([event, createdAt])
+}
+
+model GradePostedEvent {
+  id           String    @id @default(cuid())
+  userId       String
+  assignmentId String
+  score        Float
+  postedAt     DateTime  @default(now())
+  notifiedAt   DateTime?
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId])
+}
+
+model SyncRun {
+  id             String    @id @default(cuid())
+  day            String    @unique
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  usersTotal     Int
+  usersSucceeded Int
+  usersFailed    Int
+  gradesPosted   Int
+
+  failures SyncFailure[]
+  attempts SyncAttempt[]
+}
+
+model SyncAttempt {
+  id         String    @id @default(cuid())
+  runId      String
+  userId     String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  outcome    String?
+
+  run  SyncRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, userId])
+}
+
+model SyncFailure {
+  id        String   @id @default(cuid())
+  runId     String
+  userId    String
+  kind      String
+  message   String
+  createdAt DateTime @default(now())
+
+  run  SyncRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
 }

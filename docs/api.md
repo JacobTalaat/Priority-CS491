@@ -227,6 +227,105 @@ curl -i http://localhost:3000/api/auth/me \
 }
 ```
 
+### `POST /api/ask`
+
+Answers a question about the student's classes using only the passages Priority retrieves from the student's saved syllabi, Canvas assignments (including their scores), and grade setup class details. For each question, the question and up to 8 retrieved passages from the student's own data are sent to the AI provider. When the AI can support an answer from those passages, each source it cites is built server-side from the matched passage: the source identifies the passage, and the `quote` is an excerpt the AI copied from it, verified to appear in the passage before being returned. A `found: false` response is a best effort: it means the AI could not support an answer from the matched data, not a guarantee that the data lacks it.
+
+Logging: every question that reaches the answering step is stored against the student's account for the team's accuracy study. Each row keeps the question, the outcome (`found`, `not-found`, `failed`, or `cap-reached`), the answer when the outcome is `found`, the exact sources shown to the student for that answer, the course the question was scoped to, and the time. Rows are deleted with the account. Questions that produce a 502 or 503 response are recorded too; validation errors and questions for a course that is not the student's current course are not.
+
+- **Method**: `POST`
+- **Path**: `/api/ask`
+
+**Request**
+
+JSON body with:
+
+- `question` (string, 1–500 characters) — the student's question.
+- `courseId` (string, optional) — when given, only that course's data is searched.
+
+```bash
+curl -i -X POST http://localhost:3000/api/ask \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"When is homework 3 due?","courseId":"course-id"}'
+```
+
+**Response**
+
+`200` — the AI supported an answer from the retrieved passages; every source is one of the passages Priority retrieved and its `quote` is a verified excerpt of that passage, possibly from anywhere inside it:
+
+```json
+{
+  "found": true,
+  "answer": "Homework 3 is due Friday, October 23 at 11:59 PM.",
+  "sources": [
+    {
+      "n": 2,
+      "kind": "assignment",
+      "courseId": "course-id",
+      "courseName": "Data Structures",
+      "source": {
+        "assignmentId": "assignment-id",
+        "title": "Homework 3",
+        "htmlUrl": "https://canvas.example.edu/courses/1/assignments/3"
+      },
+      "quote": "due Fri Oct 23, 2026 11:59 PM"
+    }
+  ]
+}
+```
+
+The `kind` is `syllabus`, `assignment`, or `class-details`. The `source` object for a syllabus is `{ "fileName": "syllabus.pdf", "start": 0, "end": 45 }`, for an assignment `{ "assignmentId": "assignment-id", "title": "Homework 3", "htmlUrl": "https://..." }`, and for class details `{ "fields": ["instructor"] }`. If any cited excerpt had not appeared in its passage, the whole reply is rejected and the request returns `502`.
+
+`200` — the AI could not support an answer from the syllabus and Canvas data Priority retrieved; this is a best effort, not a guarantee the data lacks it:
+
+```json
+{
+  "found": false,
+  "message": "Priority couldn't find that in your syllabus or Canvas data."
+}
+```
+
+`400` — invalid body or a question outside the 1–500 character bound:
+
+```json
+{
+  "error": "Invalid body"
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the given `courseId` is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
+
+`503` — the AI budget cap for this month has been reached:
+
+```json
+{
+  "error": "Priority's AI budget for this month is used up, so it couldn't answer. Try again later."
+}
+```
+
+`502` — any other AI failure, including a retrieved-data read failure, a reply the strict parser rejected, or a cited excerpt that did not appear in its passage:
+
+```json
+{
+  "error": "Priority couldn't answer that right now. Try again."
+}
+```
+
 ### `POST /api/account/delete`
 
 Deletes the currently authenticated account after confirming its password.
@@ -283,6 +382,307 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 ```json
 {
   "error": "Too many password attempts."
+}
+```
+
+### `GET /api/notifications/preferences`
+
+Returns the authenticated student's notification toggles and the nightly reminder time. Times and days are in New York time.
+
+- **Method**: `GET`
+- **Path**: `/api/notifications/preferences`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/notifications/preferences \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the saved preferences. `notifyTonight` controls the "Tonight" nudge, `notifyGradePosted` the "Grade posted" message, and `notifyDueTomorrow` the "Due tomorrow" message. `nightlyReminderTime` is a zero-padded `HH:MM` string used by the nightly reminder job:
+
+```json
+{
+  "notifyTonight": true,
+  "notifyGradePosted": true,
+  "notifyDueTomorrow": true,
+  "nightlyReminderTime": "20:00"
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `PATCH /api/notifications/preferences`
+
+Updates some or all of the notification preferences. Only the fields present in the body are changed; the others are left as they are.
+
+- **Method**: `PATCH`
+- **Path**: `/api/notifications/preferences`
+
+**Request**
+
+JSON body with any subset of:
+
+- `notifyTonight` (boolean) — whether the student gets the "Tonight" nudge
+- `notifyGradePosted` (boolean) — whether the student gets the "Grade posted" message
+- `notifyDueTomorrow` (boolean) — whether the student gets the "Due tomorrow" message
+- `nightlyReminderTime` (string) — `HH:MM` between `00:00` and `23:59`, New York time
+
+```bash
+curl -i -X PATCH http://localhost:3000/api/notifications/preferences \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"notifyTonight":false,"nightlyReminderTime":"21:30"}'
+```
+
+**Response**
+
+`200` — the preferences after the update, same shape as `GET`:
+
+```json
+{
+  "notifyTonight": false,
+  "notifyGradePosted": true,
+  "notifyDueTomorrow": true,
+  "nightlyReminderTime": "21:30"
+}
+```
+
+`400` — an unknown field, a non-boolean toggle, or an invalid `nightlyReminderTime` (wrong format or outside `00:00`–`23:59`):
+
+```json
+{
+  "error": "Send notifyTonight, notifyGradePosted and notifyDueTomorrow as true or false, and nightlyReminderTime as HH:MM from 00:00 to 23:59."
+}
+```
+
+`400` — the body is not valid JSON or not an object:
+
+```json
+{
+  "error": "Invalid JSON body."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `GET /api/push/public-key`
+
+Returns the server's VAPID public key, for the browser to subscribe against (the website fetches this in Settings instead of baking the key into the bundle).
+
+- **Method**: `GET`
+- **Path**: `/api/push/public-key`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token — every route the app serves needs a session unless it is deliberately public.
+
+```bash
+curl -i http://localhost:3000/api/push/public-key \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — signing key material the browser needs for `PushManager.subscribe`'s `applicationServerKey`:
+
+```json
+{
+  "publicKey": "BEl62iLg1Lt1uQ2bQMBM81DiZHt8_XdJNXt6FJH4zI2g..."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `POST /api/push/subscriptions`
+
+Saves the browser's web push subscription for the authenticated student. Repeating the request updates the saved subscription for that endpoint. When the endpoint belongs to another account, it is moved to the caller only if `p256dh` and `auth` are unchanged — those keys prove it is literally the same browser subscription; otherwise the request is refused so nobody can silently disown another student's device. The endpoint must point at one of Priority's supported push services (Google, Mozilla, Apple, Windows). Each user keeps at most ten subscriptions; the one least recently delivered is dropped, never the row just saved.
+
+- **Method**: `POST`
+- **Path**: `/api/push/subscriptions`
+
+**Request**
+
+JSON body with the subscription the browser made (the whole body must be under 4 KB):
+
+- `endpoint` (string) — the push service URL, `https` only, no port other than 443, no embedded credentials, at most 1000 characters
+- `keys.p256dh` (string) — base64url uncompressed P-256 public key (65 bytes starting with `0x04`), checked as a real curve point
+- `keys.auth` (string) — base64url auth secret, exactly 16 bytes
+
+```bash
+curl -i -X POST http://localhost:3000/api/push/subscriptions \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/abc","keys":{"p256dh":"BPk_1...","auth":"aB_1..."}}'
+```
+
+**Response**
+
+`200` — the subscription is saved:
+
+```json
+{
+  "subscribed": true
+}
+```
+
+`400` — the body is not valid JSON, not an object, over 4 KB, the endpoint is missing or not an `https` URL, it is over 1000 characters, a key is missing or malformed, or the endpoint does not point at a supported push service:
+
+```json
+{
+  "error": "Send endpoint as the https push service URL your browser gave you (at most 1000 characters), keys.p256dh as its uncompressed P-256 public key, and keys.auth as its 16-byte secret."
+}
+```
+
+`400` — the endpoint is fine `https` but names another host:
+
+```json
+{
+  "error": "Only Priority's supported push services (Google, Mozilla, Apple or Windows) can be used."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`409` — the endpoint currently belongs to another account and its stored keys differ from the request's, so it cannot be taken over:
+
+```json
+{
+  "error": "This browser subscription belongs to another account. Turn notifications off there first."
+}
+```
+
+### `DELETE /api/push/subscriptions`
+
+Removes the authenticated student's own subscription for an endpoint. Endpoints that belong to another account are never touched.
+
+- **Method**: `DELETE`
+- **Path**: `/api/push/subscriptions`
+
+**Request**
+
+JSON body with:
+
+- `endpoint` (string) — the push service URL of the subscription to remove
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/push/subscriptions \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/abc"}'
+```
+
+**Response**
+
+`200` — whether a saved subscription of the caller's was removed:
+
+```json
+{
+  "removed": true
+}
+```
+
+`200` — nothing was removed (the endpoint is unknown or belongs to another account):
+
+```json
+{
+  "removed": false
+}
+```
+
+`400` — the body is not valid JSON, not an object, or `endpoint` is missing:
+
+```json
+{
+  "error": "Send endpoint as the subscription to remove."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `POST /api/push/test`
+
+Sends one fixed test message ({ "title": "Priority", "body": "Notifications are on.", "url": "/today" }) to each of the caller's saved subscriptions and reports the counts. `removed` counts subscriptions deleted because the push service answered 404 or 410 — the only statuses that say the browser subscription is gone; everything else (transport errors, timeouts, rate limits, server errors) is counted under `failed` and the subscription stays. The limit of three calls per user per 10 minutes is counted per server instance (in memory), so it resets on deploy/restart; `Retry-After` carries the seconds remaining.
+
+- **Method**: `POST`
+- **Path**: `/api/push/test`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i -X POST http://localhost:3000/api/push/test \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the sends went out; `sent` counts deliveries the push service accepted, `failed` the ones it rejected or that errored, and `removed` the subscriptions deleted because the push service said they no longer exist:
+
+```json
+{
+  "sent": 2,
+  "failed": 0,
+  "removed": 0
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the caller has no saved subscriptions yet:
+
+```json
+{
+  "error": "No saved browser subscription. Turn notifications on first."
+}
+```
+
+`429` — more than three test sends in 10 minutes; `Retry-After` carries the seconds remaining:
+
+```json
+{
+  "error": "Too many test notifications. Try again later."
 }
 ```
 
@@ -702,7 +1102,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 **Response**
 
-`200` — the import completed; every count is the number of records written for that stage:
+`200` — the import completed; every count is the number of records written for that stage, and `gradesPosted` is the number of newly Canvas-posted grades detected during this sync (scores that went from absent to a number, recorded once per assignment in `GradePostedEvent`):
 
 ```json
 {
@@ -710,7 +1110,8 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
   "courses": 4,
   "assignmentGroups": 7,
   "assignments": 62,
-  "grades": 58
+  "grades": 58,
+  "gradesPosted": 3
 }
 ```
 
@@ -727,6 +1128,14 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 ```json
 {
   "error": "Canvas not connected"
+}
+```
+
+`409` — a sync (this one or the daily job) is already running for the account. The sync lock is held for the length of one sync:
+
+```json
+{
+  "error": "A sync is already running for your account. Try again in a minute."
 }
 ```
 
@@ -1074,9 +1483,10 @@ Returns the overall grade for one of the student's current courses and, when the
 
 When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
 
-- `extra-credit` — a score above the points possible, or points on an assignment with no points possible, so the total could exceed 100%.
 - `negative-score` — a stored grade below zero.
 - `non-finite-result` — the arithmetic produced a number that is not usable.
+
+Extra credit is not a stop condition: a score above the assignment's points possible counts as-is, and a positive score on an assignment with no points possible is pure bonus, so a calculated `percentage` can exceed 100 for the course and in `breakdown`. A category whose only graded work is bonus points has no points possible to divide by, so its `breakdown.percentage` stays `null` while `pointsEarned` shows the bonus.
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
@@ -1193,6 +1603,47 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
 }
 ```
 
+`200` — extra credit is counted as Canvas counts it, so a grade can land above 100. The exam scored 110 of 100 and counts as-is; a positive score on an assignment with no points possible would instead be pure bonus, adding to the earned totals without touching the possible ones:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "calculated", "percentage": 102 },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": 90,
+      "pointsEarned": 45,
+      "pointsPossible": 50,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    },
+    {
+      "category": "Exams",
+      "weight": 60,
+      "percentage": 110,
+      "pointsEarned": 110,
+      "pointsPossible": 100,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    }
+  ],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
+  ]
+}
+```
+
 `200` — a grading rule the engine cannot express, with the reason carried through:
 
 ```json
@@ -1205,7 +1656,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
-  "grade": { "status": "unsupported", "reason": "extra-credit" },
+  "grade": { "status": "unsupported", "reason": "negative-score" },
   "breakdown": [],
   "finalExam": { "status": "no-final" },
   "shares": [
@@ -1360,6 +1811,177 @@ curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
 ```json
 {
   "error": "Priority couldn't turn this assignment into steps right now. Try again in a little while."
+}
+```
+
+### `GET /api/jobs/daily-sync`
+
+Runs one tick of the daily Canvas sync job. Every call counts: the job is a resumable tick rather than one long run, so a scheduler should call this every 15 minutes until the response reports `finished: true`. The tick syncs connected users (a stored Canvas token or a saved calendar feed) who have not been attempted yet in the current America/New_York calendar day, one at a time, and stops starting new users once 40 seconds of the tick are spent; every user it did start is awaited to completion. The per-day `SyncRun` is created by the first tick and later ticks add to its counters; the tick that finds nobody left sets `finishedAt`.
+
+Before each user is synced, the tick tries to take that account's sync lock. A student mid "Sync now" is recorded as `skipped-locked` for the day and never retried today, without counting as a failure. An attempt that stayed unfinished for more than 5 minutes (its process was killed) is reaped by the next tick as a timeout failure. Failures are recorded in `SyncFailure` with a fixed message per kind (`unauthorized`, `network`, `http`, `timeout`, `other`) that never contains raw error text, and each failed user also logs one fixed console line.
+
+This route is protected by a shared secret rather than an app session so any scheduler can call it. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for three ways to schedule the call (Vercel Cron, a crontab line with curl, or a GitHub Actions schedule).
+
+- **Method**: `GET`
+- **Path**: `/api/jobs/daily-sync`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i http://localhost:3000/api/jobs/daily-sync \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran. `attemptedThisTick` is how many users were attempted now, `remaining` how many connected users are still owed a sync today, and the counters are the day's totals across ticks:
+
+```json
+{
+  "day": "2026-10-22",
+  "attemptedThisTick": 2,
+  "remaining": 1,
+  "usersSucceeded": 2,
+  "usersFailed": 1,
+  "gradesPosted": 4,
+  "finished": false
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Daily sync failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+### `POST /api/jobs/daily-sync`
+
+Runs the same tick of the daily Canvas sync job as `GET /api/jobs/daily-sync`, for curl-style schedulers. Same shared secret, same response.
+
+To check the job keeps the list current (acceptance: "checked two days in a row"): on two consecutive days, call the tick repeatedly (every 15 minutes) until `finished: true`, or open the `GET /api/jobs/daily-sync/runs` route afterwards — one `SyncRun` row per day means the job ran on both days, and that check needs no database access.
+
+- **Method**: `POST`
+- **Path**: `/api/jobs/daily-sync`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i -X POST http://localhost:3000/api/jobs/daily-sync \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran:
+
+```json
+{
+  "day": "2026-10-22",
+  "attemptedThisTick": 2,
+  "remaining": 1,
+  "usersSucceeded": 2,
+  "usersFailed": 1,
+  "gradesPosted": 4,
+  "finished": false
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Daily sync failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+### `GET /api/jobs/daily-sync/runs`
+
+Returns the last 7 daily-sync runs (one per America/New_York day) with their day totals, so anyone can check that the job ran — for example on two consecutive days — without database access. Same shared secret as the tick routes.
+
+- **Method**: `GET`
+- **Path**: `/api/jobs/daily-sync/runs`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i http://localhost:3000/api/jobs/daily-sync/runs \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the most recent runs, newest first (up to 7):
+
+```json
+{
+  "runs": [
+    {
+      "runId": "run-id",
+      "day": "2026-10-22",
+      "startedAt": "2026-10-22T04:00:00.000Z",
+      "finishedAt": "2026-10-22T04:03:00.000Z",
+      "usersTotal": 3,
+      "usersSucceeded": 3,
+      "usersFailed": 0,
+      "gradesPosted": 4
+    }
+  ]
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -1687,6 +2309,130 @@ curl -i http://localhost:3000/api/today/items/assignment-id-1 \
 ```json
 {
   "error": "Assignment not found."
+}
+```
+
+---
+
+### `POST /api/devices`
+
+Registers the device token for one of the student's devices, so push notifications reach it. Each device keeps its own row: the body carries a `deviceId` (the app's stable identifier), and re-registering from the same device replaces that device's token. Students are allowed multiple devices — registering an iPhone does not retire an iPad.
+
+A student's devices are capped at 10. Registering an extra device past the cap removes the row with the oldest update, so a device that has not re-registered for the longest time stops receiving pushes first.
+
+A token registered by another account moves to the caller: registering a token removes it from any other row it is still tied to, including rows owned by a different student, before it is saved here. This risks breaking another app that expected its token to still report to the first account, and it is accepted on purpose: the token is an opaque per-device push address, and this app never exposes token values through any route, so a caller can only ever silence its own device.
+
+Concurrent registrations from the same device converge on the same row; if the database reports a write conflict or unique violation from a concurrent request, the registration is retried whole, and after three failed attempts it returns `503`.
+
+- **Method**: `POST`
+- **Path**: `/api/devices`
+
+**Request**
+
+JSON body with:
+
+- `token` (string) — the APNs device token, a hex string with an even number of characters, from 32 to 400 characters (case-insensitive; Apple does not fix the length in advance). It is stored lowercased.
+- `platform` (string) — only `"ios"` is accepted today.
+- `deviceId` (string) — a UUID identifying the device install (on iOS, `identifierForVendor`), case-insensitive. Stored lowercased.
+
+```bash
+curl -i -X POST http://localhost:3000/api/devices \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"9f4b1c3d2e5a60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0","platform":"ios","deviceId":"123e4567-e89b-12d3-a456-426614174000"}'
+```
+
+**Response**
+
+`200` — the token was registered for the device:
+
+```json
+{
+  "registered": true
+}
+```
+
+`400` — the body is not JSON, or a field did not validate; each error is a plain sentence naming what was wrong:
+
+```json
+{
+  "error": "Device token must be a hex string of 32 to 400 characters."
+}
+```
+
+```json
+{
+  "error": "Only the ios platform is supported."
+}
+```
+
+```json
+{
+  "error": "deviceId must be a UUID."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`503` — the registration kept losing to a concurrent registration and ran out of retries:
+
+```json
+{
+  "error": "Couldn't register this device right now. Try again."
+}
+```
+
+---
+
+### `DELETE /api/devices`
+
+Forgets a device token, used when the student logs out. The token is validated the same way POST validates it, trimmed, and matched lowercased. A token is removed only when it belongs to the student calling the route; if it is registered to nobody, or to another account, the response is the same, so no information about other accounts leaks.
+
+- **Method**: `DELETE`
+- **Path**: `/api/devices`
+
+**Request**
+
+JSON body with:
+
+- `token` (string) — the device token to forget.
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/devices \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"9f4b1c3d2e5a60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0"}'
+```
+
+**Response**
+
+`200` — whether a token owned by the student was removed:
+
+```json
+{
+  "removed": true
+}
+```
+
+`400` — the body is not JSON, or the token did not validate:
+
+```json
+{
+  "error": "Device token must be a hex string of 32 to 400 characters."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
 }
 ```
 
