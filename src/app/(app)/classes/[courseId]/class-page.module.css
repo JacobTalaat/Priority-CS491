@@ -1,0 +1,106 @@
+.page {
+  display: grid;
+  gap: 8px;
+}
+
+.back {
+  justify-self: start;
+  margin-bottom: 16px;
+  color: var(--secondary);
+  font-size: 14px;
+  transition: color 160ms ease;
+}
+
+.back:hover {
+  color: var(--accent);
+}
+
+.section {
+  display: grid;
+  max-width: 760px;
+  gap: 16px;
+  margin-bottom: 40px;
+}
+
+.sectionTitle {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.subTitle {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.inlineLink {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.gradeBlock {
+  display: grid;
+  gap: 6px;
+}
+
+.grade {
+  font-size: clamp(36px, 6vw, 48px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.details {
+  border-top: 1px solid var(--divider);
+}
+
+.detailRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) 1fr;
+  gap: 16px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.detailLabel {
+  color: var(--secondary);
+  font-size: 14px;
+}
+
+.detailValue,
+.detailMissing {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  /* Late policies and contact lists keep the line breaks they were typed with. */
+  white-space: pre-line;
+}
+
+.detailMissing {
+  color: var(--muted);
+}
+
+.emptyState {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+.emptyTitle {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 520px) {
+  .detailRow {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

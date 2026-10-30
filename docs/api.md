@@ -1666,4 +1666,55 @@ curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
 
 ---
 
+### `POST /api/events`
+
+Records one usage event for the study. Both the website and the iOS app call it. Only the signed-in user's id, the event name, the client, and the time are stored — the body cannot carry any other fields, and event names are short identifiers, never free text.
+
+The website currently sends `app_open` (a signed-in page load), `sync_now` (a successful Canvas sync), and `setup_confirmed` (a saved grade setup). The iOS app sends its own events with `client` set to `app`.
+
+- **Method**: `POST`
+- **Path**: `/api/events`
+
+**Request**
+
+JSON body with exactly:
+
+- `event` (string) — lowercase identifier, letters, digits, and `_`, with optional `.` sections, at most 64 characters, for example `app_open` or `today.mark_done`
+- `client` (string) — `web` or `app`
+
+```bash
+curl -i -X POST http://localhost:3000/api/events \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"event":"app_open","client":"web"}'
+```
+
+**Response**
+
+`201` — the event was stored:
+
+```json
+{
+  "ok": true
+}
+```
+
+`400` — malformed body, an event name that isn't an identifier, an unknown client, or extra fields:
+
+```json
+{
+  "error": "Invalid body"
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
 When you add a route, copy the section above and fill in the new route: keep the section heading in the same `METHOD /path` backticked form, and give it a **Method** line, a **Path** line, a **Request** part, and a **Response** part with a JSON example for every status code it returns.
