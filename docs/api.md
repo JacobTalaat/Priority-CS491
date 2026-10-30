@@ -1047,7 +1047,7 @@ Saves the student's own grade for one assignment of a current course. If a grade
 JSON body with:
 
 - `assignmentId` (string) — an assignment belonging to this course
-- `score` (number) — the score the student earned. It runs from 0 up to the assignment's points possible, and an assignment worth zero points accepts only a score of 0.
+- `score` (number) — the score the student earned. It cannot be negative, but it may sit above the assignment's points possible, and a positive score on an assignment worth zero points is accepted too; either counts as extra credit, the way Canvas grades it.
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/grades \
@@ -1074,11 +1074,11 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grades \
 }
 ```
 
-`400` — the body was not valid JSON, the assignment was not named, or the score was missing, not a number, below zero, above the assignment's points possible, or positive on an assignment worth zero points:
+`400` — the body was not valid JSON, the assignment was not named, or the score was missing, not a number, or below zero:
 
 ```json
 {
-  "error": "This assignment is worth no points, so a score can't be recorded for it."
+  "error": "Enter a score as a number."
 }
 ```
 
@@ -1110,7 +1110,7 @@ Changes the score of a grade the student saved by hand. It refuses to touch a gr
 JSON body with:
 
 - `assignmentId` (string) — an assignment belonging to this course that has a manually entered grade
-- `score` (number) — the corrected score. It runs from 0 up to the assignment's points possible, and an assignment worth zero points accepts only a score of 0.
+- `score` (number) — the corrected score. It cannot be negative, but it may sit above the assignment's points possible, and a positive score on an assignment worth zero points is accepted too; either counts as extra credit, the way Canvas grades it.
 
 ```bash
 curl -i -X PATCH http://localhost:3000/api/courses/course-id/grades \

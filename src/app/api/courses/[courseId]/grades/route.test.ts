@@ -171,18 +171,23 @@ describe("manual grades route", () => {
     expect(body).toEqual({ deleted: true });
   });
 
-  it("refuses a positive score on a zero-point assignment, matching the engine, but keeps zero", async () => {
-    mockAssignmentFindFirst.mockResolvedValue({ id: "assignment-1", pointsPossible: 0 });
-    const positive = await POST(jsonRequest("POST", { ...ASSIGNMENT, score: 5 }), context);
-    expect(positive.status).toBe(400);
-    await expect(positive.json()).resolves.toEqual({
-      error: "This assignment is worth no points, so a score can't be recorded for it.",
-    });
-    expect(mockGradeUpsert).not.toHaveBeenCalled();
+  it("saves a score above points possible as extra credit, like the engine does", async () => {
+    const response = await POST(jsonRequest("POST", { ...ASSIGNMENT, score: 25 }), context);
+    expect(response.status).toBe(200);
+    expect(mockGradeUpsert.mock.calls[0][0].create.score).toBe(25);
+  });
 
-    const zero = await POST(jsonRequest("POST", { ...ASSIGNMENT, score: 0 }), context);
-    expect(zero.status).toBe(200);
-    expect(mockGradeUpsert.mock.calls[0][0].create.score).toBe(0);
+  it("changes a score above points possible when editing, like the engine does", async () => {
+    const response = await PATCH(jsonRequest("PATCH", { ...ASSIGNMENT, score: 25 }), context);
+    expect(response.status).toBe(200);
+    expect(mockGradeUpdate.mock.calls[0][0].data.score).toBe(25);
+  });
+
+  it("saves a positive score on a zero-point assignment as bonus, like the engine does", async () => {
+    mockAssignmentFindFirst.mockResolvedValue({ id: "assignment-1", pointsPossible: 0 });
+    const response = await POST(jsonRequest("POST", { ...ASSIGNMENT, score: 5 }), context);
+    expect(response.status).toBe(200);
+    expect(mockGradeUpsert.mock.calls[0][0].create.score).toBe(5);
   });
 
   it("rejects invalid JSON without touching a grade", async () => {
@@ -197,12 +202,11 @@ describe("manual grades route", () => {
     expect(mockGradeUpsert).not.toHaveBeenCalled();
   });
 
-  it("rejects a missing, textual, negative, or oversized score in plain language", async () => {
+  it("rejects a missing, textual, or negative score in plain language", async () => {
     const cases: [unknown, string][] = [
       [{ assignmentId: "assignment-1" }, "Enter a score as a number."],
       [{ assignmentId: "assignment-1", score: "18" }, "Enter a score as a number."],
       [{ assignmentId: "assignment-1", score: -1 }, "A score can't be below zero."],
-      [{ assignmentId: "assignment-1", score: 21 }, "Enter a score of at most 20 points."],
     ];
     for (const [body, expectedError] of cases) {
       const response = await POST(jsonRequest("POST", body), context);
@@ -210,15 +214,6 @@ describe("manual grades route", () => {
       await expect(response.json()).resolves.toEqual({ error: expectedError });
     }
     expect(mockGradeUpsert).not.toHaveBeenCalled();
-  });
-
-  it("rejects an oversized score when editing too", async () => {
-    const response = await PATCH(jsonRequest("PATCH", { ...ASSIGNMENT, score: 21 }), context);
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
-      error: "Enter a score of at most 20 points.",
-    });
-    expect(mockGradeUpdate).not.toHaveBeenCalled();
   });
 
   it("never writes a grade onto another student's or a non-current course", async () => {

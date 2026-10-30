@@ -35,18 +35,6 @@ function parseManualGradeBody(
   return { ok: true, data: { assignmentId: body.assignmentId, score: body.score } };
 }
 
-// the engine rejects a positive score on a zero-point assignment as extra credit,
-// so the route rejects it first and the student learns why before anything is stored
-function scoreAgainstPointsError(score: number, pointsPossible: number): string | null {
-  if (pointsPossible === 0 && score > 0) {
-    return "This assignment is worth no points, so a score can't be recorded for it.";
-  }
-  if (pointsPossible > 0 && score > pointsPossible) {
-    return `Enter a score of at most ${pointsPossible} points.`;
-  }
-  return null;
-}
-
 type ResolvedAssignment =
   | { ok: true; assignment: { id: string; pointsPossible: number } }
   | { ok: false; response: NextResponse };
@@ -136,10 +124,6 @@ export async function POST(request: Request, context: RouteContext) {
   if (!resolved.ok) {
     return resolved.response;
   }
-  const ceiling = scoreAgainstPointsError(input.score, resolved.assignment.pointsPossible);
-  if (ceiling) {
-    return NextResponse.json({ error: ceiling }, { status: 400 });
-  }
 
   const gradedAt = new Date();
   const grade = await prisma.grade.upsert({
@@ -165,10 +149,6 @@ export async function PATCH(request: Request, context: RouteContext) {
   const resolved = await resolveAssignment(user.id, courseId, input.assignmentId);
   if (!resolved.ok) {
     return resolved.response;
-  }
-  const ceiling = scoreAgainstPointsError(input.score, resolved.assignment.pointsPossible);
-  if (ceiling) {
-    return NextResponse.json({ error: ceiling }, { status: 400 });
   }
   const refused = await existingManualGrade(resolved.assignment.id);
   if (refused) {
