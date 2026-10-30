@@ -15,7 +15,7 @@ function makeSetup(
   categories: GradeSetupPayload["categories"],
   assignmentMappings: GradeSetupPayload["assignmentMappings"],
 ): GradeSetupPayload {
-  return { categories, assignmentMappings, finalExamWeight: 0, cutoffs: {}, classDetails: {} };
+  return { categories, assignmentMappings, finalExamWeight: 0, cutoffs: {}, classDetails: {}, unsupportedRules: [] };
 }
 
 function makeAssignment(id: string, pointsPossible: number, score: number | null = null): GradeAssignment {

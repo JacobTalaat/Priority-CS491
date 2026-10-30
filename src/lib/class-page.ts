@@ -18,6 +18,7 @@ export function formatPercent(value: number): string {
 }
 
 const UNSUPPORTED_REASONS: Record<UnsupportedReason, string> = {
+  "unsupported-rule": "This class has a grading rule (like a dropped score, curve, or late penalty) that Priority can't grade yet.",
   "negative-score": "A grade below zero is stored for this class.",
   "non-finite-result": "The grade math didn't produce a usable number.",
 };

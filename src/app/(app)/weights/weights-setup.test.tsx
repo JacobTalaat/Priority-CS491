@@ -165,6 +165,7 @@ const confirmedCourse: GradeSetupCourse = {
       finalExamAssignmentId: "a2",
     },
     confirmedAt: "2026-10-20T16:00:00.000Z",
+    unsupportedRules: [],
   },
 };
 

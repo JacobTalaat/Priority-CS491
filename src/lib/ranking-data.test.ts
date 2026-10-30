@@ -342,6 +342,34 @@ describe("loadOpenWork", () => {
     expect(ranked[0]).toMatchObject({ assignmentId: "hw-1", boundary: null });
   });
 
+  it("gives no flags to a points course with unsupported rules", async () => {
+    mockCourseFindMany.mockResolvedValue([
+      {
+        id: "course-1",
+        name: "Algorithms",
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 0 }],
+          assignmentMappings: [],
+          finalExamWeight: 0,
+          cutoffs: { A: 90, F: 0 },
+          classDetails: {},
+          unsupportedRules: ["Lowest quiz dropped"],
+        },
+        assignments: [
+          assignment("hw-1", { title: "Problem set" }),
+          assignment("hw-2", { title: "Quiz", grade: { score: 45 } }),
+        ],
+      },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    // The points engine grades 45/50 = 90%, right at the A cutoff, but the
+    // rule the syllabus states makes the grade unsupported, so no flag.
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]).toMatchObject({ assignmentId: "hw-1", share: 50, boundary: null });
+  });
+
   it("adds flags after ranking, leaving the order and scores identical", async () => {
     mockCourseFindMany.mockResolvedValue([
       {

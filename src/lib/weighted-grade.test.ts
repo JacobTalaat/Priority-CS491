@@ -6,8 +6,9 @@ function makeSetup(
   categories: GradeSetupPayload["categories"],
   assignmentMappings: GradeSetupPayload["assignmentMappings"],
   finalExamWeight = 0,
+  unsupportedRules: string[] = [],
 ): GradeSetupPayload {
-  return { categories, assignmentMappings, finalExamWeight, cutoffs: {}, classDetails: {} };
+  return { categories, assignmentMappings, finalExamWeight, cutoffs: {}, classDetails: {}, unsupportedRules };
 }
 
 function makeAssignment(id: string, pointsPossible: number, score: number | null = null): GradeAssignment {
@@ -185,6 +186,90 @@ describe("calculateWeightedGrade", () => {
     });
   });
 
+  it("refuses with unsupported-rule for a saved drop rule instead of computing a grade", () => {
+    const setup = makeSetup(
+      [{ name: "Homework", weight: 100 }],
+      [{ assignmentId: "homework", category: "Homework" }],
+      0,
+      ["drop the lowest score"],
+    );
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("homework", 10, 10)])).toEqual({
+      status: "unsupported",
+      reason: "unsupported-rule",
+    });
+  });
+
+  it("refuses with unsupported-rule for a curve rule", () => {
+    const setup = makeSetup(
+      [{ name: "Exams", weight: 100 }],
+      [{ assignmentId: "exam", category: "Exams" }],
+      0,
+      ["scaled to the class average"],
+    );
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("exam", 100, 72)])).toEqual({
+      status: "unsupported",
+      reason: "unsupported-rule",
+    });
+  });
+
+  it("refuses with unsupported-rule for extra credit stated as a rule", () => {
+    const setup = makeSetup(
+      [{ name: "Homework", weight: 100 }],
+      [{ assignmentId: "homework", category: "Homework" }],
+      0,
+      ["bonus points may be offered"],
+    );
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("homework", 10, 9)])).toEqual({
+      status: "unsupported",
+      reason: "unsupported-rule",
+    });
+  });
+
+  it("refuses with unsupported-rule for a late penalty rule", () => {
+    const setup = makeSetup(
+      [{ name: "Homework", weight: 100 }],
+      [{ assignmentId: "homework", category: "Homework" }],
+      0,
+      ["10% per day late"],
+    );
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("homework", 10, 10)])).toEqual({
+      status: "unsupported",
+      reason: "unsupported-rule",
+    });
+  });
+
+  it("refuses with unsupported-rule even for a rule it does not recognise", () => {
+    const setup = makeSetup(
+      [{ name: "Homework", weight: 100 }],
+      [{ assignmentId: "homework", category: "Homework" }],
+      0,
+      ["grades are reweighted by mood at the end of term"],
+    );
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("homework", 10, 10)])).toEqual({
+      status: "unsupported",
+      reason: "unsupported-rule",
+    });
+  });
+
+  it("computes the same number as before when no unsupported rules are saved", () => {
+    const setup = makeSetup(
+      [{ name: "Homework", weight: 40 }, { name: "Exams", weight: 40 }],
+      [{ assignmentId: "homework", category: "Homework" }, { assignmentId: "exam", category: "Exams" }],
+      20,
+      [],
+    );
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("homework", 10, 8), makeAssignment("exam", 100)])).toEqual({
+      status: "calculated",
+      percentage: 80,
+    });
+  });
+
   it("does not include a graded zero-weight category", () => {
     const setup = makeSetup(
       [{ name: "Homework", weight: 0 }, { name: "Exams", weight: 80 }],
@@ -241,6 +326,7 @@ describe("stored setup to engine handoff", () => {
       finalExamWeight: 40,
       cutoffs: { A: 90, B: 80 },
       classDetails: { room: "GITC 1400", credits: 3 },
+      unsupportedRules: [],
     };
 
     const parsed = parseGradeSetup(storedRow);
@@ -249,14 +335,41 @@ describe("stored setup to engine handoff", () => {
       return;
     }
 
-    const result = calculateWeightedGrade(parsed.data, [
-      { id: "hw-1", pointsPossible: 20, grade: { score: 18 } },
-      { id: "hw-2", pointsPossible: 30, grade: { score: 24 } },
-      { id: "midterm", pointsPossible: 100, grade: { score: 72 } },
-      { id: "final", pointsPossible: 200, grade: null },
-    ]);
+    const result = calculateWeightedGrade(
+      { ...parsed.data, unsupportedRules: parsed.data.unsupportedRules ?? [] },
+      [
+        { id: "hw-1", pointsPossible: 20, grade: { score: 18 } },
+        { id: "hw-2", pointsPossible: 30, grade: { score: 24 } },
+        { id: "midterm", pointsPossible: 100, grade: { score: 72 } },
+        { id: "final", pointsPossible: 200, grade: null },
+      ],
+    );
 
     expect(result).toEqual({ status: "calculated", percentage: 78 });
+  });
+
+  it("refuses a stored row that carries unsupported rules from the syllabus reader", () => {
+    const storedRow = {
+      categories: [{ name: "Homework", weight: 60 }],
+      assignmentMappings: [{ assignmentId: "hw-1", category: "Homework" }],
+      finalExamWeight: 40,
+      cutoffs: {},
+      classDetails: {},
+      unsupportedRules: ["the lowest quiz score is dropped"],
+    };
+
+    const parsed = parseGradeSetup(storedRow);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+
+    expect(
+      calculateWeightedGrade(
+        { ...parsed.data, unsupportedRules: parsed.data.unsupportedRules ?? [] },
+        [{ id: "hw-1", pointsPossible: 20, grade: { score: 20 } }],
+      ),
+    ).toEqual({ status: "unsupported", reason: "unsupported-rule" });
   });
 
   it("a malformed stored setup is rejected by the parser, never reaching the engine", () => {

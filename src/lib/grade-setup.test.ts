@@ -76,4 +76,69 @@ describe("parseGradeSetup", () => {
       ok: false,
     });
   });
+
+  it("accepts and trims unsupported rules", () => {
+    const result = parseGradeSetup({ ...VALID_SETUP, unsupportedRules: ["  drop the lowest quiz  ", "curved"] });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        categories: VALID_SETUP.categories,
+        assignmentMappings: VALID_SETUP.assignmentMappings,
+        finalExamWeight: 20,
+        cutoffs: VALID_SETUP.cutoffs,
+        classDetails: VALID_SETUP.classDetails,
+        unsupportedRules: ["drop the lowest quiz", "curved"],
+      },
+    });
+  });
+
+  it("reports unsupportedRules as absent when the field is omitted", () => {
+    const result = parseGradeSetup(VALID_SETUP);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data).not.toHaveProperty("unsupportedRules");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        categories: VALID_SETUP.categories,
+        assignmentMappings: VALID_SETUP.assignmentMappings,
+        finalExamWeight: 20,
+        cutoffs: VALID_SETUP.cutoffs,
+        classDetails: VALID_SETUP.classDetails,
+      },
+    });
+  });
+
+  it("keeps an explicit empty list as provided so a saved rule list can be cleared", () => {
+    const result = parseGradeSetup({ ...VALID_SETUP, unsupportedRules: [] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.unsupportedRules).toEqual([]);
+  });
+
+  it("rejects a non-list unsupportedRules value instead of coercing it", () => {
+    expect(parseGradeSetup({ ...VALID_SETUP, unsupportedRules: "drop the lowest" })).toMatchObject({
+      ok: false,
+      error: "Unsupported rules must be a list of at most 20 short text rules.",
+    });
+    expect(parseGradeSetup({ ...VALID_SETUP, unsupportedRules: null })).toMatchObject({ ok: false });
+  });
+
+  it("rejects unsupported rule entries that are not text, blank, or trimmed to nothing", () => {
+    expect(parseGradeSetup({ ...VALID_SETUP, unsupportedRules: [7] })).toMatchObject({ ok: false });
+    expect(parseGradeSetup({ ...VALID_SETUP, unsupportedRules: ["   "] })).toMatchObject({ ok: false });
+  });
+
+  it("rejects unsupported rules past 500 characters and lists past 20 entries", () => {
+    expect(
+      parseGradeSetup({ ...VALID_SETUP, unsupportedRules: ["x".repeat(501)] }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseGradeSetup({ ...VALID_SETUP, unsupportedRules: Array.from({ length: 21 }, () => "drop one") }),
+    ).toMatchObject({ ok: false });
+  });
 });

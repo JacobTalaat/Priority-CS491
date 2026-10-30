@@ -543,6 +543,8 @@ export function WeightsSetup({
           ? form.finalExamAssignmentId
           : null,
       },
+      // The form has no rule editor, so keep the rules already saved for this course.
+      unsupportedRules: selectedCourse.gradeSetup?.unsupportedRules ?? [],
     };
   }
 

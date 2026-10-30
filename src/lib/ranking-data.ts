@@ -1,10 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { assignmentShares } from "@/lib/grade-share";
 import { parseSavedSetup, type GradeSetupPayload } from "@/lib/grade-setup";
-import { chooseGradeEngine } from "@/lib/grade-engine";
+import { calculateCourseGrade } from "@/lib/grade-engine";
 import { BOUNDARY_TOLERANCE, letterBoundary, type LetterBoundary } from "@/lib/letter-boundary";
-import { calculatePointsGrade } from "@/lib/points-grade";
-import { calculateWeightedGrade } from "@/lib/weighted-grade";
 import { rankOpenWork, type OpenWorkItem, type RankedItem } from "@/lib/ranking";
 
 // Hours are not stored yet; PR-124 makes a plan's total the hours.
@@ -19,6 +17,7 @@ const openWorkCourseSelect = {
       finalExamWeight: true,
       cutoffs: true,
       classDetails: true,
+      unsupportedRules: true,
     },
   },
   assignments: {
@@ -90,8 +89,9 @@ export async function loadOpenWork(userId: string, now: Date): Promise<RankedIte
 }
 
 // An item can only carry a letter flag when the course's grade is a real
-// "calculated" number from the same engine choice the grade route makes, and
-// when the setup has nothing that would make the percentage provisional.
+// "calculated" number from the same calculation the grade route makes, and
+// when the setup has nothing that would make the percentage provisional. An
+// unsupported rule refuses the grade outright, so no flag can be trusted.
 // A final exam weight held outside the categories means a chunk of the grade is
 // still ungraded, so no cutoff flag can be trusted yet; a setup without cutoffs
 // gives letterBoundary nothing to work with either way.
@@ -101,9 +101,7 @@ function collectBoundaries(
   sharesById: Map<string, number | null>,
   out: Map<string, LetterBoundary | null>,
 ): void {
-  const choice = chooseGradeEngine(setup);
-  const gradeOf = (rows: typeof assignments) =>
-    choice.engine === "weighted" ? calculateWeightedGrade(choice.setup, rows) : calculatePointsGrade(rows);
+  const gradeOf = (rows: typeof assignments) => calculateCourseGrade(setup, rows).grade;
   const grade = gradeOf(assignments);
   if (grade.status !== "calculated" || !setup || setup.finalExamWeight > 0 || !setup.cutoffs) {
     return;

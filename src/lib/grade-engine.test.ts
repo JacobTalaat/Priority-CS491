@@ -10,6 +10,7 @@ function setupPayload(overrides: Partial<GradeSetupPayload> = {}): GradeSetupPay
     finalExamWeight: 0,
     cutoffs: { A: 90 },
     classDetails: { section: "002" },
+    unsupportedRules: [],
     ...overrides,
   };
 }

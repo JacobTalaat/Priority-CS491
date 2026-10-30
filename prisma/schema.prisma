@@ -77,6 +77,7 @@ model CourseGradeSetup {
   finalExamWeight    Float
   cutoffs            Json
   classDetails       Json
+  unsupportedRules   Json     @default("[]")
   confirmedAt        DateTime @default(now())
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

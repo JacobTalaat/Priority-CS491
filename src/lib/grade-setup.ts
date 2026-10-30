@@ -14,10 +14,15 @@ export type GradeSetupPayload = {
   finalExamWeight: number;
   cutoffs: Record<string, number>;
   classDetails: Record<string, string | number | null>;
+  unsupportedRules: string[];
+};
+
+export type GradeSetupParseData = Omit<GradeSetupPayload, "unsupportedRules"> & {
+  unsupportedRules?: string[];
 };
 
 export type GradeSetupParseResult =
-  | { ok: true; data: GradeSetupPayload }
+  | { ok: true; data: GradeSetupParseData }
   | { ok: false; error: string };
 
 // A saved row is a confirmed setup: the confirm step is what writes it.
@@ -30,6 +35,7 @@ export type SavedGradeSetupRow =
       finalExamWeight: unknown;
       cutoffs: unknown;
       classDetails: unknown;
+      unsupportedRules: unknown;
     }
   | null;
 
@@ -38,7 +44,8 @@ export function parseSavedSetup(row: SavedGradeSetupRow): GradeSetupPayload | nu
     return null;
   }
   const parsed = parseGradeSetup(row);
-  return parsed.ok ? parsed.data : null;
+  // A row saved before unsupported rules existed has none on record.
+  return parsed.ok ? { ...parsed.data, unsupportedRules: parsed.data.unsupportedRules ?? [] } : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -47,6 +54,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPercentage(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+// Three-way result: an omitted field is reported as absent (undefined) so the save route
+// keeps the saved rules, while any malformed value (non-array, non-string entry, blank,
+// over 500 characters, or more than 20 entries) is rejected rather than coerced.
+const MAX_UNSUPPORTED_RULES = 20;
+const MAX_UNSUPPORTED_RULE_LENGTH = 500;
+
+function parseUnsupportedRules(value: unknown): string[] | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  if (value.length > MAX_UNSUPPORTED_RULES) {
+    return null;
+  }
+  const rules: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      return null;
+    }
+    const rule = entry.trim();
+    if (rule.length === 0 || rule.length > MAX_UNSUPPORTED_RULE_LENGTH) {
+      return null;
+    }
+    rules.push(rule);
+  }
+  return rules;
 }
 
 export function parseGradeSetup(value: unknown): GradeSetupParseResult {
@@ -140,8 +177,20 @@ export function parseGradeSetup(value: unknown): GradeSetupParseResult {
     classDetails[label.trim()] = detail;
   }
 
-  return {
-    ok: true,
-    data: { categories, assignmentMappings, finalExamWeight: value.finalExamWeight, cutoffs, classDetails },
+  const unsupportedRules = parseUnsupportedRules(value.unsupportedRules);
+  if (unsupportedRules === null) {
+    return { ok: false, error: "Unsupported rules must be a list of at most 20 short text rules." };
+  }
+
+  const data: GradeSetupParseData = {
+    categories,
+    assignmentMappings,
+    finalExamWeight: value.finalExamWeight,
+    cutoffs,
+    classDetails,
   };
+  if (unsupportedRules !== undefined) {
+    data.unsupportedRules = unsupportedRules;
+  }
+  return { ok: true, data };
 }
