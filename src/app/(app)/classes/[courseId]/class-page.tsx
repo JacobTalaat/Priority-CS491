@@ -5,7 +5,17 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, ButtonLink, List, ListRow, Notice, PageHeader } from "@/components/ui";
 import { getCourseDetails, getCourseGrade } from "@/lib/course-client";
 import type { CourseDetailsResponse, CourseGradeResponse } from "@/lib/course-client";
-import { categoryLine, dueText, formatPercent, gradeSummary, scoreText, shareText } from "@/lib/class-page";
+import {
+  categoryLine,
+  dueText,
+  finalExamOutOfReachNotice,
+  finalExamRows,
+  formatPercent,
+  gradeSummary,
+  scoreText,
+  shareText,
+} from "@/lib/class-page";
+import { describeFinalExamResult } from "@/lib/final-exam-solver";
 import styles from "./class-page.module.css";
 
 type LoadState =
@@ -107,6 +117,15 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
         {grade.ok ? <GradeOverview grade={grade.data} setupHref={setupHref} /> : <Notice tone="error">{grade.message}</Notice>}
       </section>
 
+      {grade.ok ? (
+        <section className={styles.section} aria-labelledby="class-final">
+          <h2 id="class-final" className={styles.sectionTitle}>
+            Final exam
+          </h2>
+          <FinalExamTool finalExam={grade.data.finalExam} setupHref={setupHref} />
+        </section>
+      ) : null}
+
       <section className={styles.section} aria-labelledby="class-assignments">
         <h2 id="class-assignments" className={styles.sectionTitle}>
           Assignments
@@ -181,6 +200,39 @@ function GradeOverview({ grade, setupHref }: { grade: CourseGradeResponse; setup
           to see your grade broken down by category.
         </p>
       )}
+    </>
+  );
+}
+
+function FinalExamTool({ finalExam, setupHref }: { finalExam: CourseGradeResponse["finalExam"]; setupHref: string }) {
+  if (finalExam.status !== "solved" || finalExam.results.length === 0) {
+    // Picking the final, or counting it in a category, happens on the grade setup page.
+    const fixable = finalExam.status === "no-final" || finalExam.status === "final-not-counted";
+    return (
+      <p className={styles.muted}>
+        {describeFinalExamResult(finalExam)}{" "}
+        {fixable ? (
+          <Link className={styles.inlineLink} href={setupHref}>
+            Open the grade setup
+          </Link>
+        ) : null}
+      </p>
+    );
+  }
+  const outOfReach = finalExamOutOfReachNotice(finalExam);
+  return (
+    <>
+      {outOfReach ? <Notice tone="warning">{outOfReach}</Notice> : null}
+      <List label="What you need on the final">
+        {finalExamRows(finalExam).map((row) => (
+          <ListRow key={row.letter} title={row.letter} meta={row.sentence} trailing={row.badge} />
+        ))}
+      </List>
+      {finalExam.otherWorkPending ? (
+        <p className={styles.muted}>
+          Other work in this class isn’t graded yet, so these numbers can move as those grades come in.
+        </p>
+      ) : null}
     </>
   );
 }
