@@ -8,6 +8,7 @@ import type { AuthUser } from "@/lib/auth-client";
 import { loginPathFor } from "@/lib/redirect";
 import { startSessionSync } from "@/lib/session-sync";
 import { TOKEN_KEY, clearToken, getToken, setToken } from "@/lib/session";
+import { logEvent } from "@/lib/usage";
 import styles from "./app-shell.module.css";
 
 type GuardState = { status: "checking" } | { status: "ready"; user: AuthUser | null };
@@ -53,6 +54,9 @@ export function AuthGuard({ children }: { children: ReactNode }) {
           clearToken();
           sendToLogin();
           return;
+        }
+        if (result.status === "valid") {
+          logEvent("app_open");
         }
         setState({ status: "ready", user: result.status === "valid" ? result.user : null });
       });
