@@ -7,10 +7,17 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		7A1F0000000000000000000A /* Config.xcconfig */ = {isa = PBXFileReference; explicitFileType = text.xcconfig; includeInIndex = 0; path = Config.xcconfig; sourceTree = "<group>"; };
+		7A1F0000000000000000000B /* PriorityTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PriorityTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A1F00000000000000000001 /* Priority.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Priority.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		7A1F0000000000000000000C /* PriorityTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PriorityTests;
+			sourceTree = "<group>";
+		};
 		7A1F00000000000000000002 /* Priority */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Priority;
@@ -18,7 +25,24 @@
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
+/* Begin PBXContainerItemProxy section */
+		7A1F0000000000000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7A1F00000000000000000009 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7A1F00000000000000000006;
+			remoteInfo = Priority;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFrameworksBuildPhase section */
+		7A1F0000000000000000000E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7A1F00000000000000000003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -32,7 +56,9 @@
 		7A1F00000000000000000004 = {
 			isa = PBXGroup;
 			children = (
+				7A1F0000000000000000000A /* Config.xcconfig */,
 				7A1F00000000000000000002 /* Priority */,
+				7A1F0000000000000000000C /* PriorityTests */,
 				7A1F00000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +67,7 @@
 			isa = PBXGroup;
 			children = (
 				7A1F00000000000000000001 /* Priority.app */,
+				7A1F0000000000000000000B /* PriorityTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,6 +75,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		7A1F0000000000000000000F /* PriorityTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A1F00000000000000000016 /* Build configuration list for PBXNativeTarget "PriorityTests" */;
+			buildPhases = (
+				7A1F00000000000000000017 /* Sources */,
+				7A1F0000000000000000000E /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7A1F0000000000000000001B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7A1F0000000000000000000C /* PriorityTests */,
+			);
+			name = PriorityTests;
+			packageProductDependencies = (
+			);
+			productName = PriorityTests;
+			productReference = 7A1F0000000000000000000B /* PriorityTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		7A1F00000000000000000006 /* Priority */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7A1F00000000000000000010 /* Build configuration list for PBXNativeTarget "Priority" */;
@@ -79,11 +128,15 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
-				TargetAttributes = {
-					7A1F00000000000000000006 = {
-						CreatedOnToolsVersion = 26.2;
-					};
+			TargetAttributes = {
+				7A1F00000000000000000006 = {
+					CreatedOnToolsVersion = 26.2;
 				};
+				7A1F0000000000000000000F = {
+					CreatedOnToolsVersion = 26.2;
+					TestTargetID = 7A1F00000000000000000006;
+				};
+			};
 			};
 			buildConfigurationList = 7A1F00000000000000000011 /* Build configuration list for PBXProject "Priority" */;
 			developmentRegion = en;
@@ -100,6 +153,7 @@
 			projectRoot = "";
 			targets = (
 				7A1F00000000000000000006 /* Priority */,
+				7A1F0000000000000000000F /* PriorityTests */,
 			);
 		};
 /* End PBXProject section */
@@ -115,6 +169,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		7A1F00000000000000000017 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7A1F00000000000000000007 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -124,9 +185,68 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		7A1F0000000000000000001B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7A1F00000000000000000006 /* Priority */;
+			targetProxy = 7A1F0000000000000000000D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		7A1F00000000000000000019 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.prioritycapstone.PriorityTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Priority.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Priority";
+			};
+			name = Debug;
+		};
+		7A1F0000000000000000001A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.prioritycapstone.PriorityTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Priority.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Priority";
+			};
+			name = Release;
+		};
 		7A1F00000000000000000012 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A1F0000000000000000000A /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -159,6 +279,7 @@
 		};
 		7A1F00000000000000000013 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A1F0000000000000000000A /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -192,6 +313,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info-debug.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Priority;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -221,6 +343,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Priority;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -257,6 +380,15 @@
 			buildConfigurations = (
 				7A1F00000000000000000012 /* Debug */,
 				7A1F00000000000000000013 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A1F00000000000000000016 /* Build configuration list for PBXNativeTarget "PriorityTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A1F00000000000000000019 /* Debug */,
+				7A1F0000000000000000001A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

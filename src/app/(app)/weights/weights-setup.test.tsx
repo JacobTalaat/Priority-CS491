@@ -4,14 +4,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 
-const { mockGetCourses, mockUploadProps } = vi.hoisted(() => ({
+const { mockGetCourses, mockSaveGradeSetup, mockUploadProps } = vi.hoisted(() => ({
   mockGetCourses: vi.fn(),
+  mockSaveGradeSetup: vi.fn(),
   mockUploadProps: vi.fn(),
 }));
 
 vi.mock("@/lib/grade-setup-client", () => ({
   getGradeSetupCourses: mockGetCourses,
-  saveGradeSetup: vi.fn(),
+  saveGradeSetup: mockSaveGradeSetup,
 }));
 
 // Captured rather than rendered so the tests can inspect and invoke the props WeightsSetup
@@ -29,8 +30,10 @@ import { syllabusReadMessage } from "@/lib/weight-precedence";
 import {
   applySyllabusRead,
   applySyllabusSuggestions,
+  assignmentsMissingFromSetup,
   confirmProblems,
   detailsFilledByRead,
+  pickCourse,
   WeightsSetup,
   type FormState,
 } from "./weights-setup";
@@ -86,6 +89,84 @@ const completeZeroCanvasCourse: GradeSetupCourse = {
 function renderWeightsSetup(courses: GradeSetupCourse[] = [course]): void {
   renderToStaticMarkup(<WeightsSetup initialCourses={courses} />);
 }
+
+// Mounts into a real DOM so a test can click and type, and always unmounts afterwards.
+async function withMounted(element: React.ReactElement, test: (container: HTMLElement) => Promise<void>) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+  try {
+    await act(async () => {
+      root.render(element);
+    });
+    await test(container);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    container.remove();
+  }
+}
+
+function buttonNamed(container: HTMLElement, name: string): HTMLButtonElement {
+  const button = [...container.querySelectorAll("button")].find((item) => item.textContent === name);
+  if (!button) {
+    throw new Error(`No button named ${name}`);
+  }
+  return button;
+}
+
+async function click(element: HTMLElement) {
+  await act(async () => {
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+// Sets a controlled input's value the way typing does, so React's onChange fires.
+async function typeInto(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function inputLabelled(container: HTMLElement, label: string): HTMLInputElement {
+  const labelElement = [...container.querySelectorAll("label")].find((item) => item.textContent === label);
+  const input = labelElement ? document.getElementById(labelElement.htmlFor) : null;
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error(`No input labelled ${label}`);
+  }
+  return input;
+}
+
+const confirmedCourse: GradeSetupCourse = {
+  ...course,
+  id: "c-confirmed",
+  name: "Operating Systems",
+  gradeSetup: {
+    categories: [{ name: "Homework", weight: 100 }],
+    assignmentMappings: [
+      { assignmentId: "a1", category: "Homework" },
+      { assignmentId: "a2", category: "Homework" },
+    ],
+    finalExamWeight: 0,
+    cutoffs: { A: 90, B: 80 },
+    classDetails: {
+      instructor: "Dr. Ruiz",
+      section: "002",
+      credits: 3,
+      officeHours: "Tue 2-3 pm",
+      latePolicy: "Late work loses 2 points per day.",
+      contacts: "Dr. Ruiz (Instructor) eruiz@njit.edu",
+      finalExamAssignmentId: "a2",
+    },
+    confirmedAt: "2026-10-20T16:00:00.000Z",
+  },
+};
 
 function currentForm(): FormState {
   return {
@@ -268,27 +349,20 @@ describe("final exam picker", () => {
     expect(html).toContain('<option value="a2">Project 1</option>');
   });
 
-  it("shows the saved final exam, and none when that assignment no longer exists", () => {
+  it("shows the saved final exam when editing, and none when that assignment no longer exists", async () => {
     const withFinal = (finalExamAssignmentId: string): GradeSetupCourse => ({
-      ...course,
-      gradeSetup: {
-        categories: [{ name: "Homework", weight: 100 }],
-        assignmentMappings: [
-          { assignmentId: "a1", category: "Homework" },
-          { assignmentId: "a2", category: "Homework" },
-        ],
-        finalExamWeight: 0,
-        cutoffs: { A: 90 },
-        classDetails: { finalExamAssignmentId },
-        confirmedAt: "2026-10-20T12:00:00.000Z",
-      },
+      ...confirmedCourse,
+      gradeSetup: { ...confirmedCourse.gradeSetup!, classDetails: { finalExamAssignmentId } },
     });
-    expect(renderToStaticMarkup(<WeightsSetup initialCourses={[withFinal("a2")]} />)).toContain(
-      '<option value="a2" selected="">Project 1</option>',
-    );
-    expect(renderToStaticMarkup(<WeightsSetup initialCourses={[withFinal("gone")]} />)).toContain(
-      '<option value="" selected="">No final exam in this class</option>',
-    );
+    for (const [saved, expected] of [
+      ["a2", "a2"],
+      ["gone", ""],
+    ] as const) {
+      await withMounted(<WeightsSetup initialCourses={[withFinal(saved)]} />, async (container) => {
+        await click(buttonNamed(container, "Edit setup"));
+        expect((document.getElementById("final-exam-assignment") as HTMLSelectElement).value).toBe(expected);
+      });
+    }
   });
 });
 
@@ -463,33 +537,13 @@ describe("applySyllabusRead", () => {
 });
 
 describe("WeightsSetup class details", () => {
-  it("shows saved office hours, late policy, and contacts as editable fields", () => {
-    const saved: GradeSetupCourse = {
-      ...course,
-      gradeSetup: {
-        categories: [{ name: "Homework", weight: 100 }],
-        assignmentMappings: [
-          { assignmentId: "a1", category: "Homework" },
-          { assignmentId: "a2", category: "Homework" },
-        ],
-        finalExamWeight: 0,
-        cutoffs: { A: 90 },
-        classDetails: {
-          instructor: "Dr. Ruiz",
-          section: "002",
-          credits: 3,
-          officeHours: "Tue 2-3 pm",
-          latePolicy: "Late work loses 2 points per day.",
-          contacts: "Dr. Ruiz (Instructor) eruiz@njit.edu",
-        },
-        confirmedAt: "2026-10-20T12:00:00.000Z",
-      },
-    };
-    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[saved]} />);
-    expect(html).toMatch(/<label[^>]*>Office hours<\/label>/);
-    expect(html).toContain('value="Tue 2-3 pm"');
-    expect(html).toMatch(/<textarea[^>]*>Late work loses 2 points per day.<\/textarea>/);
-    expect(html).toMatch(/<textarea[^>]*>Dr. Ruiz \(Instructor\) eruiz@njit.edu<\/textarea>/);
+  it("shows saved office hours, late policy, and contacts as editable fields once editing", async () => {
+    await withMounted(<WeightsSetup initialCourses={[confirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      expect(inputLabelled(container, "Office hours").value).toBe("Tue 2-3 pm");
+      const textareas = [...container.querySelectorAll("textarea")].map((textarea) => textarea.value);
+      expect(textareas).toEqual(["Late work loses 2 points per day.", "Dr. Ruiz (Instructor) eruiz@njit.edu"]);
+    });
   });
 });
 
@@ -612,5 +666,121 @@ describe("WeightsSetup wiring to SyllabusUpload", () => {
       });
       container.remove();
     }
+  });
+});
+
+describe("pickCourse", () => {
+  it("opens the class named in the link, and the first class otherwise", () => {
+    expect(pickCourse([course, confirmedCourse], "c-confirmed")).toBe(confirmedCourse);
+    expect(pickCourse([course, confirmedCourse], "not-mine")).toBe(course);
+    expect(pickCourse([course, confirmedCourse])).toBe(course);
+    expect(pickCourse([], "c1")).toBeNull();
+  });
+});
+
+describe("assignmentsMissingFromSetup", () => {
+  it("counts assignments imported after the setup was confirmed", () => {
+    expect(assignmentsMissingFromSetup(confirmedCourse)).toBe(0);
+    const withNewAssignment: GradeSetupCourse = {
+      ...confirmedCourse,
+      assignments: [...confirmedCourse.assignments, { id: "a3", title: "Quiz 1", assignmentGroup: null }],
+    };
+    expect(assignmentsMissingFromSetup(withNewAssignment)).toBe(1);
+    expect(assignmentsMissingFromSetup(course)).toBe(0);
+  });
+});
+
+describe("editing a confirmed setup", () => {
+  beforeEach(() => {
+    mockSaveGradeSetup.mockReset();
+    mockUploadProps.mockReset();
+  });
+
+  it("opens a confirmed class as a summary with an Edit button instead of the form", () => {
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[course, confirmedCourse]} initialCourseId="c-confirmed" />);
+    expect(html).toContain('<option value="c-confirmed" selected="">Operating Systems (CS-341)</option>');
+    expect(html).toMatch(/<h2[^>]*>Confirmed setup<\/h2>/);
+    expect(html).toContain("Confirmed Oct 20, 2026.");
+    expect(html).toMatch(/<li><span>Homework<\/span><span>100%<\/span><\/li>/);
+    expect(html).toContain("Cutoffs: A 90 · B 80");
+    expect(html).toMatch(/<button[^>]*>Edit setup<\/button>/);
+    expect(html).not.toContain("<form");
+  });
+
+  it("warns when assignments were added after confirming", () => {
+    const withNewAssignment: GradeSetupCourse = {
+      ...confirmedCourse,
+      assignments: [...confirmedCourse.assignments, { id: "a3", title: "Quiz 1", assignmentGroup: null }],
+    };
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[withNewAssignment]} />);
+    expect(html).toContain("1 assignment was added since you confirmed and isn’t in a category yet.");
+  });
+
+  it("Edit opens the form on the saved setup with Save changes and Cancel", async () => {
+    await withMounted(<WeightsSetup initialCourses={[confirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      expect(container.querySelector("h2")?.textContent).toBe("Edit confirmed setup");
+      expect(inputLabelled(container, "Category 1").value).toBe("Homework");
+      expect(inputLabelled(container, "Weight (%)").value).toBe("100");
+      expect(buttonNamed(container, "Save changes").disabled).toBe(false);
+      expect(buttonNamed(container, "Cancel")).toBeTruthy();
+    });
+  });
+
+  it("applies the same confirm rules while editing", async () => {
+    await withMounted(<WeightsSetup initialCourses={[confirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      await typeInto(inputLabelled(container, "Weight (%)"), "95");
+      const save = buttonNamed(container, "Save changes");
+      expect(save.disabled).toBe(true);
+      expect(save.getAttribute("aria-describedby")).toBe("confirm-problems");
+      const problems = document.getElementById("confirm-problems");
+      expect(problems?.textContent).toContain("Before you can save:");
+      expect(problems?.textContent).toContain("Weights add up to 95%. They need to total 100%.");
+      expect(mockSaveGradeSetup).not.toHaveBeenCalled();
+    });
+  });
+
+  it("Cancel throws the changes away and shows the saved setup again", async () => {
+    await withMounted(<WeightsSetup initialCourses={[confirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      await typeInto(inputLabelled(container, "Weight (%)"), "95");
+      await click(buttonNamed(container, "Cancel"));
+      expect(container.querySelector("form")).toBeNull();
+      expect(container.textContent).toContain("Confirmed setup");
+      await click(buttonNamed(container, "Edit setup"));
+      expect(inputLabelled(container, "Weight (%)").value).toBe("100");
+    });
+  });
+
+  it("saving an edit sends the changed setup and returns to the summary", async () => {
+    mockSaveGradeSetup.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { confirmed: true, courseId: "c-confirmed", confirmedAt: "2026-10-22T16:00:00.000Z" },
+    });
+    await withMounted(<WeightsSetup initialCourses={[confirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      await typeInto(inputLabelled(container, "A"), "92");
+      await click(buttonNamed(container, "Save changes"));
+      expect(mockSaveGradeSetup).toHaveBeenCalledTimes(1);
+      const [courseId, payload] = mockSaveGradeSetup.mock.calls[0] as [string, { cutoffs: Record<string, number> }];
+      expect(courseId).toBe("c-confirmed");
+      expect(payload.cutoffs.A).toBe(92);
+      expect(container.querySelector("form")).toBeNull();
+      expect(container.textContent).toContain("Your changes are saved.");
+      expect(container.textContent).toContain("Cutoffs: A 92 · B 80");
+      expect(container.textContent).toContain("Confirmed Oct 22, 2026.");
+    });
+  });
+
+  it("keeps editing and shows the error when the save is refused", async () => {
+    mockSaveGradeSetup.mockResolvedValue({ ok: false, status: 400, error: "Weights must total 100." });
+    await withMounted(<WeightsSetup initialCourses={[confirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      await click(buttonNamed(container, "Save changes"));
+      expect(container.querySelector("form")).not.toBeNull();
+      expect(container.textContent).toContain("Weights must total 100.");
+    });
   });
 });

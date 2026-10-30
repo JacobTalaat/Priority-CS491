@@ -3,6 +3,8 @@ import SwiftUI
 // Placeholder home screen until the Today list lands in Sprint 3.
 // Colors match the website's theme tokens in src/app/globals.css.
 struct ContentView: View {
+    @ObservedObject var model: AuthModel
+
     private let background = Color(red: 8 / 255, green: 9 / 255, blue: 10 / 255)
     private let secondary = Color(red: 155 / 255, green: 161 / 255, blue: 163 / 255)
 
@@ -41,6 +43,14 @@ struct ContentView: View {
 
             VStack {
                 Spacer()
+                Button {
+                    Task { await model.signOut() }
+                } label: {
+                    Text("Log out")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(secondary)
+                }
+                .accessibilityLabel("Log out")
                 Text(version)
                     .font(.footnote)
                     .foregroundStyle(secondary.opacity(0.7))
@@ -52,5 +62,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(model: AuthModel())
 }

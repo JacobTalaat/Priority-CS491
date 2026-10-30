@@ -29,8 +29,13 @@ model User {
   canvasCalendarFeedIv     String?
   canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
+  notifyTonight      Boolean @default(true)
+  notifyGradePosted  Boolean @default(true)
+  notifyDueTomorrow  Boolean @default(true)
+  nightlyReminderTime String @default("20:00")
   sessions          Session[]
   courses           Course[]
+  usageEvents       UsageEvent[]
 }
 
 model Session {
@@ -136,6 +141,8 @@ model Grade {
   assignmentId String    @unique
   score        Float?
   gradedAt     DateTime?
+  submittedAt  DateTime?
+  excused      Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -165,4 +172,23 @@ model AiUsageDay {
   updatedAt    DateTime @updatedAt
 
   @@id([day, feature, userId])
+}
+
+enum UsageClient {
+  web
+  app
+}
+
+// One row per tester action for the study. Only the user id is stored, never free text.
+model UsageEvent {
+  id        String      @id @default(cuid())
+  userId    String
+  event     String
+  client    UsageClient
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([event, createdAt])
 }
