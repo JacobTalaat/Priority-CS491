@@ -6,13 +6,15 @@ type RequestOptions = {
   method?: string;
   body?: unknown;
   token?: string | null;
+  // Extra request headers, e.g. X-Priority-Client on the Today item actions.
+  headers?: Record<string, string>;
 };
 
 export const NETWORK_ERROR = "Can't reach Priority right now. Check your connection and try again.";
 
 // Calls our own API and never throws: network failures come back as status 0.
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<ApiResult<T>> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...options.headers };
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
