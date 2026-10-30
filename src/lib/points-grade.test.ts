@@ -71,11 +71,12 @@ describe("calculatePointsGrade", () => {
     expect(calculatePointsGrade([makeAssignment("a", 0, 0)])).toEqual({ status: "insufficient-data" });
   });
 
-  it("returns unsupported when a zero point assignment carries a positive score", () => {
+  it("adds a zero point assignment's positive score as pure bonus", () => {
     expect(calculatePointsGrade([makeAssignment("a", 0, 8), makeAssignment("b", 10, 6)])).toEqual({
-      status: "unsupported",
-      reason: "extra-credit",
+      status: "calculated",
+      percentage: 140,
     });
+    expect(calculatePointsGrade([makeAssignment("a", 0, 8)])).toEqual({ status: "insufficient-data" });
   });
 
   it("treats a non-finite pointsPossible as a zero point assignment", () => {
@@ -90,10 +91,7 @@ describe("calculatePointsGrade", () => {
       status: "calculated",
       percentage: 60,
     });
-    expect(calculatePointsGrade([makeAssignment("a", -5, 3)])).toEqual({
-      status: "unsupported",
-      reason: "extra-credit",
-    });
+    expect(calculatePointsGrade([makeAssignment("a", -5, 3)])).toEqual({ status: "insufficient-data" });
   });
 
   it("returns unsupported for a negative score", () => {
@@ -103,10 +101,10 @@ describe("calculatePointsGrade", () => {
     });
   });
 
-  it("returns unsupported when the score exceeds pointsPossible", () => {
-    expect(calculatePointsGrade([makeAssignment("a", 10, 11)])).toEqual({
-      status: "unsupported",
-      reason: "extra-credit",
+  it("counts a score above pointsPossible as-is so the total can exceed 100", () => {
+    expect(calculatePointsGrade([makeAssignment("a", 100, 105)])).toEqual({
+      status: "calculated",
+      percentage: 105,
     });
   });
 

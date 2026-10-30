@@ -29,6 +29,10 @@ model User {
   canvasCalendarFeedIv     String?
   canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
+  notifyTonight      Boolean @default(true)
+  notifyGradePosted  Boolean @default(true)
+  notifyDueTomorrow  Boolean @default(true)
+  nightlyReminderTime String @default("20:00")
   sessions          Session[]
   courses           Course[]
   itemStates        ItemState[]

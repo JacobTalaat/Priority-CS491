@@ -227,6 +227,103 @@ curl -i http://localhost:3000/api/auth/me \
 }
 ```
 
+### `POST /api/ask`
+
+Answers a question about the student's classes using only the passages Priority retrieves from the student's saved syllabi, Canvas assignments (including their scores), and grade setup class details. For each question, the question and up to 8 retrieved passages from the student's own data are sent to the AI provider. When the AI can support an answer from those passages, each source it cites is built server-side from the matched passage: the source identifies the passage, and the `quote` is an excerpt the AI copied from it, verified to appear in the passage before being returned. A `found: false` response is a best effort: it means the AI could not support an answer from the matched data, not a guarantee that the data lacks it.
+
+- **Method**: `POST`
+- **Path**: `/api/ask`
+
+**Request**
+
+JSON body with:
+
+- `question` (string, 1–500 characters) — the student's question.
+- `courseId` (string, optional) — when given, only that course's data is searched.
+
+```bash
+curl -i -X POST http://localhost:3000/api/ask \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"When is homework 3 due?","courseId":"course-id"}'
+```
+
+**Response**
+
+`200` — the AI supported an answer from the retrieved passages; every source is one of the passages Priority retrieved and its `quote` is a verified excerpt of that passage, possibly from anywhere inside it:
+
+```json
+{
+  "found": true,
+  "answer": "Homework 3 is due Friday, October 23 at 11:59 PM.",
+  "sources": [
+    {
+      "n": 2,
+      "kind": "assignment",
+      "courseId": "course-id",
+      "courseName": "Data Structures",
+      "source": {
+        "assignmentId": "assignment-id",
+        "title": "Homework 3",
+        "htmlUrl": "https://canvas.example.edu/courses/1/assignments/3"
+      },
+      "quote": "due Fri Oct 23, 2026 11:59 PM"
+    }
+  ]
+}
+```
+
+The `kind` is `syllabus`, `assignment`, or `class-details`. The `source` object for a syllabus is `{ "fileName": "syllabus.pdf", "start": 0, "end": 45 }`, for an assignment `{ "assignmentId": "assignment-id", "title": "Homework 3", "htmlUrl": "https://..." }`, and for class details `{ "fields": ["instructor"] }`. If any cited excerpt had not appeared in its passage, the whole reply is rejected and the request returns `502`.
+
+`200` — the AI could not support an answer from the syllabus and Canvas data Priority retrieved; this is a best effort, not a guarantee the data lacks it:
+
+```json
+{
+  "found": false,
+  "message": "Priority couldn't find that in your syllabus or Canvas data."
+}
+```
+
+`400` — invalid body or a question outside the 1–500 character bound:
+
+```json
+{
+  "error": "Invalid body"
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the given `courseId` is not a current course belonging to the student:
+
+```json
+{
+  "error": "Current course not found."
+}
+```
+
+`503` — the AI budget cap for this month has been reached:
+
+```json
+{
+  "error": "Priority's AI budget for this month is used up, so it couldn't answer. Try again later."
+}
+```
+
+`502` — any other AI failure, including a retrieved-data read failure, a reply the strict parser rejected, or a cited excerpt that did not appear in its passage:
+
+```json
+{
+  "error": "Priority couldn't answer that right now. Try again."
+}
+```
+
 ### `POST /api/account/delete`
 
 Deletes the currently authenticated account after confirming its password.
@@ -283,6 +380,103 @@ Send an `Authorization` bearer token and the account password in the JSON body.
 ```json
 {
   "error": "Too many password attempts."
+}
+```
+
+### `GET /api/notifications/preferences`
+
+Returns the authenticated student's notification toggles and the nightly reminder time. Times and days are in New York time.
+
+- **Method**: `GET`
+- **Path**: `/api/notifications/preferences`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/notifications/preferences \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the saved preferences. `notifyTonight` controls the "Tonight" nudge, `notifyGradePosted` the "Grade posted" message, and `notifyDueTomorrow` the "Due tomorrow" message. `nightlyReminderTime` is a zero-padded `HH:MM` string used by the nightly reminder job:
+
+```json
+{
+  "notifyTonight": true,
+  "notifyGradePosted": true,
+  "notifyDueTomorrow": true,
+  "nightlyReminderTime": "20:00"
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `PATCH /api/notifications/preferences`
+
+Updates some or all of the notification preferences. Only the fields present in the body are changed; the others are left as they are.
+
+- **Method**: `PATCH`
+- **Path**: `/api/notifications/preferences`
+
+**Request**
+
+JSON body with any subset of:
+
+- `notifyTonight` (boolean) — whether the student gets the "Tonight" nudge
+- `notifyGradePosted` (boolean) — whether the student gets the "Grade posted" message
+- `notifyDueTomorrow` (boolean) — whether the student gets the "Due tomorrow" message
+- `nightlyReminderTime` (string) — `HH:MM` between `00:00` and `23:59`, New York time
+
+```bash
+curl -i -X PATCH http://localhost:3000/api/notifications/preferences \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"notifyTonight":false,"nightlyReminderTime":"21:30"}'
+```
+
+**Response**
+
+`200` — the preferences after the update, same shape as `GET`:
+
+```json
+{
+  "notifyTonight": false,
+  "notifyGradePosted": true,
+  "notifyDueTomorrow": true,
+  "nightlyReminderTime": "21:30"
+}
+```
+
+`400` — an unknown field, a non-boolean toggle, or an invalid `nightlyReminderTime` (wrong format or outside `00:00`–`23:59`):
+
+```json
+{
+  "error": "Send notifyTonight, notifyGradePosted and notifyDueTomorrow as true or false, and nightlyReminderTime as HH:MM from 00:00 to 23:59."
+}
+```
+
+`400` — the body is not valid JSON or not an object:
+
+```json
+{
+  "error": "Invalid JSON body."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
 }
 ```
 
@@ -1074,9 +1268,10 @@ Returns the overall grade for one of the student's current courses and, when the
 
 When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
 
-- `extra-credit` — a score above the points possible, or points on an assignment with no points possible, so the total could exceed 100%.
 - `negative-score` — a stored grade below zero.
 - `non-finite-result` — the arithmetic produced a number that is not usable.
+
+Extra credit is not a stop condition: a score above the assignment's points possible counts as-is, and a positive score on an assignment with no points possible is pure bonus, so a calculated `percentage` can exceed 100 for the course and in `breakdown`. A category whose only graded work is bonus points has no points possible to divide by, so its `breakdown.percentage` stays `null` while `pointsEarned` shows the bonus.
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
@@ -1193,6 +1388,47 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
 }
 ```
 
+`200` — extra credit is counted as Canvas counts it, so a grade can land above 100. The exam scored 110 of 100 and counts as-is; a positive score on an assignment with no points possible would instead be pure bonus, adding to the earned totals without touching the possible ones:
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "calculated", "percentage": 102 },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": 90,
+      "pointsEarned": 45,
+      "pointsPossible": 50,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    },
+    {
+      "category": "Exams",
+      "weight": 60,
+      "percentage": 110,
+      "pointsEarned": 110,
+      "pointsPossible": 100,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    }
+  ],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
+  ]
+}
+```
+
 `200` — a grading rule the engine cannot express, with the reason carried through:
 
 ```json
@@ -1205,7 +1441,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
-  "grade": { "status": "unsupported", "reason": "extra-credit" },
+  "grade": { "status": "unsupported", "reason": "negative-score" },
   "breakdown": [],
   "finalExam": { "status": "no-final" },
   "shares": [
