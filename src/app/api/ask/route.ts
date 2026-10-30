@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { answerQuestion } from "@/lib/ask-classes";
+import { logAskOutcome } from "@/lib/ask-log";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,13 @@ export async function POST(request: Request) {
     userId: user.id,
     question,
     courseId: hasCourseId ? courseId : undefined,
+  });
+
+  await logAskOutcome({
+    userId: user.id,
+    question,
+    courseId: hasCourseId ? courseId : undefined,
+    result,
   });
 
   if (!result.ok) {

@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { assignmentShares } from "@/lib/grade-share";
-import { parseSavedSetup, type GradeSetupPayload } from "@/lib/grade-setup";
+import { parseSavedSetup, withFinalExamCategory, type GradeSetupPayload } from "@/lib/grade-setup";
 import { chooseGradeEngine } from "@/lib/grade-engine";
 import { BOUNDARY_TOLERANCE, letterBoundary, type LetterBoundary } from "@/lib/letter-boundary";
+import { nyDayOf } from "@/lib/ny-day";
 import { calculatePointsGrade } from "@/lib/points-grade";
 import { calculateWeightedGrade } from "@/lib/weighted-grade";
 import { rankOpenWork, type OpenWorkItem, type RankedItem } from "@/lib/ranking";
@@ -39,10 +40,29 @@ export async function loadOpenWork(userId: string, now: Date): Promise<RankedIte
     select: openWorkCourseSelect,
   });
 
+  // The student's whole state in one query, never one per item. Done stays
+  // done until undone — even without a grade from Canvas; a skip only hides
+  // the item for the New York day it was skipped on.
+  const states = await prisma.itemState.findMany({ where: { userId } });
+  const nyToday = nyDayOf(now);
+  const doneIds = new Set<string>();
+  const skippedTodayIds = new Set<string>();
+  for (const state of states) {
+    if (state.status === "done") {
+      doneIds.add(state.assignmentId);
+    } else if (state.status === "skipped" && state.skippedDay === nyToday) {
+      skippedTodayIds.add(state.assignmentId);
+    }
+  }
+
   const items: OpenWorkItem[] = [];
   const boundariesByAssignmentId = new Map<string, LetterBoundary | null>();
   for (const course of courses) {
-    const setup = parseSavedSetup(course.gradeSetup);
+    const savedSetup = parseSavedSetup(course.gradeSetup);
+    // The grade route folds a picked final's weight into its own category, and
+    // the ranking must read the same normalized setup or its shares would mark
+    // the counted final as unknown and its boundary check would bail early.
+    const setup = savedSetup ? withFinalExamCategory(savedSetup) : null;
     const assignments = course.assignments.map((assignment) => ({
       id: assignment.id,
       pointsPossible: assignment.pointsPossible,
@@ -62,6 +82,9 @@ export async function loadOpenWork(userId: string, now: Date): Promise<RankedIte
       const handedIn = Boolean(assignment.grade?.submittedAt);
       const excused = assignment.grade?.excused === true;
       if (graded || handedIn || excused) {
+        continue;
+      }
+      if (doneIds.has(assignment.id) || skippedTodayIds.has(assignment.id)) {
         continue;
       }
       items.push({

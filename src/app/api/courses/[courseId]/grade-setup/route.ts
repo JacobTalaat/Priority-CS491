@@ -53,6 +53,19 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
+  // A final exam weight only grades when the final itself is picked, so confirming a
+  // weight above 0 without that pick would save a setup the engine grades wrong.
+  const finalExamAssignmentId = parsed.data.classDetails.finalExamAssignmentId;
+  if (
+    parsed.data.finalExamWeight > 0 &&
+    (typeof finalExamAssignmentId !== "string" || !assignmentIds.has(finalExamAssignmentId))
+  ) {
+    return NextResponse.json(
+      { error: "Pick which assignment is the final exam, or set the final exam weight to 0." },
+      { status: 400 },
+    );
+  }
+
   const confirmedAt = new Date();
   await prisma.courseGradeSetup.upsert({
     where: { courseId: course.id },

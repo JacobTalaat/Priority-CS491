@@ -1,3 +1,5 @@
+import { createECDH } from "node:crypto";
+
 const DEFAULT_CANVAS_BASE_URL = "https://canvas.instructure.com";
 const DEFAULT_AI_TIMEOUT_MS = 60000;
 const MICRO_DECIMAL_PATTERN = /^\d+(\.\d{1,6})?$/;
@@ -16,6 +18,10 @@ export type Env = {
   readonly aiOutputMicrosPerMillion: number;
   readonly aiMonthlyBudgetMicros: number;
   readonly aiTimeoutMs: number;
+  readonly vapidPublicKey: string;
+  readonly vapidPrivateKey: string;
+  readonly vapidSubject: string;
+  readonly cronSecret: string;
 };
 
 function requireValue(name: string, value: string | undefined): string {
@@ -23,6 +29,23 @@ function requireValue(name: string, value: string | undefined): string {
     throw new Error(`Missing required environment variable ${name}`);
   }
   return value;
+}
+
+// Key material is formatted exactly as `npx web-push generate-vapid-keys`
+// prints it: base64url (RFC 4648, no padding).
+function requireVapidBytes(name: string, bytes: number, value: string | undefined): Buffer {
+  const raw = requireValue(name, value).trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(raw)) {
+    throw new Error(`${name} must be base64url encoding exactly ${bytes} bytes`);
+  }
+  const decoded = Buffer.from(raw, "base64url");
+  if (decoded.length !== bytes) {
+    throw new Error(`${name} must be base64url encoding exactly ${bytes} bytes`);
+  }
+  if (bytes === 65 && decoded[0] !== 0x04) {
+    throw new Error(`${name} must be an uncompressed public point (first byte 0x04)`);
+  }
+  return decoded;
 }
 
 function decimalToMicros(value: string): bigint {
@@ -116,6 +139,40 @@ export function readEnv(source: EnvSource): Env {
       }
       return Number(micros);
     },
+    get vapidPublicKey(): string {
+      // An uncompressed P-256 point: 65 bytes, the format web-push checks too.
+      return requireVapidBytes("VAPID_PUBLIC_KEY", 65, source.VAPID_PUBLIC_KEY).toString("base64url");
+    },
+    get vapidPrivateKey(): string {
+      const decodedPublic = requireVapidBytes("VAPID_PUBLIC_KEY", 65, source.VAPID_PUBLIC_KEY);
+      const decodedPrivate = requireVapidBytes("VAPID_PRIVATE_KEY", 32, source.VAPID_PRIVATE_KEY);
+      // The key pair is used as one: the browser subscribes against the public
+      // key and every send is signed with the private one. They must belong to
+      // each other or the browser's subscription would be signed by a nobody.
+      const ecdh = createECDH("prime256v1");
+      try {
+        ecdh.setPrivateKey(decodedPrivate);
+      } catch {
+        throw new Error("VAPID_PRIVATE_KEY must be a valid P-256 private key");
+      }
+      if (ecdh.getPublicKey("base64url") !== decodedPublic.toString("base64url")) {
+        throw new Error("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY do not form a key pair. Generate them together with npx web-push generate-vapid-keys.");
+      }
+      return decodedPrivate.toString("base64url");
+    },
+    get vapidSubject(): string {
+      const value = requireValue("VAPID_SUBJECT", source.VAPID_SUBJECT).trim();
+      let parsed: URL;
+      try {
+        parsed = new URL(value);
+      } catch {
+        throw new Error("VAPID_SUBJECT must be a mailto: or https: URL");
+      }
+      if (parsed.protocol !== "mailto:" && parsed.protocol !== "https:") {
+        throw new Error("VAPID_SUBJECT must be a mailto: or https: URL");
+      }
+      return value;
+    },
     get aiTimeoutMs(): number {
       const raw = source.AI_TIMEOUT_MS;
       if (raw === undefined || raw.trim() === "") {
@@ -130,6 +187,13 @@ export function readEnv(source: EnvSource): Env {
         throw new Error("AI_TIMEOUT_MS must be an integer between 1000 and 300000");
       }
       return parsed;
+    },
+    get cronSecret(): string {
+      const value = requireValue("CRON_SECRET", source.CRON_SECRET).trim();
+      if (value.length < 32) {
+        throw new Error("CRON_SECRET must be at least 32 characters");
+      }
+      return value;
     },
   };
 }

@@ -17,8 +17,9 @@ export function assignmentShares(
 ): AssignmentShare[] {
   // A final exam weight held outside the categories belongs to no assignment,
   // so every share computed without it would be confidently wrong: a 70/30
-  // course would rank its final as a slice of Homework. Unknown is the honest
-  // answer until the final is its own category.
+  // course would rank its final as a slice of Homework. The grade route folds
+  // a picked final into its own category first, so reaching this guard means
+  // nothing was picked or mapped, and unknown is the honest answer.
   if (setup && setup.finalExamWeight > 0) {
     return assignments.map((assignment) => ({ assignmentId: assignment.id, share: null, category: null }));
   }

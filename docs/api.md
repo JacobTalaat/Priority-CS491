@@ -231,6 +231,8 @@ curl -i http://localhost:3000/api/auth/me \
 
 Answers a question about the student's classes using only the passages Priority retrieves from the student's saved syllabi, Canvas assignments (including their scores), and grade setup class details. For each question, the question and up to 8 retrieved passages from the student's own data are sent to the AI provider. When the AI can support an answer from those passages, each source it cites is built server-side from the matched passage: the source identifies the passage, and the `quote` is an excerpt the AI copied from it, verified to appear in the passage before being returned. A `found: false` response is a best effort: it means the AI could not support an answer from the matched data, not a guarantee that the data lacks it.
 
+Logging: every question that reaches the answering step is stored against the student's account for the team's accuracy study. Each row keeps the question, the outcome (`found`, `not-found`, `failed`, or `cap-reached`), the answer when the outcome is `found`, the exact sources shown to the student for that answer, the course the question was scoped to, and the time. Rows are deleted with the account. Questions that produce a 502 or 503 response are recorded too; validation errors and questions for a course that is not the student's current course are not.
+
 - **Method**: `POST`
 - **Path**: `/api/ask`
 
@@ -477,6 +479,210 @@ curl -i -X PATCH http://localhost:3000/api/notifications/preferences \
 ```json
 {
   "error": "Unauthorized"
+}
+```
+
+### `GET /api/push/public-key`
+
+Returns the server's VAPID public key, for the browser to subscribe against (the website fetches this in Settings instead of baking the key into the bundle).
+
+- **Method**: `GET`
+- **Path**: `/api/push/public-key`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token — every route the app serves needs a session unless it is deliberately public.
+
+```bash
+curl -i http://localhost:3000/api/push/public-key \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — signing key material the browser needs for `PushManager.subscribe`'s `applicationServerKey`:
+
+```json
+{
+  "publicKey": "BEl62iLg1Lt1uQ2bQMBM81DiZHt8_XdJNXt6FJH4zI2g..."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `POST /api/push/subscriptions`
+
+Saves the browser's web push subscription for the authenticated student. Repeating the request updates the saved subscription for that endpoint. When the endpoint belongs to another account, it is moved to the caller only if `p256dh` and `auth` are unchanged — those keys prove it is literally the same browser subscription; otherwise the request is refused so nobody can silently disown another student's device. The endpoint must point at one of Priority's supported push services (Google, Mozilla, Apple, Windows). Each user keeps at most ten subscriptions; the one least recently delivered is dropped, never the row just saved.
+
+- **Method**: `POST`
+- **Path**: `/api/push/subscriptions`
+
+**Request**
+
+JSON body with the subscription the browser made (the whole body must be under 4 KB):
+
+- `endpoint` (string) — the push service URL, `https` only, no port other than 443, no embedded credentials, at most 1000 characters
+- `keys.p256dh` (string) — base64url uncompressed P-256 public key (65 bytes starting with `0x04`), checked as a real curve point
+- `keys.auth` (string) — base64url auth secret, exactly 16 bytes
+
+```bash
+curl -i -X POST http://localhost:3000/api/push/subscriptions \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/abc","keys":{"p256dh":"BPk_1...","auth":"aB_1..."}}'
+```
+
+**Response**
+
+`200` — the subscription is saved:
+
+```json
+{
+  "subscribed": true
+}
+```
+
+`400` — the body is not valid JSON, not an object, over 4 KB, the endpoint is missing or not an `https` URL, it is over 1000 characters, a key is missing or malformed, or the endpoint does not point at a supported push service:
+
+```json
+{
+  "error": "Send endpoint as the https push service URL your browser gave you (at most 1000 characters), keys.p256dh as its uncompressed P-256 public key, and keys.auth as its 16-byte secret."
+}
+```
+
+`400` — the endpoint is fine `https` but names another host:
+
+```json
+{
+  "error": "Only Priority's supported push services (Google, Mozilla, Apple or Windows) can be used."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`409` — the endpoint currently belongs to another account and its stored keys differ from the request's, so it cannot be taken over:
+
+```json
+{
+  "error": "This browser subscription belongs to another account. Turn notifications off there first."
+}
+```
+
+### `DELETE /api/push/subscriptions`
+
+Removes the authenticated student's own subscription for an endpoint. Endpoints that belong to another account are never touched.
+
+- **Method**: `DELETE`
+- **Path**: `/api/push/subscriptions`
+
+**Request**
+
+JSON body with:
+
+- `endpoint` (string) — the push service URL of the subscription to remove
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/push/subscriptions \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/abc"}'
+```
+
+**Response**
+
+`200` — whether a saved subscription of the caller's was removed:
+
+```json
+{
+  "removed": true
+}
+```
+
+`200` — nothing was removed (the endpoint is unknown or belongs to another account):
+
+```json
+{
+  "removed": false
+}
+```
+
+`400` — the body is not valid JSON, not an object, or `endpoint` is missing:
+
+```json
+{
+  "error": "Send endpoint as the subscription to remove."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `POST /api/push/test`
+
+Sends one fixed test message ({ "title": "Priority", "body": "Notifications are on.", "url": "/today" }) to each of the caller's saved subscriptions and reports the counts. `removed` counts subscriptions deleted because the push service answered 404 or 410 — the only statuses that say the browser subscription is gone; everything else (transport errors, timeouts, rate limits, server errors) is counted under `failed` and the subscription stays. The limit of three calls per user per 10 minutes is counted per server instance (in memory), so it resets on deploy/restart; `Retry-After` carries the seconds remaining.
+
+- **Method**: `POST`
+- **Path**: `/api/push/test`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i -X POST http://localhost:3000/api/push/test \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the sends went out; `sent` counts deliveries the push service accepted, `failed` the ones it rejected or that errored, and `removed` the subscriptions deleted because the push service said they no longer exist:
+
+```json
+{
+  "sent": 2,
+  "failed": 0,
+  "removed": 0
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the caller has no saved subscriptions yet:
+
+```json
+{
+  "error": "No saved browser subscription. Turn notifications on first."
+}
+```
+
+`429` — more than three test sends in 10 minutes; `Retry-After` carries the seconds remaining:
+
+```json
+{
+  "error": "Too many test notifications. Try again later."
 }
 ```
 
@@ -896,7 +1102,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 **Response**
 
-`200` — the import completed; every count is the number of records written for that stage:
+`200` — the import completed; every count is the number of records written for that stage, and `gradesPosted` is the number of newly Canvas-posted grades detected during this sync (scores that went from absent to a number, recorded once per assignment in `GradePostedEvent`):
 
 ```json
 {
@@ -904,7 +1110,8 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
   "courses": 4,
   "assignmentGroups": 7,
   "assignments": 62,
-  "grades": 58
+  "grades": 58,
+  "gradesPosted": 3
 }
 ```
 
@@ -921,6 +1128,14 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 ```json
 {
   "error": "Canvas not connected"
+}
+```
+
+`409` — a sync (this one or the daily job) is already running for the account. The sync lock is held for the length of one sync:
+
+```json
+{
+  "error": "A sync is already running for your account. Try again in a minute."
 }
 ```
 
@@ -966,7 +1181,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 ### `POST /api/courses/[courseId]/grade-setup`
 
-Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, and every assignment in the course must map to exactly one category. Repeating the request replaces the saved setup.
+Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, every assignment in the course must map to exactly one category, and a final exam weight above 0 requires picking which assignment is the final exam (`classDetails.finalExamAssignmentId` set to one of the course's assignment IDs). Repeating the request replaces the saved setup.
 
 - **Method**: `POST`
 - **Path**: `/api/courses/[courseId]/grade-setup`
@@ -979,7 +1194,7 @@ JSON body with:
 - `assignmentMappings` — array of `{ "assignmentId": string, "category": string }` using assignment IDs belonging to this course.
 - `finalExamWeight` — number from 0 to 100. Together with category weights it must total 100.
 - `cutoffs` — object mapping grade labels to percentage cutoffs from 0 to 100.
-- `classDetails` — object mapping detail names to text, numbers, or `null`.
+- `classDetails` — object mapping detail names to text, numbers, or `null`. A `finalExamAssignmentId` entry names the assignment that is the final exam (the Weights form saves `null` when none is picked).
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
@@ -1011,11 +1226,17 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 }
 ```
 
-`400` — invalid setup, weights do not total 100, or assignment mappings are incomplete or refer to another course:
+`400` — invalid setup, weights do not total 100, a final exam weight above 0 without a picked final, or assignment mappings are incomplete or refer to another course:
 
 ```json
 {
   "error": "Category weights and the final exam weight must add up to 100."
+}
+```
+
+```json
+{
+  "error": "Pick which assignment is the final exam, or set the final exam weight to 0."
 }
 ```
 
@@ -1452,6 +1673,8 @@ curl -i http://localhost:3000/api/courses/course-id \
 
 Returns the overall grade for one of the student's current courses and, when the course is graded by category, the grade inside each category so the student can see what is pulling the grade down. Which engine produced the grade comes back as `engine`: `weighted` when a confirmed setup with usable category weights was used, `points` otherwise (no confirmed setup, or one whose categories carry no usable weight — the weighted math would be impossible). A points grade has an empty `breakdown`; a points course has no categories.
 
+A final exam weight is graded as its own category for the picked final: before the engine runs, the picked assignment (`finalExamAssignmentId` in the saved class details) is moved out of its mapped category, and the final exam weight becomes a `Final exam` category — added to an existing `Final exam` or `Final` category when the setup already has one. This can turn a previously points-graded setup weighted: a setup whose only positive weight was the final exam weight now has a usable category. A setup saved with no picked final has no such weight, so nothing moves.
+
 When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
 
 - `negative-score` — a stored grade below zero.
@@ -1461,11 +1684,11 @@ Extra credit is not a stop condition: a score above the assignment's points poss
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
-The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the setup holds the final exam's weight outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
+The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the final exam is picked but mapped nowhere while its weight lives outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
 
 The needed score assumes every other ungraded assignment keeps counting the way the engine counts it today: ungraded work is left out of the grade, so the rest of the current average holds as-is. If more ungraded work is graded later, the real grade can land lower or higher than predicted, so `secured` and `out-of-reach` are only certain when nothing else is still to be graded. `otherWorkPending` on a `solved` result is `true` when other counted work has no grade yet; the student-facing sentences then say the answer holds "if your other grades stay where they are".
 
-The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. If the saved setup gives the final exam a weight outside the categories (`finalExamWeight` above 0), that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final. Make the final exam its own category to get shares.
+The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. When a picked final exam's weight lives outside the categories, the route folds that weight into the final's own category before computing shares, so the final carries the slice the syllabus gave it. If the setup holds a weight outside the categories with no final exam picked and mapped, that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final.
 
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
@@ -1785,6 +2008,177 @@ curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
 }
 ```
 
+### `GET /api/jobs/daily-sync`
+
+Runs one tick of the daily Canvas sync job. Every call counts: the job is a resumable tick rather than one long run, so a scheduler should call this every 15 minutes until the response reports `finished: true`. The tick syncs connected users (a stored Canvas token or a saved calendar feed) who have not been attempted yet in the current America/New_York calendar day, one at a time, and stops starting new users once 40 seconds of the tick are spent; every user it did start is awaited to completion. The per-day `SyncRun` is created by the first tick and later ticks add to its counters; the tick that finds nobody left sets `finishedAt`.
+
+Before each user is synced, the tick tries to take that account's sync lock. A student mid "Sync now" is recorded as `skipped-locked` for the day and never retried today, without counting as a failure. An attempt that stayed unfinished for more than 5 minutes (its process was killed) is reaped by the next tick as a timeout failure. Failures are recorded in `SyncFailure` with a fixed message per kind (`unauthorized`, `network`, `http`, `timeout`, `other`) that never contains raw error text, and each failed user also logs one fixed console line.
+
+This route is protected by a shared secret rather than an app session so any scheduler can call it. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for three ways to schedule the call (Vercel Cron, a crontab line with curl, or a GitHub Actions schedule).
+
+- **Method**: `GET`
+- **Path**: `/api/jobs/daily-sync`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i http://localhost:3000/api/jobs/daily-sync \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran. `attemptedThisTick` is how many users were attempted now, `remaining` how many connected users are still owed a sync today, and the counters are the day's totals across ticks:
+
+```json
+{
+  "day": "2026-10-22",
+  "attemptedThisTick": 2,
+  "remaining": 1,
+  "usersSucceeded": 2,
+  "usersFailed": 1,
+  "gradesPosted": 4,
+  "finished": false
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Daily sync failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+### `POST /api/jobs/daily-sync`
+
+Runs the same tick of the daily Canvas sync job as `GET /api/jobs/daily-sync`, for curl-style schedulers. Same shared secret, same response.
+
+To check the job keeps the list current (acceptance: "checked two days in a row"): on two consecutive days, call the tick repeatedly (every 15 minutes) until `finished: true`, or open the `GET /api/jobs/daily-sync/runs` route afterwards — one `SyncRun` row per day means the job ran on both days, and that check needs no database access.
+
+- **Method**: `POST`
+- **Path**: `/api/jobs/daily-sync`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i -X POST http://localhost:3000/api/jobs/daily-sync \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran:
+
+```json
+{
+  "day": "2026-10-22",
+  "attemptedThisTick": 2,
+  "remaining": 1,
+  "usersSucceeded": 2,
+  "usersFailed": 1,
+  "gradesPosted": 4,
+  "finished": false
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Daily sync failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+### `GET /api/jobs/daily-sync/runs`
+
+Returns the last 7 daily-sync runs (one per America/New_York day) with their day totals, so anyone can check that the job ran — for example on two consecutive days — without database access. Same shared secret as the tick routes.
+
+- **Method**: `GET`
+- **Path**: `/api/jobs/daily-sync/runs`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i http://localhost:3000/api/jobs/daily-sync/runs \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the most recent runs, newest first (up to 7):
+
+```json
+{
+  "runs": [
+    {
+      "runId": "run-id",
+      "day": "2026-10-22",
+      "startedAt": "2026-10-22T04:00:00.000Z",
+      "finishedAt": "2026-10-22T04:03:00.000Z",
+      "usersTotal": 3,
+      "usersSucceeded": 3,
+      "usersFailed": 0,
+      "gradesPosted": 4
+    }
+  ]
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
 ---
 
 ### `POST /api/events`
@@ -1840,7 +2234,7 @@ curl -i -X POST http://localhost:3000/api/events \
 
 ### `GET /api/today`
 
-Returns the student's ranked to-do list in one call, so the website and the mobile app show the same order. Only work the student can still act on is listed: graded work, work already handed in, and excused work never appear. Items are grouped by their due calendar day in New York; overdue work from the last 7 New York calendar days is pulled into today's group — it is not simply first, and a bigger item due tonight can rank above it — while work more than 7 calendar days overdue is left out entirely. Within a day, items rank by share of the final grade divided by the estimated hours; work without a due date comes last.
+Returns the student's ranked to-do list in one call, so the website and the mobile app show the same order. Only work the student can still act on is listed: graded work, work already handed in, and excused work never appear. Work the student marked done — even if Canvas has not graded it yet — and work skipped for today's New York day never appear either; skipping comes back the next New York day, and undone work becomes eligible again. An item an undo (or a skip's expiry) makes eligible only shows up again if it is still open: not graded, not handed in, not excused, and not more than 7 New York calendar days overdue. Items are grouped by their due calendar day in New York; overdue work from the last 7 New York calendar days is pulled into today's group — it is not simply first, and a bigger item due tonight can rank above it — while work more than 7 calendar days overdue is left out entirely. Within a day, items rank by share of the final grade divided by the estimated hours; work without a due date comes last.
 
 - **Method**: `GET`
 - **Path**: `/api/today`
@@ -1939,6 +2333,292 @@ Until work estimates are stored (a later plan ticket), every item is unestimated
 ```json
 {
   "error": "Hours filter must be a number between 0.5 and 12."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+---
+
+### `POST /api/today/items/[assignmentId]/done`
+
+Marks one to-do item done: it disappears from `GET /api/today` immediately and stays gone until it is undone — even if Canvas has no grade for it yet. The assignment must belong to one of the student's CURRENT courses, or the route answers `404`. Every call also appends one record to the tap event log (`done`), which the ranking study later reads; the record keeps the item's course id and Canvas id, so it stays identifiable even after a sync removes the assignment row itself.
+
+- **Method**: `POST`
+- **Path**: `/api/today/items/[assignmentId]/done`
+
+**Request**
+
+Send an `Authorization` header with the Priority bearer token, and optionally:
+
+- `X-Priority-Client: web` or `X-Priority-Client: app` — which client sent the tap; recorded on the event as sent. Any other value — or no header at all — is recorded as `unknown`.
+- `X-Priority-Request-Id` — an idempotency key of at most 100 characters. Retrying the same action with the same key returns the first response again and never writes a second event or state change; without the key, every call counts. Clients should generate one key per tap, not per retry.
+- An optional JSON body saying what the client had on screen when the student tapped, so the study can tell whether the tested behaviour sat at the top of the list: `{ "rank": <the item's rank from GET /api/today>, "listGeneratedAt": "<that response's generatedAt>" }`. Both fields are optional; the server also stores where the item sat in the list it computes at the moment of the tap (`serverRank`). A body that is not a JSON object, or a field of the wrong form, is rejected with `400`.
+
+```bash
+curl -i http://localhost:3000/api/today/items/assignment-id-1/done \
+  -X POST \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "X-Priority-Client: web" \
+  -H "X-Priority-Request-Id: tap-0f3e2b" \
+  -d'{ "rank": 1, "listGeneratedAt": "2026-10-14T16:30:00.000Z" }'
+```
+
+**Response**
+
+`200` — the item is done:
+
+```json
+{
+  "assignmentId": "assignment-id-1",
+  "status": "done"
+}
+```
+
+The same request retried with the same `X-Priority-Request-Id` returns this exact body again, with no further writes.
+
+`400` — the body is not a JSON object, `rank` is not a positive integer, `listGeneratedAt` is not an ISO date-time, or `X-Priority-Request-Id` is longer than 100 characters:
+
+```json
+{
+  "error": "rank must be a positive integer."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not exist, does not belong to the student, or belongs to one of their not-current courses:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
+---
+
+### `POST /api/today/items/[assignmentId]/skip`
+
+Hides one to-do item for the rest of today, in New York: it disappears from `GET /api/today` immediately and reappears at midnight ET — actually, only if it is still open (not graded, not handed in, not excused, and not more than 7 New York calendar days overdue). The assignment must belong to one of the student's CURRENT courses, or the route answers `404`. Skipping never overwrites a done state: if the item is done, the tap is logged as `skip` exactly as the student made it, but the item stays done and this route reports `done`. Every call also appends one record to the tap event log, which keeps the item's course id and Canvas id even after the assignment row is synced away.
+
+- **Method**: `POST`
+- **Path**: `/api/today/items/[assignmentId]/skip`
+
+**Request**
+
+Send an `Authorization` header with the Priority bearer token, and see the done route for the `X-Priority-Client`, `X-Priority-Request-Id` and JSON body (`rank` / `listGeneratedAt` from `GET /api/today`) options and its `400` responses.
+
+```bash
+curl -i http://localhost:3000/api/today/items/assignment-id-1/skip \
+  -X POST \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "X-Priority-Client: app"
+```
+
+**Response**
+
+`200` — the item is skipped for today (or reported still `done`, when it was done):
+
+```json
+{
+  "assignmentId": "assignment-id-1",
+  "status": "skipped"
+}
+```
+
+`400` — a bad `X-Priority-Request-Id` or body, as on the done route.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not exist, does not belong to the student, or belongs to one of their not-current courses:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
+---
+
+### `DELETE /api/today/items/[assignmentId]`
+
+Undoes an item's done or skip state: the state row is removed, so `GET /api/today` lists the item again — if it is still open (not graded, not handed in, not excused, and not more than 7 New York calendar days overdue); undo does not bring back work that is no longer open. The assignment must belong to one of the student's CURRENT courses, or the route answers `404`. Every call also appends one record to the tap event log (`undo`), including a tap where there was no state left to remove — the tap itself is still what the student did. Every event keeps the item's course id and Canvas id, so study data outlives the assignment row.
+
+- **Method**: `DELETE`
+- **Path**: `/api/today/items/[assignmentId]`
+
+**Request**
+
+Send an `Authorization` header with the Priority bearer token; there is no body. See the `X-Priority-Client` and `X-Priority-Request-Id` header options and the `400` responses on the done route.
+
+```bash
+curl -i http://localhost:3000/api/today/items/assignment-id-1 \
+  -X DELETE \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "X-Priority-Client: web" \
+  -H "X-Priority-Request-Id: tap-0f3e2c"
+```
+
+**Response**
+
+`200` — `undone` is `true` when a stored state was removed, `false` when there was none (the item was neither done nor skipped); the item shows on `GET /api/today` either way, if it is still open:
+
+```json
+{
+  "assignmentId": "assignment-id-1",
+  "undone": true
+}
+```
+
+`400` — a bad `X-Priority-Request-Id`, as on the done route.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not exist, does not belong to the student, or belongs to one of their not-current courses:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
+---
+
+### `POST /api/devices`
+
+Registers the device token for one of the student's devices, so push notifications reach it. Each device keeps its own row: the body carries a `deviceId` (the app's stable identifier), and re-registering from the same device replaces that device's token. Students are allowed multiple devices — registering an iPhone does not retire an iPad.
+
+A student's devices are capped at 10. Registering an extra device past the cap removes the row with the oldest update, so a device that has not re-registered for the longest time stops receiving pushes first.
+
+A token registered by another account moves to the caller: registering a token removes it from any other row it is still tied to, including rows owned by a different student, before it is saved here. This risks breaking another app that expected its token to still report to the first account, and it is accepted on purpose: the token is an opaque per-device push address, and this app never exposes token values through any route, so a caller can only ever silence its own device.
+
+Concurrent registrations from the same device converge on the same row; if the database reports a write conflict or unique violation from a concurrent request, the registration is retried whole, and after three failed attempts it returns `503`.
+
+- **Method**: `POST`
+- **Path**: `/api/devices`
+
+**Request**
+
+JSON body with:
+
+- `token` (string) — the APNs device token, a hex string with an even number of characters, from 32 to 400 characters (case-insensitive; Apple does not fix the length in advance). It is stored lowercased.
+- `platform` (string) — only `"ios"` is accepted today.
+- `deviceId` (string) — a UUID identifying the device install (on iOS, `identifierForVendor`), case-insensitive. Stored lowercased.
+
+```bash
+curl -i -X POST http://localhost:3000/api/devices \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"9f4b1c3d2e5a60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0","platform":"ios","deviceId":"123e4567-e89b-12d3-a456-426614174000"}'
+```
+
+**Response**
+
+`200` — the token was registered for the device:
+
+```json
+{
+  "registered": true
+}
+```
+
+`400` — the body is not JSON, or a field did not validate; each error is a plain sentence naming what was wrong:
+
+```json
+{
+  "error": "Device token must be a hex string of 32 to 400 characters."
+}
+```
+
+```json
+{
+  "error": "Only the ios platform is supported."
+}
+```
+
+```json
+{
+  "error": "deviceId must be a UUID."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`503` — the registration kept losing to a concurrent registration and ran out of retries:
+
+```json
+{
+  "error": "Couldn't register this device right now. Try again."
+}
+```
+
+---
+
+### `DELETE /api/devices`
+
+Forgets a device token, used when the student logs out. The token is validated the same way POST validates it, trimmed, and matched lowercased. A token is removed only when it belongs to the student calling the route; if it is registered to nobody, or to another account, the response is the same, so no information about other accounts leaks.
+
+- **Method**: `DELETE`
+- **Path**: `/api/devices`
+
+**Request**
+
+JSON body with:
+
+- `token` (string) — the device token to forget.
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/devices \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"9f4b1c3d2e5a60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0"}'
+```
+
+**Response**
+
+`200` — whether a token owned by the student was removed:
+
+```json
+{
+  "removed": true
+}
+```
+
+`400` — the body is not JSON, or the token did not validate:
+
+```json
+{
+  "error": "Device token must be a hex string of 32 to 400 characters."
 }
 ```
 

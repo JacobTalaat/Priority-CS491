@@ -29,13 +29,22 @@ model User {
   canvasCalendarFeedIv     String?
   canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
+  syncStartedAt     DateTime?
   notifyTonight      Boolean @default(true)
   notifyGradePosted  Boolean @default(true)
   notifyDueTomorrow  Boolean @default(true)
   nightlyReminderTime String @default("20:00")
   sessions          Session[]
   courses           Course[]
+  pushSubscriptions PushSubscription[]
+  itemStates        ItemState[]
+  itemEvents        ItemEvent[]
+  askLogs           AskLog[]
+  deviceTokens      DeviceToken[]
   usageEvents       UsageEvent[]
+  gradePostedEvents GradePostedEvent[]
+  syncAttempts      SyncAttempt[]
+  syncFailures      SyncFailure[]
 }
 
 model Session {
@@ -131,6 +140,9 @@ model Assignment {
   course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
   assignmentGroup AssignmentGroup? @relation(fields: [assignmentGroupId], references: [id], onDelete: SetNull)
   grade           Grade?
+  gradePostedEvents GradePostedEvent[]
+  states          ItemState[]
+  events          ItemEvent[]
 
   @@unique([courseId, canvasId])
   @@index([courseId, dueAt])
@@ -148,6 +160,23 @@ model Grade {
   updatedAt    DateTime  @updatedAt
 
   assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  lastSuccessAt DateTime?
+  failureCount  Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model AiSpendMonth {
@@ -175,6 +204,94 @@ model AiUsageDay {
   @@id([day, feature, userId])
 }
 
+// Per-student state of a to-do item: done until undone, or skipped for one
+// New York day. Keyed by the student so two students on the same assignment
+// never share state.
+model ItemState {
+  userId       String
+  assignmentId String
+  // "done" or "skipped"; done needs no day, so skippedDay only fills for skips.
+  status       String
+  // The YYYY-MM-DD America/New_York day the skip applies to; a skip from
+  // yesterday stops hiding the item at midnight ET.
+  skippedDay   String?
+  updatedAt    DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, assignmentId])
+}
+
+// Append-only record of the student's taps (done, skip, undo) with the client
+// they came from: the audit trail the ranking study later reads. Kept alive
+// after Canvas deletes an assignment, so the study can still tell what that
+// item was (courseId and assignmentCanvasId ride along un-normalised).
+model ItemEvent {
+  id           String   @id @default(cuid())
+  userId       String
+  // Null once the assignment row is synced away; the item stays identifiable
+  // through courseId and assignmentCanvasId below.
+  assignmentId String?
+  // Written at tap time, never nulled when the assignment goes.
+  courseId            String
+  assignmentCanvasId  String
+  // "done", "skip" or "undo".
+  action       String
+  // "web", "app" or "unknown" (no header, or a value neither client sends).
+  client       String
+  // What the client says it displayed when it tapped, so the study can tell
+  // whether the tested behaviour was at the top of the list.
+  shownRank         Int?
+  listGeneratedAt   DateTime?
+  serverRank        Int?
+  // The exact response body the request returned, so a retried tap with the
+  // same requestId replays it without touching state or history again.
+  response          Json?
+  // Client-supplied idempotency key (X-Priority-Request-Id): retried taps do
+  // not double-log. Unique per user; Postgres allows many NULL requestIds.
+  requestId    String?
+  createdAt    DateTime @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignment Assignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, requestId])
+  @@index([userId, createdAt])
+}
+
+model AskLog {
+  id          String   @id @default(cuid())
+  userId      String
+  question    String
+  outcome     String
+  answer      String?
+  found       Boolean
+  sourceCount Int
+  courseId    String?
+  sources     Json?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  deviceId  String
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+}
+
 enum UsageClient {
   web
   app
@@ -192,4 +309,60 @@ model UsageEvent {
 
   @@index([userId, createdAt])
   @@index([event, createdAt])
+}
+
+model GradePostedEvent {
+  id           String    @id @default(cuid())
+  userId       String
+  assignmentId String
+  score        Float
+  postedAt     DateTime  @default(now())
+  notifiedAt   DateTime?
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId])
+}
+
+model SyncRun {
+  id             String    @id @default(cuid())
+  day            String    @unique
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  usersTotal     Int
+  usersSucceeded Int
+  usersFailed    Int
+  gradesPosted   Int
+
+  failures SyncFailure[]
+  attempts SyncAttempt[]
+}
+
+model SyncAttempt {
+  id         String    @id @default(cuid())
+  runId      String
+  userId     String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  outcome    String?
+
+  run  SyncRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, userId])
+}
+
+model SyncFailure {
+  id        String   @id @default(cuid())
+  runId     String
+  userId    String
+  kind      String
+  message   String
+  createdAt DateTime @default(now())
+
+  run  SyncRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
 }
