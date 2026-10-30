@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createECDH, randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { readEnv } from "./env";
 
@@ -342,5 +342,123 @@ describe("AI price and budget variables", () => {
     expect(() => readEnv({ AI_TIMEOUT_MS: "1500.5" }).aiTimeoutMs).toThrow("AI_TIMEOUT_MS");
     expect(() => readEnv({ AI_TIMEOUT_MS: "1e4" }).aiTimeoutMs).toThrow("AI_TIMEOUT_MS");
     expect(() => readEnv({ AI_TIMEOUT_MS: "abc" }).aiTimeoutMs).toThrow("AI_TIMEOUT_MS");
+  });
+});
+
+describe("readEnv VAPID keys", () => {
+  // Real P-256 pair: only a matching pair reaches the forms web-push signs with.
+  const pair = (() => {
+    const ecdh = createECDH("prime256v1");
+    ecdh.generateKeys();
+    return { publicKey: ecdh.getPublicKey("base64url"), privateKey: ecdh.getPrivateKey("base64url") };
+  })();
+  const otherPair = (() => {
+    const ecdh = createECDH("prime256v1");
+    ecdh.generateKeys();
+    return { publicKey: ecdh.getPublicKey("base64url"), privateKey: ecdh.getPrivateKey("base64url") };
+  })();
+  const publicKey = pair.publicKey;
+  const privateKey = pair.privateKey;
+  const base = { DATABASE_URL: "postgresql://localhost" };
+
+  it("accepts the keys web-push generates and a mailto: subject", () => {
+    const parsed = readEnv({
+      ...base,
+      VAPID_PUBLIC_KEY: publicKey,
+      VAPID_PRIVATE_KEY: privateKey,
+      VAPID_SUBJECT: "mailto:push@example.com",
+    });
+    expect(parsed.vapidPublicKey).toBe(publicKey);
+    expect(parsed.vapidPrivateKey).toBe(privateKey);
+    expect(parsed.vapidSubject).toBe("mailto:push@example.com");
+  });
+
+  it("accepts an https: subject", () => {
+    const parsed = readEnv({
+      ...base,
+      VAPID_PUBLIC_KEY: publicKey,
+      VAPID_PRIVATE_KEY: privateKey,
+      VAPID_SUBJECT: "https://priority.example.edu/contact",
+    });
+    expect(parsed.vapidSubject).toBe("https://priority.example.edu/contact");
+  });
+
+  it("rejects a non-empty VAPID_SUBJECT that is not a mailto: or https: URL", () => {
+    for (const subject of ["push@example.com", "ftp://push.example.com"]) {
+      expect(() =>
+        readEnv({
+          ...base,
+          VAPID_PUBLIC_KEY: publicKey,
+          VAPID_PRIVATE_KEY: privateKey,
+          VAPID_SUBJECT: subject,
+        }).vapidSubject,
+      ).toThrow("VAPID_SUBJECT must be a mailto: or https: URL");
+    }
+  });
+
+  it("rejects the public key of one pair paired with another pair's private key", () => {
+    let message = "no throw";
+    try {
+      void readEnv({
+        ...base,
+        VAPID_PUBLIC_KEY: publicKey,
+        VAPID_PRIVATE_KEY: otherPair.privateKey,
+        VAPID_SUBJECT: "mailto:push@example.com",
+      }).vapidPrivateKey;
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toBe(
+      "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY do not form a key pair. Generate them together with npx web-push generate-vapid-keys.",
+    );
+  });
+
+  it("accepts a mailto: subject without an address because the scheme is what the push service reads", () => {
+    const parsed = readEnv({
+      ...base,
+      VAPID_PUBLIC_KEY: publicKey,
+      VAPID_PRIVATE_KEY: privateKey,
+      VAPID_SUBJECT: "mailto:",
+    });
+    expect(parsed.vapidSubject).toBe("mailto:");
+  });
+
+  it("rejects a key that is not base64url", () => {
+    let message = "no throw";
+    try {
+      const parsed = readEnv({ ...base, VAPID_PUBLIC_KEY: "not a key!", VAPID_PRIVATE_KEY: privateKey, VAPID_SUBJECT: "mailto:" });
+      message = "returned " + parsed.vapidPublicKey;
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toBe("VAPID_PUBLIC_KEY must be base64url encoding exactly 65 bytes");
+  });
+
+  it("rejects a key of the wrong length", () => {
+    let message = "no throw";
+    try {
+      const parsed = readEnv({ ...base, VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: privateKey.slice(1), VAPID_SUBJECT: "mailto:" });
+      message = "returned " + parsed.vapidPrivateKey;
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toBe("VAPID_PRIVATE_KEY must be base64url encoding exactly 32 bytes");
+  });
+
+  it("names the missing key", () => {
+    expect(() => readEnv({ ...base }).vapidPublicKey).toThrow(
+      "Missing required environment variable VAPID_PUBLIC_KEY",
+    );
+    // Reading the private key validates the pair, so its error names the
+    // missing PUBLIC half first.
+    expect(() => readEnv({ DATABASE_URL: "postgresql://localhost" }).vapidPrivateKey).toThrow(
+      "Missing required environment variable VAPID_PUBLIC_KEY",
+    );
+    expect(() =>
+      readEnv({ ...base, VAPID_PUBLIC_KEY: publicKey }).vapidPrivateKey,
+    ).toThrow("Missing required environment variable VAPID_PRIVATE_KEY");
+    expect(() => readEnv({ ...base }).vapidSubject).toThrow(
+      "Missing required environment variable VAPID_SUBJECT",
+    );
   });
 });

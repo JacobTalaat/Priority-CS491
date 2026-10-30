@@ -352,6 +352,210 @@ curl -i -X PATCH http://localhost:3000/api/notifications/preferences \
 }
 ```
 
+### `GET /api/push/public-key`
+
+Returns the server's VAPID public key, for the browser to subscribe against (the website fetches this in Settings instead of baking the key into the bundle).
+
+- **Method**: `GET`
+- **Path**: `/api/push/public-key`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token — every route the app serves needs a session unless it is deliberately public.
+
+```bash
+curl -i http://localhost:3000/api/push/public-key \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — signing key material the browser needs for `PushManager.subscribe`'s `applicationServerKey`:
+
+```json
+{
+  "publicKey": "BEl62iLg1Lt1uQ2bQMBM81DiZHt8_XdJNXt6FJH4zI2g..."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `POST /api/push/subscriptions`
+
+Saves the browser's web push subscription for the authenticated student. Repeating the request updates the saved subscription for that endpoint. When the endpoint belongs to another account, it is moved to the caller only if `p256dh` and `auth` are unchanged — those keys prove it is literally the same browser subscription; otherwise the request is refused so nobody can silently disown another student's device. The endpoint must point at one of Priority's supported push services (Google, Mozilla, Apple, Windows). Each user keeps at most ten subscriptions; the one least recently delivered is dropped, never the row just saved.
+
+- **Method**: `POST`
+- **Path**: `/api/push/subscriptions`
+
+**Request**
+
+JSON body with the subscription the browser made (the whole body must be under 4 KB):
+
+- `endpoint` (string) — the push service URL, `https` only, no port other than 443, no embedded credentials, at most 1000 characters
+- `keys.p256dh` (string) — base64url uncompressed P-256 public key (65 bytes starting with `0x04`), checked as a real curve point
+- `keys.auth` (string) — base64url auth secret, exactly 16 bytes
+
+```bash
+curl -i -X POST http://localhost:3000/api/push/subscriptions \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/abc","keys":{"p256dh":"BPk_1...","auth":"aB_1..."}}'
+```
+
+**Response**
+
+`200` — the subscription is saved:
+
+```json
+{
+  "subscribed": true
+}
+```
+
+`400` — the body is not valid JSON, not an object, over 4 KB, the endpoint is missing or not an `https` URL, it is over 1000 characters, a key is missing or malformed, or the endpoint does not point at a supported push service:
+
+```json
+{
+  "error": "Send endpoint as the https push service URL your browser gave you (at most 1000 characters), keys.p256dh as its uncompressed P-256 public key, and keys.auth as its 16-byte secret."
+}
+```
+
+`400` — the endpoint is fine `https` but names another host:
+
+```json
+{
+  "error": "Only Priority's supported push services (Google, Mozilla, Apple or Windows) can be used."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`409` — the endpoint currently belongs to another account and its stored keys differ from the request's, so it cannot be taken over:
+
+```json
+{
+  "error": "This browser subscription belongs to another account. Turn notifications off there first."
+}
+```
+
+### `DELETE /api/push/subscriptions`
+
+Removes the authenticated student's own subscription for an endpoint. Endpoints that belong to another account are never touched.
+
+- **Method**: `DELETE`
+- **Path**: `/api/push/subscriptions`
+
+**Request**
+
+JSON body with:
+
+- `endpoint` (string) — the push service URL of the subscription to remove
+
+```bash
+curl -i -X DELETE http://localhost:3000/api/push/subscriptions \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/abc"}'
+```
+
+**Response**
+
+`200` — whether a saved subscription of the caller's was removed:
+
+```json
+{
+  "removed": true
+}
+```
+
+`200` — nothing was removed (the endpoint is unknown or belongs to another account):
+
+```json
+{
+  "removed": false
+}
+```
+
+`400` — the body is not valid JSON, not an object, or `endpoint` is missing:
+
+```json
+{
+  "error": "Send endpoint as the subscription to remove."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `POST /api/push/test`
+
+Sends one fixed test message ({ "title": "Priority", "body": "Notifications are on.", "url": "/today" }) to each of the caller's saved subscriptions and reports the counts. `removed` counts subscriptions deleted because the push service answered 404 or 410 — the only statuses that say the browser subscription is gone; everything else (transport errors, timeouts, rate limits, server errors) is counted under `failed` and the subscription stays. The limit of three calls per user per 10 minutes is counted per server instance (in memory), so it resets on deploy/restart; `Retry-After` carries the seconds remaining.
+
+- **Method**: `POST`
+- **Path**: `/api/push/test`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i -X POST http://localhost:3000/api/push/test \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the sends went out; `sent` counts deliveries the push service accepted, `failed` the ones it rejected or that errored, and `removed` the subscriptions deleted because the push service said they no longer exist:
+
+```json
+{
+  "sent": 2,
+  "failed": 0,
+  "removed": 0
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the caller has no saved subscriptions yet:
+
+```json
+{
+  "error": "No saved browser subscription. Turn notifications on first."
+}
+```
+
+`429` — more than three test sends in 10 minutes; `Retry-After` carries the seconds remaining:
+
+```json
+{
+  "error": "Too many test notifications. Try again later."
+}
+```
+
 ### `POST /api/canvas/token`
 
 Saves the student's Canvas personal access token. The token is checked against Canvas first and only stored if Canvas accepts it. It is encrypted before it is written and is never returned by any route.
