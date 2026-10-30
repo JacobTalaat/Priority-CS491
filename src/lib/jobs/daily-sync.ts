@@ -106,6 +106,10 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
     await prisma.syncFailure.create({
       data: { runId: run.id, userId: attempt.userId, kind: "timeout", message: FAILURE_MESSAGES.timeout },
     });
+    await prisma.syncRun.update({
+      where: { id: run.id },
+      data: { usersFailed: { increment: 1 } },
+    });
     // Fixed fields only: no email, no URL, no token, no raw error text.
     console.error(`daily-sync: runId=${run.id} kind=timeout reaped a stale attempt for one user`);
   }
@@ -123,9 +127,6 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
   const owed = connected.map((user) => user.id).filter((id) => !attemptedToday.has(id));
 
   let attemptedThisTick = 0;
-  let succeededThisTick = 0;
-  let failedThisTick = 0;
-  let postedThisTick = 0;
   for (const userId of owed) {
     if (now().getTime() - tickStartedAt.getTime() >= TICK_BUDGET_MS) {
       break;
@@ -142,6 +143,10 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
       throw error;
     }
     attemptedThisTick += 1;
+    await prisma.syncRun.update({
+      where: { id: run.id },
+      data: { usersTotal: { increment: 1 } },
+    });
     if (!(await acquireSyncLock(userId))) {
       // the student is mid "Sync now": leave them one attempt for today
       await prisma.syncAttempt.update({
@@ -156,8 +161,10 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
         where: { id: attempt.id },
         data: { finishedAt: now(), outcome: "succeeded" },
       });
-      succeededThisTick += 1;
-      postedThisTick += result.gradesPosted;
+      await prisma.syncRun.update({
+        where: { id: run.id },
+        data: { usersSucceeded: { increment: 1 }, gradesPosted: { increment: result.gradesPosted } },
+      });
     } catch (error) {
       const kind = classifyFailure(error);
       await prisma.syncAttempt.update({
@@ -167,7 +174,10 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
       await prisma.syncFailure.create({
         data: { runId: run.id, userId, kind, message: FAILURE_MESSAGES[kind] },
       });
-      failedThisTick += 1;
+      await prisma.syncRun.update({
+        where: { id: run.id },
+        data: { usersFailed: { increment: 1 } },
+      });
       // Fixed fields only: no email, no URL, no token, no raw error text.
       console.error(`daily-sync: runId=${run.id} kind=${kind} sync failed for one user`);
     } finally {
@@ -177,23 +187,22 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
 
   const remaining = owed.length - attemptedThisTick;
   const finished = remaining === 0;
-  const updated = await prisma.syncRun.update({
-    where: { id: run.id },
-    data: {
-      usersTotal: { increment: attemptedThisTick },
-      usersSucceeded: { increment: succeededThisTick },
-      usersFailed: { increment: failedThisTick + stale.length },
-      gradesPosted: { increment: postedThisTick },
-      ...(finished ? { finishedAt: now() } : {}),
-    },
-  });
+  const counters = finished
+    ? await prisma.syncRun.update({
+        where: { id: run.id },
+        data: { finishedAt: now() },
+      })
+    : await prisma.syncRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { usersSucceeded: true, usersFailed: true, gradesPosted: true },
+      });
   return {
     day,
     attemptedThisTick,
     remaining,
-    usersSucceeded: updated.usersSucceeded,
-    usersFailed: updated.usersFailed,
-    gradesPosted: updated.gradesPosted,
+    usersSucceeded: counters.usersSucceeded,
+    usersFailed: counters.usersFailed,
+    gradesPosted: counters.gradesPosted,
     finished,
   };
 }

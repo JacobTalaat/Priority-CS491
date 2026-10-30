@@ -4,6 +4,7 @@ const {
   mockUserFindMany,
   mockSyncRunUpsert,
   mockSyncRunUpdate,
+  mockSyncRunFindUniqueOrThrow,
   mockSyncAttemptFindMany,
   mockSyncAttemptCreate,
   mockSyncAttemptUpdate,
@@ -15,6 +16,7 @@ const {
   mockUserFindMany: vi.fn(),
   mockSyncRunUpsert: vi.fn(),
   mockSyncRunUpdate: vi.fn(),
+  mockSyncRunFindUniqueOrThrow: vi.fn(),
   mockSyncAttemptFindMany: vi.fn(),
   mockSyncAttemptCreate: vi.fn(),
   mockSyncAttemptUpdate: vi.fn(),
@@ -27,7 +29,7 @@ const {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findMany: mockUserFindMany },
-    syncRun: { upsert: mockSyncRunUpsert, update: mockSyncRunUpdate },
+    syncRun: { upsert: mockSyncRunUpsert, update: mockSyncRunUpdate, findUniqueOrThrow: mockSyncRunFindUniqueOrThrow },
     syncAttempt: { findMany: mockSyncAttemptFindMany, create: mockSyncAttemptCreate, update: mockSyncAttemptUpdate },
     syncFailure: { create: mockSyncFailureCreate },
   },
@@ -130,6 +132,13 @@ describe("runDailyTick", () => {
         } else {
           (run as unknown as Record<string, unknown>)[field] = value;
         }
+      }
+      return { ...run };
+    });
+    mockSyncRunFindUniqueOrThrow.mockReset().mockImplementation(async ({ where }: { where: { id: string } }) => {
+      const run = runRows.find((row) => row.id === where.id);
+      if (!run) {
+        throw new Error("missing run");
       }
       return { ...run };
     });
@@ -243,6 +252,46 @@ describe("runDailyTick", () => {
       },
     });
     expect(result).toMatchObject({ attemptedThisTick: 0, remaining: 0, usersFailed: 1, finished: true });
+    expect(runRows[0]).toMatchObject({ usersTotal: 0, usersSucceeded: 0, usersFailed: 1 });
+  });
+
+  it("counts a reaped stale attempt as failed without adding it to usersTotal", async () => {
+    attemptRows.push(failedSyncAttempt("user-a", TICK_INSTANT.getTime() - 10 * 60_000));
+    attemptRows.push(failedSyncAttempt("user-b", TICK_INSTANT.getTime() - 10 * 60_000));
+    mockUserFindMany.mockResolvedValue([{ id: "user-a" }, { id: "user-b" }]);
+    const { clock } = makeClock();
+    const result = await runDailyTick(clock);
+    expect(mockSyncUser).not.toHaveBeenCalled();
+    expect(attemptRows.map((row) => row.outcome)).toEqual(["timeout", "timeout"]);
+    expect(runRows[0].usersTotal).toBe(0);
+    expect(runRows[0].usersFailed).toBe(2);
+    expect(result.usersFailed).toBe(2);
+  });
+
+  it("keeps a finished student counted in the run when the tick dies before the next claim", async () => {
+    mockUserFindMany.mockResolvedValue([{ id: "user-a" }, { id: "user-b" }]);
+    mockAcquireSyncLock.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error("host killed the tick"));
+    const { clock } = makeClock();
+    await expect(runDailyTick(clock)).rejects.toThrow("host killed the tick");
+    expect(attemptRows[0]).toMatchObject({ userId: "user-a", outcome: "succeeded" });
+    expect(runRows[0]).toMatchObject({ usersTotal: 2, usersSucceeded: 1, usersFailed: 0 });
+  });
+
+  it("keeps succeeded plus failed at or below usersTotal across a normal tick", async () => {
+    mockUserFindMany.mockResolvedValue([{ id: "user-a" }, { id: "user-b" }]);
+    mockSyncUser.mockImplementation((userId: string) => {
+      if (userId === "user-a") {
+        return Promise.resolve(okSync(2));
+      }
+      return Promise.reject(new CanvasError("network", "Canvas could not be reached.", 503));
+    });
+    const { clock } = makeClock();
+    const result = await runDailyTick(clock);
+    expect(result).toMatchObject({ usersSucceeded: 1, usersFailed: 1 });
+    expect(runRows[0].usersSucceeded).toBe(1);
+    expect(runRows[0].usersFailed).toBe(1);
+    expect(runRows[0].usersSucceeded + runRows[0].usersFailed).toBeLessThanOrEqual(runRows[0].usersTotal);
+    expect(runRows[0].usersTotal).toBe(2);
   });
 
   it("does not reap an unfinished attempt that is still recent enough", async () => {
