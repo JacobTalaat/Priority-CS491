@@ -30,6 +30,10 @@ model User {
   canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
   syncStartedAt     DateTime?
+  notifyTonight      Boolean @default(true)
+  notifyGradePosted  Boolean @default(true)
+  notifyDueTomorrow  Boolean @default(true)
+  nightlyReminderTime String @default("20:00")
   sessions          Session[]
   courses           Course[]
   gradePostedEvents GradePostedEvent[]
@@ -142,6 +146,8 @@ model Grade {
   assignmentId String    @unique
   score        Float?
   gradedAt     DateTime?
+  submittedAt  DateTime?
+  excused      Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
