@@ -1,3 +1,4 @@
+import { describeFinalExamResult, type FinalExamLetterResult, type FinalExamResult } from "./final-exam-solver";
 import type { CategoryBreakdown } from "./grade-engine";
 import type { UnsupportedReason, WeightedGradeResult } from "./weighted-grade";
 
@@ -18,7 +19,6 @@ export function formatPercent(value: number): string {
 
 const UNSUPPORTED_REASONS: Record<UnsupportedReason, string> = {
   "unsupported-rule": "This class has a grading rule (like a dropped score, curve, or late penalty) that Priority can't grade yet.",
-  "extra-credit": "A score is above its points possible (extra credit), which Priority can't grade yet.",
   "negative-score": "A grade below zero is stored for this class.",
   "non-finite-result": "The grade math didn't produce a usable number.",
 };
@@ -38,8 +38,19 @@ export function gradeSummary(grade: WeightedGradeResult): { headline: string; de
 }
 
 // One category line in the breakdown, e.g. "81% · 81 of 100 points · 2 graded, 1 to go".
+// A null percentage means no graded points to divide by, but bonus points can
+// still have been earned there.
 export function categoryLine(category: CategoryBreakdown): string {
   if (category.percentage === null) {
+    if (category.pointsEarned > 0) {
+      const parts = [
+        `${pointsFormatter.format(category.pointsEarned)} bonus points`,
+        category.ungradedCount > 0
+          ? `${category.gradedCount} graded, ${category.ungradedCount} to go`
+          : `${category.gradedCount} graded`,
+      ];
+      return parts.join(" · ");
+    }
     return category.ungradedCount > 0
       ? `Nothing graded yet · ${category.ungradedCount} to go`
       : "No assignments in this category";
@@ -74,4 +85,47 @@ export function shareText(share: number | null | undefined): string | null {
     return null;
   }
   return `Worth ${formatPercent(share)} of your grade`;
+}
+
+export type FinalExamRow = { letter: string; sentence: string; badge: string };
+
+// One row per letter the solver answered, worded by the solver itself so the page and any
+// other client say exactly the same thing.
+export function finalExamRows(finalExam: FinalExamResult): FinalExamRow[] {
+  if (finalExam.status !== "solved") {
+    return [];
+  }
+  return finalExam.results.map((result) => ({
+    letter: result.letter,
+    sentence: describeFinalExamResult(result, finalExam.otherWorkPending),
+    badge: finalExamBadge(result),
+  }));
+}
+
+function finalExamBadge(result: FinalExamLetterResult): string {
+  switch (result.status) {
+    case "needed":
+      return `Need ${formatPercent(result.percent)}`;
+    case "secured":
+      return "Secured";
+    case "out-of-reach":
+      return "Out of reach";
+    case "unknown":
+      return "Can't tell yet";
+  }
+}
+
+// When an A (or the lowest A the setup has, like A-) can't be reached, say so up front and
+// point at the best letter that still can be, so the news comes with something to aim for.
+export function finalExamOutOfReachNotice(finalExam: FinalExamResult): string | null {
+  if (finalExam.status !== "solved") {
+    return null;
+  }
+  const a = finalExam.results.find((result) => /^A/.test(result.letter));
+  if (!a || a.status !== "out-of-reach") {
+    return null;
+  }
+  const headline = describeFinalExamResult(a, finalExam.otherWorkPending);
+  const reachable = finalExam.results.find((result) => result.status === "needed" || result.status === "secured");
+  return reachable ? `${headline} ${describeFinalExamResult(reachable, finalExam.otherWorkPending)}` : headline;
 }

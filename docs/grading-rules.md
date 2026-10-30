@@ -23,7 +23,9 @@ Used (once #50 merges) when there is no confirmed setup, or no category weighted
 
 - **Ungraded work** is left out. It is not a zero.
 - **A graded zero** counts in full.
-- **A zero-point assignment** is left out, unless it has a score above zero (see below).
+- **A zero-point assignment** is left out, unless it has a score above zero.
+- **A score above the points possible** (extra credit) counts as-is: it adds to points earned and the points possible to it. Category and class percentages can therefore exceed 100.
+- **A score above zero on a zero-point assignment** (bonus) adds to points earned only. If a weighted category has no points possible besides the bonus, it contributes nothing to the weighted grade; in the per-category breakdown its percentage stays `null` while the earned points show. In the points engine the bonus adds to the overall earned total; if there is still no possible total, the result is insufficient data rather than a made-up percentage.
 
 ## What returns Unsupported
 
@@ -31,9 +33,7 @@ These apply to every assignment the calculator looks at: all of them for points,
 
 | Situation | Result |
 | --- | --- |
-| A score above the points possible (extra credit) | Unsupported |
 | A negative score | Unsupported |
-| A score above zero on a zero-point assignment | Unsupported |
 | A computed total or percentage that is not a finite number | Unsupported (a single non-number score is just ignored) |
 | No graded work that counts: nothing graded yet, or only work in 0-weight categories or worth 0 points | Insufficient data, which is not an error |
 

@@ -83,16 +83,27 @@ describe("calculateWeightedGrade", () => {
     });
   });
 
-  it("returns unsupported when a zero point assignment carries a positive score", () => {
+  it("adds a zero point assignment's positive score as pure bonus", () => {
     const setup = makeSetup(
       [{ name: "Homework", weight: 40 }, { name: "Exams", weight: 40 }],
       [{ assignmentId: "homework", category: "Homework" }, { assignmentId: "exam", category: "Exams" }],
     );
 
+    // The bonus has no points possible, so Homework contributes nothing and
+    // Exams fills the whole weight at 60%.
     expect(calculateWeightedGrade(setup, [makeAssignment("homework", 0, 8), makeAssignment("exam", 10, 6)])).toEqual({
-      status: "unsupported",
-      reason: "extra-credit",
+      status: "calculated",
+      percentage: 60,
     });
+  });
+
+  it("returns insufficient data when the only graded work is bonus on zero point assignments", () => {
+    const setup = makeSetup(
+      [{ name: "Homework", weight: 40 }, { name: "Exams", weight: 40 }],
+      [{ assignmentId: "homework", category: "Homework" }, { assignmentId: "exam", category: "Exams" }],
+    );
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("homework", 0, 8)])).toEqual({ status: "insufficient-data" });
   });
 
   it("returns unsupported for a negative score rather than flooring it at zero", () => {
@@ -142,12 +153,36 @@ describe("calculateWeightedGrade", () => {
     expect(calculateWeightedGrade(setup, [makeAssignment("homework", 10, 10)])).toEqual({ status: "insufficient-data" });
   });
 
-  it("returns unsupported when a graded assignment has extra credit", () => {
+  it("counts a score above points possible as-is so a class can grade above 100", () => {
     const setup = makeSetup([{ name: "Homework", weight: 80 }], [{ assignmentId: "homework", category: "Homework" }], 20);
 
     expect(calculateWeightedGrade(setup, [makeAssignment("homework", 10, 11)])).toEqual({
-      status: "unsupported",
-      reason: "extra-credit",
+      status: "calculated",
+      percentage: 110,
+    });
+  });
+
+  it("lets a 105% category lift the class grade above 100", () => {
+    const setup = makeSetup(
+      [{ name: "Homework", weight: 50 }, { name: "Exams", weight: 50 }],
+      [{ assignmentId: "homework", category: "Homework" }, { assignmentId: "exam", category: "Exams" }],
+    );
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("homework", 20, 21), makeAssignment("exam", 10, 10)])).toEqual({
+      status: "calculated",
+      percentage: 102.5,
+    });
+  });
+
+  it("adds bonus points on top of graded work so the category exceeds 100", () => {
+    const setup = makeSetup([{ name: "Homework", weight: 100 }], [
+      { assignmentId: "hw-1", category: "Homework" },
+      { assignmentId: "bonus", category: "Homework" },
+    ]);
+
+    expect(calculateWeightedGrade(setup, [makeAssignment("hw-1", 10, 10), makeAssignment("bonus", 0, 5)])).toEqual({
+      status: "calculated",
+      percentage: 150,
     });
   });
 
@@ -256,7 +291,7 @@ describe("calculateWeightedGrade", () => {
     });
   });
 
-  it("returns only finite percentages from zero to one hundred", () => {
+  it("returns only finite non-negative percentages", () => {
     const setup = makeSetup(
       [{ name: "Homework", weight: 50 }, { name: "Exams", weight: 50 }],
       [{ assignmentId: "homework", category: "Homework" }, { assignmentId: "exam", category: "Exams" }],
@@ -264,13 +299,13 @@ describe("calculateWeightedGrade", () => {
     const results = [
       calculateWeightedGrade(setup, [makeAssignment("homework", 10, 5), makeAssignment("exam", 10, 8)]),
       calculateWeightedGrade(setup, [makeAssignment("homework", 10, -5), makeAssignment("exam", 10, 8)]),
+      calculateWeightedGrade(setup, [makeAssignment("homework", 10, 12), makeAssignment("exam", 10, 8)]),
     ];
 
     for (const result of results) {
       if (result.status === "calculated") {
         expect(Number.isFinite(result.percentage)).toBe(true);
         expect(result.percentage).toBeGreaterThanOrEqual(0);
-        expect(result.percentage).toBeLessThanOrEqual(100);
       }
     }
   });

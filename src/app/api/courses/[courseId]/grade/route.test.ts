@@ -161,7 +161,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
     });
   });
 
-  it("carries the reason through when the engine cannot express the course's grading rule", async () => {
+  it("grades a course with extra credit above 100 instead of refusing it", async () => {
     mockCourseFindFirst.mockResolvedValue(
       courseRow({
         assignments: [
@@ -175,9 +175,13 @@ describe("GET /api/courses/[courseId]/grade", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.grade).toEqual({ status: "unsupported", reason: "extra-credit" });
+    // Homework: 90%, Exams: 110%, overall (90*40 + 110*60)/100 = 102.
+    expect(body.grade).toEqual({ status: "calculated", percentage: 102 });
     expect(body.engine).toBe("weighted");
-    expect(body.breakdown).toEqual([]);
+    expect(body.breakdown).toEqual([
+      { category: "Homework", weight: 40, percentage: 90, pointsEarned: 45, pointsPossible: 50, gradedCount: 1, ungradedCount: 0 },
+      { category: "Exams", weight: 60, percentage: 110, pointsEarned: 110, pointsPossible: 100, gradedCount: 1, ungradedCount: 0 },
+    ]);
   });
 
   it("returns insufficient-data, with an all-null breakdown, when nothing is graded yet", async () => {
