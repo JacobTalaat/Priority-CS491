@@ -231,6 +231,8 @@ curl -i http://localhost:3000/api/auth/me \
 
 Answers a question about the student's classes using only the passages Priority retrieves from the student's saved syllabi, Canvas assignments (including their scores), and grade setup class details. For each question, the question and up to 8 retrieved passages from the student's own data are sent to the AI provider. When the AI can support an answer from those passages, each source it cites is built server-side from the matched passage: the source identifies the passage, and the `quote` is an excerpt the AI copied from it, verified to appear in the passage before being returned. A `found: false` response is a best effort: it means the AI could not support an answer from the matched data, not a guarantee that the data lacks it.
 
+Logging: every question that reaches the answering step is stored against the student's account for the team's accuracy study. Each row keeps the question, the outcome (`found`, `not-found`, `failed`, or `cap-reached`), the answer when the outcome is `found`, the exact sources shown to the student for that answer, the course the question was scoped to, and the time. Rows are deleted with the account. Questions that produce a 502 or 503 response are recorded too; validation errors and questions for a course that is not the student's current course are not.
+
 - **Method**: `POST`
 - **Path**: `/api/ask`
 

@@ -38,6 +38,7 @@ model User {
   pushSubscriptions PushSubscription[]
   itemStates        ItemState[]
   itemEvents        ItemEvent[]
+  askLogs           AskLog[]
   usageEvents       UsageEvent[]
 }
 
@@ -249,6 +250,23 @@ model ItemEvent {
   assignment Assignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
 
   @@unique([userId, requestId])
+  @@index([userId, createdAt])
+}
+
+model AskLog {
+  id          String   @id @default(cuid())
+  userId      String
+  question    String
+  outcome     String
+  answer      String?
+  found       Boolean
+  sourceCount Int
+  courseId    String?
+  sources     Json?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, createdAt])
 }
 
