@@ -29,8 +29,13 @@ model User {
   canvasCalendarFeedIv     String?
   canvasCalendarFeedTag    String?
   lastSyncedAt      DateTime?
+  notifyTonight      Boolean @default(true)
+  notifyGradePosted  Boolean @default(true)
+  notifyDueTomorrow  Boolean @default(true)
+  nightlyReminderTime String @default("20:00")
   sessions          Session[]
   courses           Course[]
+  pushSubscriptions PushSubscription[]
   usageEvents       UsageEvent[]
 }
 
@@ -143,6 +148,23 @@ model Grade {
   updatedAt    DateTime  @updatedAt
 
   assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  lastSuccessAt DateTime?
+  failureCount  Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model AiSpendMonth {
