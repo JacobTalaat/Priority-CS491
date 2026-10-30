@@ -345,6 +345,90 @@ describe("loadOpenWork", () => {
     expect(ranked[0]).toMatchObject({ assignmentId: "hw-1", boundary: null });
   });
 
+  it("gives a picked final its own share and flags from the folded setup", async () => {
+    mockCourseFindMany.mockResolvedValue([
+      {
+        id: "course-1",
+        name: "Algorithms",
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 70 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "hw-2", category: "Homework" },
+            { assignmentId: "hw-3", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 30,
+          cutoffs: { "A-": 90 },
+          classDetails: { finalExamAssignmentId: "final-1" },
+        },
+        assignments: [
+          assignment("hw-1", {
+            title: "Problem set",
+            dueAt: new Date("2026-10-14T17:00:00-04:00"),
+            hasDueDate: true,
+          }),
+          assignment("hw-2", { title: "Quiz", pointsPossible: 40 }),
+          assignment("hw-3", { title: "Lab", grade: { score: 45 } }),
+          assignment("final-1", { title: "Final exam", pointsPossible: 100 }),
+        ],
+      },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    // The fold moves the final into its own 30% category, so its share is 30
+    // and the homework shares (25 + 20 here, plus the skipped 25 on the graded
+    // lab) sum to the category's 70, instead of all being null before folding.
+    const byId = new Map(ranked.map((entry) => [entry.assignmentId, entry]));
+    expect(byId.get("final-1")?.share).toBe(30);
+    expect(byId.get("hw-1")?.share).toBe(25);
+    expect(byId.get("hw-2")?.share).toBe(20);
+    // 45 of 50 points = 90% in the only graded category, which the fold leaves
+    // as the homework 70% slice: the flag comes from the folded grade.
+    expect(byId.get("hw-1")?.boundary).toEqual({
+      letter: "A-",
+      cutoff: 90,
+      direction: "at-risk",
+      distance: 0,
+    });
+  });
+
+  it("still gives null shares when the final weight sits outside the categories unpicked", async () => {
+    mockCourseFindMany.mockResolvedValue([
+      {
+        id: "course-1",
+        name: "Algorithms",
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 70 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 30,
+          cutoffs: { "A-": 90 },
+          classDetails: {},
+        },
+        assignments: [
+          assignment("hw-1", {
+            title: "Problem set",
+            dueAt: new Date("2026-10-14T17:00:00-04:00"),
+            hasDueDate: true,
+          }),
+          assignment("final-1", { title: "Final exam", pointsPossible: 100 }),
+        ],
+      },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    // Without a picked final the fold cannot normalise the setup, so the 30%
+    // slice belongs to no assignment and unknown shares stay honest.
+    const byId = new Map(ranked.map((entry) => [entry.assignmentId, entry]));
+    expect(byId.get("hw-1")?.share).toBeNull();
+    expect(byId.get("final-1")?.share).toBeNull();
+  });
+
   it("adds flags after ranking, leaving the order and scores identical", async () => {
     mockCourseFindMany.mockResolvedValue([
       {

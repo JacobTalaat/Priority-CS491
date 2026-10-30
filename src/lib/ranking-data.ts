@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { assignmentShares } from "@/lib/grade-share";
-import { parseSavedSetup, type GradeSetupPayload } from "@/lib/grade-setup";
+import { parseSavedSetup, withFinalExamCategory, type GradeSetupPayload } from "@/lib/grade-setup";
 import { chooseGradeEngine } from "@/lib/grade-engine";
 import { BOUNDARY_TOLERANCE, letterBoundary, type LetterBoundary } from "@/lib/letter-boundary";
 import { nyDayOf } from "@/lib/ny-day";
@@ -58,7 +58,11 @@ export async function loadOpenWork(userId: string, now: Date): Promise<RankedIte
   const items: OpenWorkItem[] = [];
   const boundariesByAssignmentId = new Map<string, LetterBoundary | null>();
   for (const course of courses) {
-    const setup = parseSavedSetup(course.gradeSetup);
+    const savedSetup = parseSavedSetup(course.gradeSetup);
+    // The grade route folds a picked final's weight into its own category, and
+    // the ranking must read the same normalized setup or its shares would mark
+    // the counted final as unknown and its boundary check would bail early.
+    const setup = savedSetup ? withFinalExamCategory(savedSetup) : null;
     const assignments = course.assignments.map((assignment) => ({
       id: assignment.id,
       pointsPossible: assignment.pointsPossible,
