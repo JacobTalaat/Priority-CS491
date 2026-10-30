@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parseGradeSetup, type GradeSetupPayload } from "@/lib/grade-setup";
+import { parseSavedSetup } from "@/lib/grade-setup";
 import { calculatePointsGrade } from "@/lib/points-grade";
 import { calculateWeightedGrade, type WeightedGradeResult } from "@/lib/weighted-grade";
 import { buildCategoryBreakdown, chooseGradeEngine, type CategoryBreakdown } from "@/lib/grade-engine";
@@ -26,27 +26,6 @@ type GradeResponse = {
   finalExam: FinalExamResult;
   shares: AssignmentShare[];
 };
-
-// A saved row is a confirmed setup: the confirm step is what writes it.
-// The stored JSON is re-validated here because the database could hold
-// anything; an invalid setup grades as if there were none.
-function parseSavedSetup(
-  row:
-    | {
-        categories: unknown;
-        assignmentMappings: unknown;
-        finalExamWeight: unknown;
-        cutoffs: unknown;
-        classDetails: unknown;
-      }
-    | null,
-): GradeSetupPayload | null {
-  if (!row) {
-    return null;
-  }
-  const parsed = parseGradeSetup(row);
-  return parsed.ok ? parsed.data : null;
-}
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse<GradeResponse | { error: string }>> {
   const user = await getUserFromRequest(request);
