@@ -686,7 +686,7 @@ curl -i http://localhost:3000/api/canvas/sync \
 
 ### `POST /api/canvas/sync`
 
-Runs the Canvas import for the student right away. When the Canvas API is available, it imports courses, assignment groups, assignments, and grades. If no token is saved, or Canvas is unreachable or returns a server error, and a calendar feed is saved, it instead imports dated assignment events from that feed for the student's already imported current courses. A token that Canvas rejects is never hidden behind the feed: it returns `400` so the student knows to reconnect. All writes are idempotent upserts. The last-synced time is saved only when the selected import completes successfully.
+Runs the Canvas import for the student right away. When the Canvas API is available, it imports courses, assignment groups, assignments, and grades. If no token is saved, or Canvas is unreachable or returns a server error, and a calendar feed is saved, it instead imports dated assignment events from that feed for the student's already imported current courses. A token that Canvas rejects is never hidden behind the feed: it returns `400` so the student knows to reconnect. All writes are idempotent upserts. After a complete successful Canvas listing per course, assignments and assignment groups Canvas no longer returns are removed from that course, along with the grades of removed assignments. A failed listing removes nothing, and an empty listing for a course that holds 20 or more is treated as a Canvas glitch and skipped for that sync. The last-synced time is saved only when the selected import completes successfully.
 
 - **Method**: `POST`
 - **Path**: `/api/canvas/sync`
@@ -1080,6 +1080,12 @@ When the grade cannot be worked out, `grade.status` says so. `insufficient-data`
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
+The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the setup holds the final exam's weight outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
+
+The needed score assumes every other ungraded assignment keeps counting the way the engine counts it today: ungraded work is left out of the grade, so the rest of the current average holds as-is. If more ungraded work is graded later, the real grade can land lower or higher than predicted, so `secured` and `out-of-reach` are only certain when nothing else is still to be graded. `otherWorkPending` on a `solved` result is `true` when other counted work has no grade yet; the student-facing sentences then say the answer holds "if your other grades stay where they are".
+
+The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. If the saved setup gives the final exam a weight outside the categories (`finalExamWeight` above 0), that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final. Make the final exam its own category to get shares.
+
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
 
@@ -1126,6 +1132,12 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "gradedCount": 1,
       "ungradedCount": 0
     }
+  ],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "hw-2", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
   ]
 }
 ```
@@ -1143,7 +1155,12 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "setupConfirmed": false,
   "engine": "points",
   "grade": { "status": "calculated", "percentage": 75 },
-  "breakdown": []
+  "breakdown": [],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 25, "category": null },
+    { "assignmentId": "proj-1", "share": 75, "category": null }
+  ]
 }
 ```
 
@@ -1170,7 +1187,9 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
       "gradedCount": 0,
       "ungradedCount": 1
     }
-  ]
+  ],
+  "finalExam": { "status": "no-final" },
+  "shares": [{ "assignmentId": "hw-1", "share": 40, "category": "Homework" }]
 }
 ```
 
@@ -1187,7 +1206,61 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   "setupConfirmed": true,
   "engine": "weighted",
   "grade": { "status": "unsupported", "reason": "extra-credit" },
-  "breakdown": []
+  "breakdown": [],
+  "finalExam": { "status": "no-final" },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 20, "category": "Homework" },
+    { "assignmentId": "exam-1", "share": 60, "category": "Exams" }
+  ]
+}
+```
+
+`200` — the setup picked the final exam and its grade has not landed yet, so every letter in the cutoffs is priced out. Homework sits at 80% (worth 40% of the course, with the final exam worth the other 60%), which is also the current displayed grade while the final is ungraded. The grade with the final scored `x` points is 32 + 0.6x, so an A needs 96.67 of the final's 100 points (96.7%), a B exactly 80 (80%), and a C 63.34 (63.4%):
+
+```json
+{
+  "course": {
+    "id": "course-id",
+    "name": "Algorithms",
+    "courseCode": "CS-341",
+    "term": "Fall 2026"
+  },
+  "setupConfirmed": true,
+  "engine": "weighted",
+  "grade": { "status": "calculated", "percentage": 80 },
+  "breakdown": [
+    {
+      "category": "Homework",
+      "weight": 40,
+      "percentage": 80,
+      "pointsEarned": 80,
+      "pointsPossible": 100,
+      "gradedCount": 1,
+      "ungradedCount": 0
+    },
+    {
+      "category": "Final Exam",
+      "weight": 60,
+      "percentage": null,
+      "pointsEarned": 0,
+      "pointsPossible": 0,
+      "gradedCount": 0,
+      "ungradedCount": 1
+    }
+  ],
+  "finalExam": {
+    "status": "solved",
+    "results": [
+      { "letter": "A", "status": "needed", "score": 96.67, "percent": 96.7 },
+      { "letter": "B", "status": "needed", "score": 80, "percent": 80 },
+      { "letter": "C", "status": "needed", "score": 63.34, "percent": 63.4 }
+    ],
+    "otherWorkPending": false
+  },
+  "shares": [
+    { "assignmentId": "hw-1", "share": 40, "category": "Homework" },
+    { "assignmentId": "final-1", "share": 60, "category": "Final Exam" }
+  ]
 }
 ```
 
@@ -1287,6 +1360,57 @@ curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
 ```json
 {
   "error": "Priority couldn't turn this assignment into steps right now. Try again in a little while."
+}
+```
+
+---
+
+### `POST /api/events`
+
+Records one usage event for the study. Both the website and the iOS app call it. Only the signed-in user's id, the event name, the client, and the time are stored — the body cannot carry any other fields, and event names are short identifiers, never free text.
+
+The website currently sends `app_open` (a signed-in page load), `sync_now` (a successful Canvas sync), and `setup_confirmed` (a saved grade setup). The iOS app sends its own events with `client` set to `app`.
+
+- **Method**: `POST`
+- **Path**: `/api/events`
+
+**Request**
+
+JSON body with exactly:
+
+- `event` (string) — lowercase identifier, letters, digits, and `_`, with optional `.` sections, at most 64 characters, for example `app_open` or `today.mark_done`
+- `client` (string) — `web` or `app`
+
+```bash
+curl -i -X POST http://localhost:3000/api/events \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"event":"app_open","client":"web"}'
+```
+
+**Response**
+
+`201` — the event was stored:
+
+```json
+{
+  "ok": true
+}
+```
+
+`400` — malformed body, an event name that isn't an identifier, an unknown client, or extra fields:
+
+```json
+{
+  "error": "Invalid body"
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
 }
 ```
 

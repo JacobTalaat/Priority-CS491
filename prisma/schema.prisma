@@ -32,6 +32,7 @@ model User {
   sessions          Session[]
   courses           Course[]
   deviceTokens      DeviceToken[]
+  usageEvents       UsageEvent[]
 }
 
 model Session {
@@ -181,4 +182,23 @@ model DeviceToken {
 
   @@unique([userId, deviceId])
   @@index([userId])
+}
+
+enum UsageClient {
+  web
+  app
+}
+
+// One row per tester action for the study. Only the user id is stored, never free text.
+model UsageEvent {
+  id        String      @id @default(cuid())
+  userId    String
+  event     String
+  client    UsageClient
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([event, createdAt])
 }
