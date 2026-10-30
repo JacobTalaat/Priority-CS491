@@ -61,13 +61,15 @@ export function buildCategoryBreakdown(
       if (score < 0) {
         continue;
       }
+      // Canvas rules, matching calculateWeightedGrade: a score above points
+      // possible counts as-is; a positive score on a 0-point assignment is
+      // pure bonus, so it lands in pointsEarned while the percentage stays
+      // null when no graded work carries points.
       if (!Number.isFinite(assignment.pointsPossible) || assignment.pointsPossible <= 0) {
         if (score > 0) {
-          continue;
+          gradedCount += 1;
+          pointsEarned += score;
         }
-        continue;
-      }
-      if (score > assignment.pointsPossible) {
         continue;
       }
       gradedCount += 1;
