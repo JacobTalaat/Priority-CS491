@@ -316,4 +316,13 @@ describe("syncUser", () => {
       data: { userId: USER_ID, assignmentId: "assignment-2", score: 90 },
     });
   });
+
+  it("excludes manual grades from the scores snapshot so a hand-entered score never counts as posted", async () => {
+    mockAssignmentFindMany.mockResolvedValue([gradedAssignment("assignment-1", 88)]);
+    await syncUser(USER_ID);
+    expect(mockAssignmentFindMany).toHaveBeenCalledWith({
+      where: { course: { userId: USER_ID, isCurrent: true }, grade: { score: { not: null }, isManual: false } },
+      select: { id: true, grade: { select: { score: true } } },
+    });
+  });
 });

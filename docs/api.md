@@ -1256,6 +1256,192 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 }
 ```
 
+### `POST /api/courses/[courseId]/grades`
+
+Saves the student's own grade for one assignment of a current course. If a grade is already stored for that assignment — including one imported from Canvas — it is replaced, and the stored grade is marked as manually entered. A manually entered grade is protected from the Canvas sync: the next sync will not overwrite it.
+
+- **Method**: `POST`
+- **Path**: `/api/courses/[courseId]/grades`
+
+**Request**
+
+JSON body with:
+
+- `assignmentId` (string) — an assignment belonging to this course
+- `score` (number) — the score the student earned. It cannot be negative, but it may sit above the assignment's points possible, and a positive score on an assignment worth zero points is accepted too; either counts as extra credit, the way Canvas grades it.
+
+```bash
+curl -i -X POST http://localhost:3000/api/courses/course-id/grades \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"assignmentId":"assignment-id","score":18}'
+```
+
+**Response**
+
+`200` — the grade was saved:
+
+```json
+{
+  "grade": {
+    "id": "grade-id",
+    "assignmentId": "assignment-id",
+    "score": 18,
+    "gradedAt": "2026-10-21T18:30:00.000Z",
+    "isManual": true,
+    "createdAt": "2026-10-21T18:30:00.000Z",
+    "updatedAt": "2026-10-21T18:30:00.000Z"
+  }
+}
+```
+
+`400` — the body was not valid JSON, the assignment was not named, or the score was missing, not a number, or below zero:
+
+```json
+{
+  "error": "Enter a score as a number."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student, or the assignment does not belong to that course:
+
+```json
+{
+  "error": "Assignment not found in this course."
+}
+```
+
+### `PATCH /api/courses/[courseId]/grades`
+
+Changes the score of a grade the student saved by hand. It refuses to touch a grade imported from Canvas, because the next sync would overwrite the change anyway.
+
+- **Method**: `PATCH`
+- **Path**: `/api/courses/[courseId]/grades`
+
+**Request**
+
+JSON body with:
+
+- `assignmentId` (string) — an assignment belonging to this course that has a manually entered grade
+- `score` (number) — the corrected score. It cannot be negative, but it may sit above the assignment's points possible, and a positive score on an assignment worth zero points is accepted too; either counts as extra credit, the way Canvas grades it.
+
+```bash
+curl -i -X PATCH http://localhost:3000/api/courses/course-id/grades \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"assignmentId":"assignment-id","score":19}'
+```
+
+**Response**
+
+`200` — the score was changed:
+
+```json
+{
+  "grade": {
+    "id": "grade-id",
+    "assignmentId": "assignment-id",
+    "score": 19,
+    "gradedAt": "2026-10-21T18:31:00.000Z",
+    "isManual": true,
+    "createdAt": "2026-10-21T18:30:00.000Z",
+    "updatedAt": "2026-10-21T18:31:00.000Z"
+  }
+}
+```
+
+`400` — invalid JSON, a missing or invalid score, with the same messages as `POST`.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student, the assignment does not belong to that course, or no grade is saved for that assignment:
+
+```json
+{
+  "error": "No grade is saved for this assignment."
+}
+```
+
+`409` — the saved grade comes from Canvas:
+
+```json
+{
+  "error": "This grade comes from Canvas, so it can't be edited or deleted here."
+}
+```
+
+### `DELETE /api/courses/[courseId]/grades`
+
+Deletes a grade the student saved by hand, for example to hand the assignment back to Canvas, which will import the real grade on the next sync. It refuses to delete a grade imported from Canvas.
+
+- **Method**: `DELETE`
+- **Path**: `/api/courses/[courseId]/grades`
+
+**Request**
+
+The assignment named in the `assignmentId` query parameter, or in a JSON body with the same field:
+
+```bash
+curl -i -X DELETE "http://localhost:3000/api/courses/course-id/grades?assignmentId=assignment-id" \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the grade was deleted:
+
+```json
+{
+  "deleted": true
+}
+```
+
+`400` — no assignment was named:
+
+```json
+{
+  "error": "Choose the assignment whose grade you want to delete."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student, the assignment does not belong to that course, or no grade is saved for that assignment:
+
+```json
+{
+  "error": "No grade is saved for this assignment."
+}
+```
+
+`409` — the saved grade comes from Canvas:
+
+```json
+{
+  "error": "This grade comes from Canvas, so it can't be edited or deleted here."
+}
+```
+
 ### `GET /api/courses/grade-setups`
 
 Returns the authenticated student's current courses, their Canvas assignment-group weights and assignments, and any saved confirmed grade setup. Courses are included whether or not the Canvas token is currently connected.

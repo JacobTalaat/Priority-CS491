@@ -125,7 +125,7 @@ describe("importGrades", () => {
     await importGrades(CREDENTIALS, COURSE);
     expect(mockFindMany).toHaveBeenCalledWith({
       where: { courseId: "course-1" },
-      select: { id: true, canvasId: true },
+      select: { id: true, canvasId: true, grade: { select: { isManual: true } } },
     });
     expect(mockUpsert.mock.calls[0][0].where).toEqual({ assignmentId: "assignment-local-4" });
     expect(mockUpsert.mock.calls[0][0].create).toEqual({
@@ -163,6 +163,28 @@ describe("importGrades", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockFetch.mock.calls[0][0]).toBe(`${BASE_URL}${PATH}`);
     expect(mockFetch.mock.calls[1][0]).toBe(`${BASE_URL}/api/v1/courses/67506/students/submissions?page=2&per_page=100&student_ids[]=self`);
+  });
+
+  it("does not overwrite a manual grade and counts it as skipped", async () => {
+    mockFindMany.mockResolvedValue([
+      { id: "assignment-local-1", canvasId: "736750", grade: { isManual: true } },
+    ]);
+    vi.stubGlobal("fetch", singlePage([
+      submission(736750, 95, "graded", "2026-10-19T14:00:00Z", false),
+    ]));
+    await expect(importGrades(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 0, skipped: 1 });
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("overwrites a grade that is not manual, so the guard is keyed on isManual", async () => {
+    mockFindMany.mockResolvedValue([
+      { id: "assignment-local-1", canvasId: "736750", grade: { isManual: false } },
+    ]);
+    vi.stubGlobal("fetch", singlePage([
+      submission(736750, 103, "graded", "2026-09-26T23:09:43Z", false),
+    ]));
+    await importGrades(CREDENTIALS, COURSE);
+    expect(mockUpsert.mock.calls[0][0].update).toMatchObject({ score: 103 });
   });
 
   it("stores a submitted submission with no score yet, score stays null and submittedAt is parsed", async () => {

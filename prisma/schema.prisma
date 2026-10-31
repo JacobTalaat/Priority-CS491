@@ -153,6 +153,7 @@ model Grade {
   assignmentId String    @unique
   score        Float?
   gradedAt     DateTime?
+  isManual     Boolean   @default(false)
   submittedAt  DateTime?
   excused      Boolean   @default(false)
   createdAt    DateTime  @default(now())
