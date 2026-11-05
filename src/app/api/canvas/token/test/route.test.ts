@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique, mockUserUpdate, mockUserFindUnique } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+const { mockVerifyAccessToken, mockUserUpdate, mockUserFindUnique } = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
   mockUserUpdate: vi.fn(),
   mockUserFindUnique: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
     user: { update: mockUserUpdate, findUnique: mockUserFindUnique },
   },
 }));
@@ -30,12 +33,17 @@ import { POST } from "./route";
 
 const STORED_TOKEN = "stored-canvas-token";
 
-function sessionRow() {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
-  };
+const IDENTITY = { authUserId: "auth-user-1", email: "student@example.com" };
+
+// getUserFromRequest looks the row up by its Supabase id; the stored-token
+// lookup uses the row's own id. One mock serves both.
+function stubUserFindUnique(ownLookup: unknown) {
+  mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) => {
+    if (args.where && "authUserId" in args.where) {
+      return { id: "user-1", email: "student@example.com" };
+    }
+    return ownLookup;
+  });
 }
 
 function storedRow() {
@@ -57,7 +65,7 @@ function tokenRequest() {
 
 describe("POST /api/canvas/token/test", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue(IDENTITY);
     mockUserUpdate.mockReset();
     mockUserFindUnique.mockReset();
     vi.stubGlobal("fetch", vi.fn());
@@ -67,8 +75,8 @@ describe("POST /api/canvas/token/test", () => {
   });
 
   it("returns 200 with the Canvas user and updates canvasCheckedAt", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue(storedRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
+    stubUserFindUnique(storedRow());
     mockUserUpdate.mockResolvedValue({});
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: 42, name: "Student" }), {
@@ -87,8 +95,8 @@ describe("POST /api/canvas/token/test", () => {
   });
 
   it("returns 409 when Canvas is not connected", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue(null);
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
+    stubUserFindUnique(null);
     const res = await POST(tokenRequest());
     expect(res.status).toBe(409);
     await expect(res.json()).resolves.toEqual({ error: "Canvas not connected" });
@@ -96,8 +104,8 @@ describe("POST /api/canvas/token/test", () => {
   });
 
   it("returns 400 on Canvas 401 and leaves the row intact", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue(storedRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
+    stubUserFindUnique(storedRow());
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("{}", { status: 401 })
     ));
@@ -108,8 +116,8 @@ describe("POST /api/canvas/token/test", () => {
   });
 
   it("returns 502 on a network error", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue(storedRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
+    stubUserFindUnique(storedRow());
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
     const res = await POST(tokenRequest());
     expect(res.status).toBe(502);
@@ -118,7 +126,7 @@ describe("POST /api/canvas/token/test", () => {
   });
 
   it("returns 400 with the redirect message when Canvas answers with a redirect", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
     mockUserFindUnique.mockResolvedValue(storedRow());
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response(null, { status: 301, headers: { Location: "https://canvas.njit.edu/login" } })
@@ -132,8 +140,8 @@ describe("POST /api/canvas/token/test", () => {
   });
 
   it("returns 500 and does not blame Canvas when the failure is not a Canvas error", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockRejectedValue(new Error("database connection terminated"));
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY);
+    stubUserFindUnique(Promise.reject(new Error("database connection terminated")));
     const res = await POST(tokenRequest());
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({ error: "Token check failed" });

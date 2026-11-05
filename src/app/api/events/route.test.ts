@@ -1,25 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique, mockUsageEventCreate } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+const { mockVerifyAccessToken, mockUserFindUnique, mockUsageEventCreate } = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockUsageEventCreate: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     usageEvent: { create: mockUsageEventCreate },
   },
 }));
 
 import { POST } from "./route";
 
-function sessionRow() {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
-  };
+function authUserRow() {
+  return { id: "user-1", email: "student@example.com" };
 }
 
 function eventRequest(body: unknown, { auth = true }: { auth?: boolean } = {}) {
@@ -35,9 +36,12 @@ function eventRequest(body: unknown, { auth = true }: { auth?: boolean } = {}) {
 
 describe("POST /api/events", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockUsageEventCreate.mockReset();
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
     mockUsageEventCreate.mockResolvedValue({});
   });
 

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockSessionFindUnique,
+  mockVerifyAccessToken,
+  mockUserFindUnique,
   mockAssignmentFindFirst,
   mockTransaction,
   mockExecuteRaw,
@@ -11,7 +12,8 @@ const {
   mockEventFindUnique,
   mockEventCreate,
 } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockAssignmentFindFirst: vi.fn(),
   mockTransaction: vi.fn(),
   mockExecuteRaw: vi.fn(),
@@ -22,9 +24,13 @@ const {
   mockEventCreate: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     assignment: { findFirst: mockAssignmentFindFirst },
     $transaction: mockTransaction,
   },
@@ -58,12 +64,8 @@ const freshJournal = (): Journal => ({
 let attempt: Journal = freshJournal();
 let committed: Journal = freshJournal();
 
-function sessionRow(userId = "user-1") {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: userId, email: "student@example.com" },
-  };
+function authUserRow(userId = "user-1") {
+  return { id: userId, email: "student@example.com" };
 }
 
 describe("DELETE /api/today/items/[assignmentId] (undo)", () => {
@@ -71,7 +73,11 @@ describe("DELETE /api/today/items/[assignmentId] (undo)", () => {
     attempt = freshJournal();
     committed = freshJournal();
 
-    mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockAssignmentFindFirst.mockReset().mockResolvedValue(ASSIGNMENT_ROW);
 
     const tx = {

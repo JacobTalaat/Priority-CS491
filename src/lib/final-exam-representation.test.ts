@@ -1,20 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 
 const {
-  mockSessionFindUnique,
+  mockVerifyAccessToken,
+  mockUserFindUnique,
   mockCourseFindFirst,
   mockAssignmentFindMany,
   mockGradeSetupUpsert,
 } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockCourseFindFirst: vi.fn(),
   mockAssignmentFindMany: vi.fn(),
   mockGradeSetupUpsert: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     course: { findFirst: mockCourseFindFirst },
     assignment: { findMany: mockAssignmentFindMany },
     courseGradeSetup: { upsert: mockGradeSetupUpsert },
@@ -96,11 +102,11 @@ describe("final exam representation from a syllabus read", () => {
   });
 
   it("the save route refuses the old shape when no final is picked", async () => {
-    mockSessionFindUnique.mockReset().mockResolvedValue({
-      id: "session-1",
-      expiresAt: new Date(Date.now() + 60 * 1000),
-      user: { id: "user-1", email: "student@example.com" },
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
     });
+    mockUserFindUnique.mockReset().mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockCourseFindFirst.mockReset().mockResolvedValue({ id: "course-1" });
     mockAssignmentFindMany.mockReset().mockResolvedValue([{ id: "hw-1" }, { id: "final-1" }]);
     mockGradeSetupUpsert.mockReset().mockResolvedValue({});

@@ -17,7 +17,7 @@ model Task {
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
-  passwordHash String
+  authUserId   String    @unique
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   canvasTokenCipher String?
@@ -34,7 +34,6 @@ model User {
   notifyGradePosted  Boolean @default(true)
   notifyDueTomorrow  Boolean @default(true)
   nightlyReminderTime String @default("20:00")
-  sessions          Session[]
   courses           Course[]
   pushSubscriptions PushSubscription[]
   itemStates        ItemState[]
@@ -46,16 +45,6 @@ model User {
   syncAttempts      SyncAttempt[]
   syncFailures      SyncFailure[]
   nightlyDeliveries NightlyDelivery[]
-}
-
-model Session {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
-  userId    String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Course {

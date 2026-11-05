@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockSessionFindUnique,
+  mockVerifyAccessToken,
+  mockUserFindUnique,
   mockCourseFindFirst,
   mockAssignmentFindFirst,
   mockGradeFindUnique,
@@ -9,7 +10,8 @@ const {
   mockGradeUpdate,
   mockGradeDelete,
 } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockCourseFindFirst: vi.fn(),
   mockAssignmentFindFirst: vi.fn(),
   mockGradeFindUnique: vi.fn(),
@@ -18,9 +20,13 @@ const {
   mockGradeDelete: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     course: { findFirst: mockCourseFindFirst },
     assignment: { findFirst: mockAssignmentFindFirst },
     grade: {
@@ -79,12 +85,8 @@ function deleteRequest(options: { assignmentId?: string; inBody?: boolean; withS
   return new Request(url, { method: "DELETE", headers });
 }
 
-function sessionRow() {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
-  };
+function authUserRow() {
+  return { id: "user-1", email: "student@example.com" };
 }
 
 const context = { params: Promise.resolve({ courseId: "course-1" }) };
@@ -100,7 +102,11 @@ async function runAll(body: unknown): Promise<Response[]> {
 
 describe("manual grades route", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockCourseFindFirst.mockReset().mockResolvedValue({ id: "course-1" });
     mockAssignmentFindFirst.mockReset().mockResolvedValue({ id: "assignment-1", pointsPossible: 20 });
     mockGradeFindUnique.mockReset().mockResolvedValue(gradeRow(15));

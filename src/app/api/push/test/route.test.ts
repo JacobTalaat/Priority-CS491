@@ -2,14 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_TEST_SENDS, resetTestSendLimitForTests } from "@/lib/push-test-limit";
 
 const mocks = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockPushFindMany: vi.fn(),
   mockSendPush: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mocks.mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mocks.mockSessionFindUnique },
+    user: { findUnique: mocks.mockUserFindUnique },
     pushSubscription: { findMany: mocks.mockPushFindMany },
   },
 }));
@@ -35,12 +40,13 @@ function subscription(index: string) {
 describe("POST /api/push/test", () => {
   beforeEach(() => {
     resetTestSendLimitForTests();
-    mocks.mockSessionFindUnique
+    mocks.mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mocks.mockUserFindUnique
       .mockReset()
-      .mockResolvedValue({
-        expiresAt: new Date(Date.now() + 60 * 1000),
-        user: { id: "user-1", email: "student@example.com" },
-      });
+      .mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mocks.mockPushFindMany
       .mockReset()
       .mockResolvedValue([subscription("sub-1"), subscription("sub-2")]);
@@ -131,9 +137,13 @@ describe("POST /api/push/test", () => {
     for (let index = 0; index < MAX_TEST_SENDS; index += 1) {
       await POST(request());
     }
-    mocks.mockSessionFindUnique.mockResolvedValue({
-      expiresAt: new Date(Date.now() + 60 * 1000),
-      user: { id: "user-2", email: "other@example.com" },
+    mocks.mockVerifyAccessToken.mockResolvedValue({
+      authUserId: "auth-user-2",
+      email: "other@example.com",
+    });
+    mocks.mockUserFindUnique.mockResolvedValue({
+      id: "user-2",
+      email: "other@example.com",
     });
     const other = await POST(request());
     expect(other.status).toBe(200);

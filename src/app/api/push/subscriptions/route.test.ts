@@ -2,7 +2,8 @@ import { createECDH, randomBytes } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockPushFindUnique: vi.fn(),
   mockPushUpsert: vi.fn(),
   mockPushFindMany: vi.fn(),
@@ -11,9 +12,13 @@ const mocks = vi.hoisted(() => ({
   mockExecuteRaw: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mocks.mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mocks.mockSessionFindUnique },
+    user: { findUnique: mocks.mockUserFindUnique },
     pushSubscription: {
       findUnique: mocks.mockPushFindUnique,
       upsert: mocks.mockPushUpsert,
@@ -61,12 +66,13 @@ function validRaw(endpoint = ENDPOINT): string {
 // Runs the route's transaction callback against a fake tx wired to the mocks,
 // the way the route expects prisma.$transaction to behave.
 beforeEach(() => {
-  mocks.mockSessionFindUnique
+  mocks.mockVerifyAccessToken.mockReset().mockResolvedValue({
+    authUserId: "auth-user-1",
+    email: "student@example.com",
+  });
+  mocks.mockUserFindUnique
     .mockReset()
-    .mockResolvedValue({
-      expiresAt: new Date(Date.now() + 60 * 1000),
-      user: { id: "user-1", email: "student@example.com" },
-    });
+    .mockResolvedValue({ id: "user-1", email: "student@example.com" });
   mocks.mockPushFindUnique.mockReset().mockResolvedValue(null);
   mocks.mockPushUpsert.mockReset().mockResolvedValue({ id: "kept" });
   mocks.mockPushFindMany.mockReset().mockResolvedValue([{ id: "kept" }]);

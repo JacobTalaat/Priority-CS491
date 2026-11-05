@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockSessionFindUnique,
+  mockVerifyAccessToken,
+  mockUserFindUnique,
   mockAssignmentFindFirst,
   mockTransaction,
   mockExecuteRaw,
@@ -12,7 +13,8 @@ const {
   mockEventCreate,
   mockLoadOpenWork,
 } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockAssignmentFindFirst: vi.fn(),
   mockTransaction: vi.fn(),
   mockExecuteRaw: vi.fn(),
@@ -24,9 +26,13 @@ const {
   mockLoadOpenWork: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     assignment: { findFirst: mockAssignmentFindFirst },
     $transaction: mockTransaction,
   },
@@ -64,12 +70,8 @@ const freshJournal = (): Journal => ({
 let attempt: Journal = freshJournal();
 let committed: Journal = freshJournal();
 
-function sessionRow(userId = "user-1") {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: userId, email: "student@example.com" },
-  };
+function authUserRow(userId = "user-1") {
+  return { id: userId, email: "student@example.com" };
 }
 
 // 12:30 PM EDT on Wednesday 2026-10-14, so the New York day is unambiguous.
@@ -83,7 +85,11 @@ describe("POST /api/today/items/[assignmentId]/skip", () => {
     attempt = freshJournal();
     committed = freshJournal();
 
-    mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockAssignmentFindFirst.mockReset().mockResolvedValue(ASSIGNMENT_ROW);
     mockLoadOpenWork.mockReset().mockResolvedValue([{ assignmentId: "assignment-1" }]);
 
@@ -205,8 +211,6 @@ describe("POST /api/today/items/[assignmentId]/skip", () => {
     // 2026-10-15T03:00Z is 2026-10-14 23:00 in New York (EDT is UTC-4), so the
     // skip lands on "2026-10-14" even though UTC already reads Oct 15.
     vi.setSystemTime(new Date("2026-10-15T03:00:00.000Z"));
-    // The clock jump expired the session created at the earlier fake time.
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
 
     await POST(post(), context);
 

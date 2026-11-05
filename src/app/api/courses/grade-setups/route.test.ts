@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique, mockCourseFindMany } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+const { mockVerifyAccessToken, mockUserFindUnique, mockCourseFindMany } = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockCourseFindMany: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     course: { findMany: mockCourseFindMany },
   },
 }));
@@ -22,17 +27,20 @@ function request(withSession = true) {
   return new Request("http://localhost/api/courses/grade-setups", { headers });
 }
 
-function sessionRow() {
+function authUserRow() {
   return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
+    id: "user-1",
+    email: "student@example.com",
   };
 }
 
 describe("GET /api/courses/grade-setups", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue(authUserRow());
     mockCourseFindMany.mockReset().mockResolvedValue([]);
   });
 

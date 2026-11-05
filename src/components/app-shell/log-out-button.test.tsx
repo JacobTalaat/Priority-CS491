@@ -6,11 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   mockReplace: vi.fn().mockResolvedValue(undefined),
   mockUnsubscribeBeforeLogout: vi.fn(),
+  mockLogOut: vi.fn().mockResolvedValue(undefined),
   mockClearToken: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.mockReplace }),
+}));
+
+vi.mock("@/lib/auth-client", () => ({
+  logOut: mocks.mockLogOut,
 }));
 
 vi.mock("@/lib/push-client", () => ({
@@ -30,6 +35,7 @@ describe("LogOutButton", () => {
   beforeEach(() => {
     mocks.mockReplace.mockClear();
     mocks.mockUnsubscribeBeforeLogout.mockReset();
+    mocks.mockLogOut.mockReset().mockResolvedValue(undefined);
     mocks.mockClearToken.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -65,6 +71,9 @@ describe("LogOutButton", () => {
 
     expect(order).toEqual(["push cleanup scheduled", "token cleared"]);
     expect(mocks.mockReplace).toHaveBeenCalledWith("/login");
+    expect(
+      mocks.mockUnsubscribeBeforeLogout.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.mockLogOut.mock.invocationCallOrder[0]);
   });
 
   it("completes logout even when push cleanup fails", async () => {

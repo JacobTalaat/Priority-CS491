@@ -1,26 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
-  mockSessionFindUnique,
-  mockUserFindUnique,
-  mockSyncUser,
-  mockAcquireSyncLock,
-  mockReleaseSyncLock,
-  mockDeliverGradePosted,
-} = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
-  mockUserFindUnique: vi.fn(),
-  mockSyncUser: vi.fn(),
-  mockAcquireSyncLock: vi.fn(),
-  mockReleaseSyncLock: vi.fn(),
-  mockDeliverGradePosted: vi.fn(),
-}));
+const { mockVerifyAccessToken, mockUserFindUnique, mockSyncUser, mockAcquireSyncLock, mockReleaseSyncLock, mockDeliverGradePosted } =
+  vi.hoisted(() => ({
+    mockVerifyAccessToken: vi.fn(),
+    mockUserFindUnique: vi.fn(),
+    mockSyncUser: vi.fn(),
+    mockAcquireSyncLock: vi.fn(),
+    mockReleaseSyncLock: vi.fn(),
+    mockDeliverGradePosted: vi.fn(),
+  }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
     user: { findUnique: mockUserFindUnique },
   },
+}));
+
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
 }));
 
 vi.mock("@/lib/import/sync", () => ({
@@ -40,13 +37,6 @@ import { GET, POST } from "./route";
 
 const LAST_SYNCED_AT = new Date("2026-10-07T19:00:00Z");
 
-function sessionRow() {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
-  };
-}
 
 function syncRequest(method: string) {
   return new Request("http://localhost/api/canvas/sync", {
@@ -61,7 +51,7 @@ function bareRequest(method: string) {
 
 describe("POST /api/canvas/sync", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue({ authUserId: "auth-user-1", email: "student@example.com" });
     mockUserFindUnique.mockReset();
     mockSyncUser.mockReset();
     mockAcquireSyncLock.mockReset().mockResolvedValue(true);
@@ -76,7 +66,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("returns 200 with the sync counts and the last-synced time", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockResolvedValue({
       lastSyncedAt: LAST_SYNCED_AT,
       courses: 4,
@@ -99,7 +89,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("takes the sync lock before syncing and releases it on success", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockResolvedValue({
       lastSyncedAt: LAST_SYNCED_AT,
       courses: 0,
@@ -115,14 +105,14 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("releases the lock even when the sync fails", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockRejectedValue(new Error("Canvas not connected"));
     await POST(syncRequest("POST"));
     expect(mockReleaseSyncLock).toHaveBeenCalledWith("user-1");
   });
 
   it("returns 409 without syncing when another sync holds the lock", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockAcquireSyncLock.mockResolvedValue(false);
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(409);
@@ -134,7 +124,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("returns 409 when Canvas is not connected", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockRejectedValue(new Error("Canvas not connected"));
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(409);
@@ -142,7 +132,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("returns 400 when Canvas rejects the stored token", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockRejectedValue(
       new CanvasError("unauthorized", "Canvas rejected credentials for /api/v1/courses", 401)
     );
@@ -152,7 +142,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("returns 502 on a network error", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockRejectedValue(new CanvasError("network", "Canvas request failed before a response"));
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(502);
@@ -160,7 +150,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("returns 502 on any other Canvas error", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockRejectedValue(new CanvasError("http", "Canvas returned 500", 500));
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(502);
@@ -168,7 +158,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("returns a clear error when the saved calendar feed cannot be read", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockRejectedValue(new CalendarFeedError());
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(502);
@@ -178,7 +168,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("returns 500 and does not blame Canvas when the failure is not a Canvas error", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockRejectedValue(new Error("database connection terminated"));
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(500);
@@ -194,7 +184,7 @@ describe("POST /api/canvas/sync", () => {
 
   it("delivers grade pushes after the lock is released, and the 200 body is unchanged", async () => {
     const order: string[] = [];
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockImplementation(async () => {
       order.push("sync");
       return {
@@ -228,7 +218,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("delivers grade pushes even when the successful sync posted no new grades", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockResolvedValue({
       lastSyncedAt: LAST_SYNCED_AT,
       courses: 0,
@@ -243,7 +233,7 @@ describe("POST /api/canvas/sync", () => {
   });
 
   it("a failed sync releases the lock and delivers no grade pushes", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockRejectedValue(new CanvasError("network", "Canvas could not be reached."));
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(502);
@@ -253,7 +243,7 @@ describe("POST /api/canvas/sync", () => {
 
   it("a rejected delivery logs one fixed line and never changes the 200 response", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockSyncUser.mockResolvedValue({
       lastSyncedAt: LAST_SYNCED_AT,
       courses: 0,
@@ -280,7 +270,7 @@ describe("POST /api/canvas/sync", () => {
 
 describe("GET /api/canvas/sync", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue({ authUserId: "auth-user-1", email: "student@example.com" });
     mockUserFindUnique.mockReset();
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -290,8 +280,12 @@ describe("GET /api/canvas/sync", () => {
   });
 
   it("returns the stored lastSyncedAt", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue({ lastSyncedAt: LAST_SYNCED_AT });
+    mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) => {
+      if (args.where && "authUserId" in args.where) {
+        return { id: "user-1", email: "student@example.com" };
+      }
+      return { lastSyncedAt: LAST_SYNCED_AT };
+    });
     const res = await GET(syncRequest("GET"));
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ lastSyncedAt: "2026-10-07T19:00:00.000Z" });
@@ -302,8 +296,12 @@ describe("GET /api/canvas/sync", () => {
   });
 
   it("returns null when never synced", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
-    mockUserFindUnique.mockResolvedValue({ lastSyncedAt: null });
+    mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) => {
+      if (args.where && "authUserId" in args.where) {
+        return { id: "user-1", email: "student@example.com" };
+      }
+      return { lastSyncedAt: null };
+    });
     const res = await GET(syncRequest("GET"));
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ lastSyncedAt: null });

@@ -1,5 +1,5 @@
-// The website keeps the bearer token from sign up / log in in localStorage and sends it
-// in the Authorization header, the same way the iOS app will.
+// The browser stores the Supabase Auth access token (from sign up / log in) in
+// localStorage and sends it in the Authorization header, the same way the iOS app will.
 export const TOKEN_KEY = "priority-token";
 
 function storage(): Storage | null {

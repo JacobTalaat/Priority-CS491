@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockSessionFindUnique,
+  mockVerifyAccessToken,
+  mockUserFindUnique,
   mockTransaction,
   mockTxDeleteMany,
   mockTxUpsert,
   mockTxFindMany,
   mockDeviceDeleteMany,
 } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockTransaction: vi.fn(),
   mockTxDeleteMany: vi.fn(),
   mockTxUpsert: vi.fn(),
@@ -16,9 +18,13 @@ const {
   mockDeviceDeleteMany: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
     deviceToken: { deleteMany: mockDeviceDeleteMany },
     $transaction: mockTransaction,
   },
@@ -54,14 +60,6 @@ function rawRequest(method: string, body: string): Request {
   });
 }
 
-function sessionRow() {
-  return {
-    id: "session-1",
-    expiresAt: new Date(Date.now() + 60 * 1000),
-    user: { id: "user-1", email: "student@example.com" },
-  };
-}
-
 function transactionImplementation() {
   return async (callback: (tx: unknown) => Promise<unknown>) => {
     return callback({
@@ -76,7 +74,11 @@ function transactionImplementation() {
 
 describe("POST /api/devices", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockTransaction.mockReset();
     mockTxDeleteMany.mockReset();
     mockTxUpsert.mockReset();
@@ -88,7 +90,7 @@ describe("POST /api/devices", () => {
   });
 
   it("returns 401 without a session", async () => {
-    mockSessionFindUnique.mockResolvedValue(null);
+    mockVerifyAccessToken.mockResolvedValue(null);
     const res = await POST(request("POST", { token: TOKEN, platform: "ios", deviceId: DEVICE_ID }, false));
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ error: "Unauthorized" });
@@ -96,7 +98,7 @@ describe("POST /api/devices", () => {
   });
 
   it("returns 400 with a plain message for invalid JSON", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     const res = await POST(rawRequest("POST", "not json"));
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: "Invalid JSON body." });
@@ -104,7 +106,7 @@ describe("POST /api/devices", () => {
   });
 
   it("returns 400 for tokens that are too short, odd-length, or not hex", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     for (const token of [SHORT_TOKEN, ODD_LENGTH_TOKEN, NON_HEX_TOKEN, 123, null, UPPER_TOKEN.slice(0, 200) + "zz"]) {
       const res = await POST(request("POST", { token, platform: "ios", deviceId: DEVICE_ID }));
       expect(res.status).toBe(400);
@@ -116,7 +118,7 @@ describe("POST /api/devices", () => {
   });
 
   it("returns 400 for a platform other than ios", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     const res = await POST(request("POST", { token: TOKEN, platform: "android", deviceId: DEVICE_ID }));
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: "Only the ios platform is supported." });
@@ -124,7 +126,7 @@ describe("POST /api/devices", () => {
   });
 
   it("returns 400 for a bad deviceId", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     for (const deviceId of ["not-a-uuid", "123e4567e89b12d3a456426614174000", 123, null]) {
       const res = await POST(request("POST", { token: TOKEN, platform: "ios", deviceId }));
       expect(res.status).toBe(400);
@@ -134,7 +136,7 @@ describe("POST /api/devices", () => {
   });
 
   it("keeps the student's other devices when registering a second one", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     await POST(request("POST", { token: TOKEN, platform: "ios", deviceId: DEVICE_ID }));
     await POST(request("POST", { token: "b".repeat(64), platform: "ios", deviceId: SECOND_DEVICE_ID }));
     // Only the row that holds the new token is deleted, never the other rows.
@@ -146,7 +148,7 @@ describe("POST /api/devices", () => {
   });
 
   it("replaces the token when the same device registers again", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     await POST(request("POST", { token: TOKEN, platform: "ios", deviceId: DEVICE_ID }));
     const newToken = "c".repeat(64);
     await POST(request("POST", { token: newToken, platform: "ios", deviceId: DEVICE_ID }));
@@ -161,7 +163,7 @@ describe("POST /api/devices", () => {
   });
 
   it("pulls a token away from the other account that still holds it", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     const res = await POST(request("POST", { token: TOKEN, platform: "ios", deviceId: DEVICE_ID }));
     expect(res.status).toBe(200);
     // The token delete is not scoped to a user, so a row belonging to any
@@ -170,7 +172,7 @@ describe("POST /api/devices", () => {
   });
 
   it("evicts the oldest device row when a student registers an eleventh device", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     mockTxFindMany.mockResolvedValue(
       Array.from({ length: 11 }, (_, index) => ({ id: `row-${index}` }))
     );
@@ -188,7 +190,7 @@ describe("POST /api/devices", () => {
   });
 
   it("does not evict anything while the student is within the cap", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     mockTxFindMany.mockResolvedValue(
       Array.from({ length: 10 }, (_, index) => ({ id: `row-${index}` }))
     );
@@ -197,7 +199,7 @@ describe("POST /api/devices", () => {
   });
 
   it("accepts uppercase input and stores everything lowercased", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     const deviceId = DEVICE_ID.toUpperCase();
     const res = await POST(request("POST", { token: UPPER_TOKEN, platform: "ios", deviceId }));
     expect(res.status).toBe(200);
@@ -208,7 +210,7 @@ describe("POST /api/devices", () => {
   });
 
   it("retries the transaction once when a write conflict hits, then succeeds", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     mockTransaction
       .mockImplementationOnce(async () => {
         throw { code: "P2034" };
@@ -222,7 +224,7 @@ describe("POST /api/devices", () => {
   });
 
   it("returns 503 when the transaction keeps hitting write conflicts", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     mockTransaction.mockImplementation(async () => {
       throw { code: "P2034" };
     });
@@ -236,7 +238,7 @@ describe("POST /api/devices", () => {
   });
 
   it("does not retry or hide a real database failure", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     mockTransaction.mockImplementation(async () => {
       throw new Error("connection refused");
     });
@@ -249,12 +251,16 @@ describe("POST /api/devices", () => {
 
 describe("DELETE /api/devices", () => {
   beforeEach(() => {
-    mockSessionFindUnique.mockReset();
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique.mockReset().mockResolvedValue({ id: "user-1", email: "student@example.com" });
     mockDeviceDeleteMany.mockReset();
   });
 
   it("returns 401 without a session", async () => {
-    mockSessionFindUnique.mockResolvedValue(null);
+    mockVerifyAccessToken.mockResolvedValue(null);
     const res = await DELETE(request("DELETE", { token: TOKEN }, false));
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ error: "Unauthorized" });
@@ -262,7 +268,7 @@ describe("DELETE /api/devices", () => {
   });
 
   it("returns 400 with a plain message for invalid JSON", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     const res = await DELETE(rawRequest("DELETE", "{{"));
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: "Invalid JSON body." });
@@ -270,7 +276,7 @@ describe("DELETE /api/devices", () => {
   });
 
   it("validates the token like POST does, after trimming it", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     const res = await DELETE(request("DELETE", { token: ODD_LENGTH_TOKEN }));
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({
@@ -287,7 +293,7 @@ describe("DELETE /api/devices", () => {
   });
 
   it("removes only a token that belongs to the student", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     mockDeviceDeleteMany.mockResolvedValue({ count: 1 });
     const res = await DELETE(request("DELETE", { token: TOKEN }));
     expect(res.status).toBe(200);
@@ -298,7 +304,7 @@ describe("DELETE /api/devices", () => {
   });
 
   it("reports removed false when the token belongs to nobody or another user", async () => {
-    mockSessionFindUnique.mockResolvedValue(sessionRow());
+
     mockDeviceDeleteMany.mockResolvedValue({ count: 0 });
     const res = await DELETE(request("DELETE", { token: TOKEN }));
     expect(res.status).toBe(200);

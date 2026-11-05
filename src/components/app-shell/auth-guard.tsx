@@ -3,10 +3,11 @@
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { checkSession } from "@/lib/auth-client";
+import { checkSession, currentToken } from "@/lib/auth-client";
 import type { AuthUser } from "@/lib/auth-client";
 import { loginPathFor } from "@/lib/redirect";
-import { TOKEN_KEY, clearToken, getToken } from "@/lib/session";
+import { startSessionSync } from "@/lib/session-sync";
+import { TOKEN_KEY, clearToken, getToken, setToken } from "@/lib/session";
 import { logEvent } from "@/lib/usage";
 import styles from "./app-shell.module.css";
 
@@ -30,25 +31,45 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       router.replace(loginPathFor(window.location.pathname + window.location.search));
     }
 
-    const token = getToken();
-    if (!token) {
-      sendToLogin();
-      return;
-    }
-
-    checkSession(token).then((result) => {
+    (async () => {
+      // supabase-js refreshes the access token in the background; use the
+      // freshest one it has and keep the stored token for the header current.
+      const token = (await currentToken()) ?? getToken();
       if (cancelled) {
         return;
       }
-      if (result.status === "invalid") {
-        clearToken();
+      if (!token) {
         sendToLogin();
         return;
       }
-      if (result.status === "valid") {
-        logEvent("app_open");
+      if (getToken() !== token) {
+        setToken(token);
       }
-      setState({ status: "ready", user: result.status === "valid" ? result.user : null });
+
+      checkSession(token).then((result) => {
+        if (cancelled) {
+          return;
+        }
+        if (result.status === "invalid") {
+          clearToken();
+          sendToLogin();
+          return;
+        }
+        if (result.status === "valid") {
+          logEvent("app_open");
+        }
+        setState({ status: "ready", user: result.status === "valid" ? result.user : null });
+      });
+    })();
+
+    // Supabase refreshes the access token and ends it on sign-out in the
+    // background; mirror every change into the token the header reads, and
+    // leave for the login page if a sign-out reaches this tab. The
+    // subscription lives exactly as long as this component is mounted.
+    const stopSessionSync = startSessionSync(() => {
+      if (!cancelled) {
+        sendToLogin();
+      }
     });
 
     // Logging out in another tab logs this one out too.
@@ -61,6 +82,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      stopSessionSync();
       window.removeEventListener("storage", handleStorage);
     };
   }, [router]);

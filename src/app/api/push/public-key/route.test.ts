@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
+const { mockVerifyAccessToken, mockUserFindUnique } = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase", () => ({
+  verifyAccessToken: mockVerifyAccessToken,
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    session: { findUnique: mockSessionFindUnique },
+    user: { findUnique: mockUserFindUnique },
   },
 }));
 
@@ -26,12 +31,13 @@ function request(withSession = true) {
 
 describe("GET /api/push/public-key", () => {
   beforeEach(() => {
-    mockSessionFindUnique
+    mockVerifyAccessToken.mockReset().mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+    });
+    mockUserFindUnique
       .mockReset()
-      .mockResolvedValue({
-        expiresAt: new Date(Date.now() + 60 * 1000),
-        user: { id: "user-1", email: "student@example.com" },
-      });
+      .mockResolvedValue({ id: "user-1", email: "student@example.com" });
   });
 
   it("returns the server's VAPID public key for an authenticated session", async () => {
