@@ -14,14 +14,13 @@ export function calculatePointsGrade(assignments: readonly GradeAssignment[]): P
     if (score < 0) {
       return { status: "unsupported", reason: "negative-score" };
     }
+    // Canvas rules: a score above points possible counts as-is; a positive
+    // score on a 0-point assignment is pure bonus that adds to earned only.
     if (!Number.isFinite(assignment.pointsPossible) || assignment.pointsPossible <= 0) {
       if (score > 0) {
-        return { status: "unsupported", reason: "extra-credit" };
+        earned += score;
       }
       continue;
-    }
-    if (score > assignment.pointsPossible) {
-      return { status: "unsupported", reason: "extra-credit" };
     }
     earned += score;
     possible += assignment.pointsPossible;

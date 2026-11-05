@@ -38,13 +38,15 @@ function submission(
   score: number | null,
   workflowState: string,
   gradedAt: string | null,
-  excused: boolean | null = null
+  excused: boolean | null = null,
+  submittedAt: string | null = null
 ): Record<string, unknown> {
   return {
     assignment_id: assignmentId,
     score,
     workflow_state: workflowState,
     graded_at: gradedAt,
+    submitted_at: submittedAt,
     excused,
   };
 }
@@ -130,6 +132,8 @@ describe("importGrades", () => {
       assignmentId: "assignment-local-4",
       score: 93.75,
       gradedAt: new Date("2026-09-17T15:39:44Z"),
+      submittedAt: null,
+      excused: false,
     });
   });
 
@@ -159,6 +163,68 @@ describe("importGrades", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockFetch.mock.calls[0][0]).toBe(`${BASE_URL}${PATH}`);
     expect(mockFetch.mock.calls[1][0]).toBe(`${BASE_URL}/api/v1/courses/67506/students/submissions?page=2&per_page=100&student_ids[]=self`);
+  });
+
+  it("stores a submitted submission with no score yet, score stays null and submittedAt is parsed", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      submission(736750, null, "submitted", null, null, "2026-10-14T12:00:00Z"),
+    ]));
+    await expect(importGrades(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 0 });
+    expect(mockUpsert.mock.calls[0][0].update).toEqual({
+      score: null,
+      gradedAt: null,
+      submittedAt: new Date("2026-10-14T12:00:00Z"),
+      excused: false,
+    });
+  });
+
+  it("stores a graded submission waiting on its grade (score null once submitted), with submittedAt", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      submission(736750, null, "graded", null, null, "2026-10-14T12:00:00Z"),
+    ]));
+    await expect(importGrades(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 0 });
+    expect(mockUpsert.mock.calls[0][0].update).toEqual({
+      score: null,
+      gradedAt: null,
+      submittedAt: new Date("2026-10-14T12:00:00Z"),
+      excused: false,
+    });
+  });
+
+  it("stores an excused submission with no score, flagged excused", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      submission(736750, null, "graded", null, true),
+    ]));
+    await expect(importGrades(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 1, skipped: 0 });
+    expect(mockUpsert.mock.calls[0][0].where).toEqual({ assignmentId: "assignment-local-1" });
+    expect(mockUpsert.mock.calls[0][0].update).toEqual({
+      score: null,
+      gradedAt: null,
+      submittedAt: null,
+      excused: true,
+    });
+  });
+
+  it("keeps the unsubmitted rule: a submission with no submitted_at and no score stays skipped", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      submission(736750, null, "unsubmitted", null),
+      submission(736751, null, "graded", null),
+    ]));
+    await expect(importGrades(CREDENTIALS, COURSE)).resolves.toEqual({ imported: 0, skipped: 2 });
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("carries submittedAt on a fully graded submission that was once handed in", async () => {
+    vi.stubGlobal("fetch", singlePage([
+      submission(736750, 103, "graded", "2026-09-26T23:09:43Z", null, "2026-09-26T22:00:00Z"),
+    ]));
+    await importGrades(CREDENTIALS, COURSE);
+    expect(mockUpsert.mock.calls[0][0].update).toEqual({
+      score: 103,
+      gradedAt: new Date("2026-09-26T23:09:43Z"),
+      submittedAt: new Date("2026-09-26T22:00:00Z"),
+      excused: false,
+    });
   });
 
   it("stores a score above the assignment's points without clamping, extra credit", async () => {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parseGradeSetup, type GradeSetupPayload } from "@/lib/grade-setup";
+import { parseSavedSetup, withFinalExamCategory } from "@/lib/grade-setup";
 import { calculatePointsGrade } from "@/lib/points-grade";
 import { calculateWeightedGrade, type WeightedGradeResult } from "@/lib/weighted-grade";
 import { buildCategoryBreakdown, chooseGradeEngine, type CategoryBreakdown } from "@/lib/grade-engine";
@@ -26,27 +26,6 @@ type GradeResponse = {
   finalExam: FinalExamResult;
   shares: AssignmentShare[];
 };
-
-// A saved row is a confirmed setup: the confirm step is what writes it.
-// The stored JSON is re-validated here because the database could hold
-// anything; an invalid setup grades as if there were none.
-function parseSavedSetup(
-  row:
-    | {
-        categories: unknown;
-        assignmentMappings: unknown;
-        finalExamWeight: unknown;
-        cutoffs: unknown;
-        classDetails: unknown;
-      }
-    | null,
-): GradeSetupPayload | null {
-  if (!row) {
-    return null;
-  }
-  const parsed = parseGradeSetup(row);
-  return parsed.ok ? parsed.data : null;
-}
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse<GradeResponse | { error: string }>> {
   const user = await getUserFromRequest(request);
@@ -86,7 +65,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
-  const setup = parseSavedSetup(course.gradeSetup);
+  const savedSetup = parseSavedSetup(course.gradeSetup);
+  // Normalize before choosing the engine so a final exam weight parked outside the
+  // categories grades as its own category instead of inside the final's mapped one.
+  // The solver and the shares read the same normalized setup, so they agree with
+  // the grade instead of treating the counted final as not counted.
+  const setup = savedSetup ? withFinalExamCategory(savedSetup) : null;
   const choice = chooseGradeEngine(setup);
   const assignments = course.assignments.map((assignment) => ({
     id: assignment.id,

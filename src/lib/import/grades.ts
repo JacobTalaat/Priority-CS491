@@ -7,6 +7,7 @@ type CanvasSubmission = {
   score?: unknown;
   workflow_state?: unknown;
   graded_at?: unknown;
+  submitted_at?: unknown;
   excused?: unknown;
 };
 
@@ -38,11 +39,24 @@ export async function importGrades(
   let imported = 0;
   let skipped = 0;
   for (const submission of submissions) {
-    if (submission?.excused === true) {
+    const excused = submission?.excused === true;
+    const score = typeof submission?.score === "number" ? submission.score : null;
+    const submittedAt = parseDate(submission?.submitted_at);
+    // An excused submission claiming a score is contradictory payload: the
+    // old rule skips it and stays skipped.
+    if (excused && score !== null) {
       skipped += 1;
       continue;
     }
-    if (submission?.workflow_state !== "graded" || typeof submission?.score !== "number") {
+    if (score !== null && submission?.workflow_state !== "graded") {
+      skipped += 1;
+      continue;
+    }
+    // A submission the student handed in, or one Canvas excused, is a fact
+    // worth storing even before a grade lands, so the open-work list can
+    // leave it out instead of ranking work that is already waiting on a
+    // teacher.
+    if (!excused && score === null && submittedAt === null) {
       skipped += 1;
       continue;
     }
@@ -55,8 +69,10 @@ export async function importGrades(
       continue;
     }
     const data = {
-      score: submission.score,
-      gradedAt: parseDate(submission.graded_at),
+      score,
+      gradedAt: score === null ? null : parseDate(submission.graded_at),
+      submittedAt,
+      excused,
     };
     await prisma.grade.upsert({
       where: { assignmentId: localAssignmentId },

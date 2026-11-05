@@ -4,10 +4,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 
-const { mockGetCourses, mockSaveGradeSetup, mockUploadProps } = vi.hoisted(() => ({
+const { mockGetCourses, mockSaveGradeSetup, mockUploadProps, mockReplace } = vi.hoisted(() => ({
   mockGetCourses: vi.fn(),
   mockSaveGradeSetup: vi.fn(),
   mockUploadProps: vi.fn(),
+  mockReplace: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mockReplace }),
 }));
 
 vi.mock("@/lib/grade-setup-client", () => ({
@@ -373,6 +378,7 @@ describe("confirmProblems", () => {
     categories: [{ name: "Homework", weight: "80" }],
     finalExamWeight: "20",
     assignmentMappings: { a1: "Homework", a2: "Homework" },
+    finalExamAssignmentId: "a2",
   });
 
   it("is empty for a complete setup", () => {
@@ -383,6 +389,22 @@ describe("confirmProblems", () => {
     expect(confirmProblems({ ...valid(), finalExamWeight: "15" }, assignments)).toEqual([
       "Weights add up to 95%. They need to total 100%.",
     ]);
+  });
+
+  it("asks for the final exam when it carries weight but none is picked", () => {
+    expect(confirmProblems({ ...valid(), finalExamAssignmentId: "" }, assignments)).toEqual([
+      "Pick which assignment is the final exam, or set the final exam weight to 0.",
+    ]);
+  });
+
+  it("does not ask for a final exam when the final exam weight is 0", () => {
+    const noFinalWeight: FormState = {
+      ...valid(),
+      categories: [{ name: "Homework", weight: "100" }],
+      finalExamWeight: "0",
+      finalExamAssignmentId: "",
+    };
+    expect(confirmProblems(noFinalWeight, assignments)).toEqual([]);
   });
 
   it("counts unmapped assignments", () => {
@@ -442,6 +464,29 @@ describe("Confirm button", () => {
     const button = html.match(/<button[^>]*>Confirm and save<\/button>/)?.[0] ?? "";
     expect(button).toContain('type="submit"');
     expect(button).not.toContain("disabled");
+  });
+});
+
+describe("onboarding confirmation", () => {
+  it("returns to onboarding after the first class is confirmed", async () => {
+    mockSaveGradeSetup.mockReset();
+    mockReplace.mockReset();
+    mockSaveGradeSetup.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { confirmed: true, courseId: course.id, confirmedAt: "2026-10-22T12:00:00.000Z" },
+    });
+
+    await withMounted(<WeightsSetup initialCourses={[course]} onboarding />, async (container) => {
+      const form = container.querySelector("form");
+      expect(form).not.toBeNull();
+      await act(async () => {
+        form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      });
+
+      expect(mockSaveGradeSetup).toHaveBeenCalledTimes(1);
+      expect(mockReplace).toHaveBeenCalledWith("/onboarding");
+    });
   });
 });
 

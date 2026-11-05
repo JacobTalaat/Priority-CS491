@@ -1,0 +1,5 @@
+ALTER TABLE "User"
+  ADD COLUMN "notifyTonight" BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN "notifyGradePosted" BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN "notifyDueTomorrow" BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN "nightlyReminderTime" TEXT NOT NULL DEFAULT '20:00';

@@ -9,6 +9,11 @@ export default async function WeightsPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const { course } = await searchParams;
-  return <WeightsSetup initialCourseId={typeof course === "string" ? course : undefined} />;
+  const { course, onboarding } = await searchParams;
+  return (
+    <WeightsSetup
+      initialCourseId={typeof course === "string" ? course : undefined}
+      onboarding={onboarding === "1"}
+    />
+  );
 }

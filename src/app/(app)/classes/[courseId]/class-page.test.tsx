@@ -113,4 +113,57 @@ describe("ClassPageView", () => {
     expect(html).toContain("Due Sun, Oct 11 · Assignments");
     expect(html).toContain("Tue 2-3 pm");
   });
+
+  it("shows what's needed on the final for each letter", () => {
+    const solved: CourseGradeResponse = {
+      ...weightedGrade,
+      finalExam: {
+        status: "solved",
+        otherWorkPending: true,
+        results: [
+          { letter: "A", status: "needed", score: 92, percent: 92 },
+          { letter: "B", status: "needed", score: 71.5, percent: 71.5 },
+          { letter: "C", status: "secured" },
+        ],
+      },
+    };
+    const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: true, data: solved }} />);
+    expect(html).toMatch(/<h2[^>]*>Final exam<\/h2>/);
+    expect(html).toContain('aria-label="What you need on the final"');
+    expect(html).toContain("You need 92% on the final for an A if your other grades stay where they are.");
+    expect(html).toContain("Need 71.5%");
+    expect(html).toContain("Secured");
+    expect(html).toContain("these numbers can move as those grades come in");
+    expect(html).not.toContain("is out of reach");
+  });
+
+  it("warns clearly when an A is out of reach", () => {
+    const outOfReach: CourseGradeResponse = {
+      ...weightedGrade,
+      finalExam: {
+        status: "solved",
+        otherWorkPending: false,
+        results: [
+          { letter: "A", status: "out-of-reach", best: 86.4 },
+          { letter: "B", status: "needed", score: 55, percent: 55 },
+        ],
+      },
+    };
+    const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: true, data: outOfReach }} />);
+    expect(html).toMatch(
+      /role="status"[^>]*>.*An A is out of reach: a perfect final brings you to 86.4%. You need 55% on the final for a B./,
+    );
+    expect(html).toContain("Out of reach");
+  });
+
+  it("explains how to get the tool when no final is picked, with a link to the setup", () => {
+    const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: true, data: weightedGrade }} />);
+    expect(html).toContain("Pick which assignment is the final exam for this class to see what you need on it.");
+    expect(html).toMatch(/<a[^>]*href="\/weights\?course=c1"[^>]*>Open the grade setup<\/a>/);
+  });
+
+  it("leaves the final exam section out when the grade can't load", () => {
+    const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: false, message: "Boom" }} />);
+    expect(html).not.toContain(">Final exam</h2>");
+  });
 });

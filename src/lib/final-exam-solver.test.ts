@@ -247,14 +247,40 @@ describe("solveFinalExam", () => {
     expect(solve(weightedChoice, graded, "final-1", { A: 90 })).toEqual({ status: "already-graded" });
   });
 
+  it("reports secured when extra credit elsewhere has already reached the cutoff", () => {
+    // Homework: 21 of 10, 210%. The overall grade is 126 + 0.4x, so an A=90 is
+    // met even with a 0 on the final, and a B=130 still needs a little more.
+    const setup = makeSetup(
+      [
+        { name: "Homework", weight: 60 },
+        { name: "Final Exam", weight: 40 },
+      ],
+      [
+        { assignmentId: "hw-1", category: "Homework" },
+        { assignmentId: "final-1", category: "Final Exam" },
+      ],
+    );
+    const assignments = [makeAssignment("hw-1", 10, 21), makeAssignment("final-1", 100)];
+    const result = solve({ engine: "weighted", setup }, assignments, "final-1", { A: 90, B: 130 });
+
+    expect(result).toEqual({
+      status: "solved",
+      results: [
+        { letter: "A", status: "secured" },
+        { letter: "B", status: "needed", score: 10, percent: 10 },
+      ],
+      otherWorkPending: false,
+    });
+  });
+
   it("reports unknown when the engine cannot answer even with a perfect final", () => {
-    // The homework got more points than were possible, so the engine refuses
-    // the course no matter what the final scores.
+    // The homework's stored score is negative, so the engine refuses the
+    // course no matter what the final scores.
     const setup = makeSetup([{ name: "Homework", weight: 100 }], [
       { assignmentId: "hw-1", category: "Homework" },
       { assignmentId: "final-1", category: "Homework" },
     ]);
-    const assignments = [makeAssignment("hw-1", 10, 11), makeAssignment("final-1", 100)];
+    const assignments = [makeAssignment("hw-1", 10, -50), makeAssignment("final-1", 100)];
     expect(solve({ engine: "weighted", setup }, assignments, "final-1", { A: 90 })).toEqual({
       status: "solved",
       results: [{ letter: "A", status: "unknown" }],

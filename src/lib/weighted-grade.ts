@@ -2,7 +2,7 @@ import type { GradeSetupPayload } from "@/lib/grade-setup";
 
 export type GradeAssignment = { id: string; pointsPossible: number; grade: { score: number | null } | null };
 
-export type UnsupportedReason = "extra-credit" | "negative-score" | "non-finite-result";
+export type UnsupportedReason = "negative-score" | "non-finite-result";
 
 export type WeightedGradeResult =
   | { status: "calculated"; percentage: number }
@@ -36,14 +36,16 @@ export function calculateWeightedGrade(
     if (score < 0) {
       return { status: "unsupported", reason: "negative-score" };
     }
+    // Canvas rules: a score above points possible counts as-is, so extra
+    // credit can lift a category above 100; a positive score on a 0-point
+    // assignment is pure bonus that adds to earned only.
     if (!Number.isFinite(assignment.pointsPossible) || assignment.pointsPossible <= 0) {
       if (score > 0) {
-        return { status: "unsupported", reason: "extra-credit" };
+        const totals = totalsByCategory.get(mapping.category) ?? { earned: 0, possible: 0 };
+        totals.earned += score;
+        totalsByCategory.set(mapping.category, totals);
       }
       continue;
-    }
-    if (score > assignment.pointsPossible) {
-      return { status: "unsupported", reason: "extra-credit" };
     }
 
     const totals = totalsByCategory.get(mapping.category) ?? { earned: 0, possible: 0 };

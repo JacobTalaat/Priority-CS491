@@ -213,6 +213,17 @@ describe("GET /api/courses/[courseId]", () => {
     });
   });
 
+  it("returns grade null for work handed in but not graded yet", async () => {
+    mockCourseFindFirst.mockResolvedValue({
+      ...COURSE_ROW,
+      assignments: [{ ...COURSE_ROW.assignments[0], grade: { score: null, gradedAt: null } }],
+    });
+    const response = await GET(request(), context);
+    const body = await response.json();
+
+    expect(body.assignments[0].grade).toBeNull();
+  });
+
   it("does not return another user's or a non-current course", async () => {
     mockCourseFindFirst.mockResolvedValue(null);
     const response = await GET(request(), context);

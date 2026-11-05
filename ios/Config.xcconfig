@@ -1,0 +1,22 @@
+//
+//  Config.xcconfig
+//  Priority
+//
+//  Build settings for the Priority app's runtime configuration.
+//
+//  These three values are baked into the app's Info.plist and read at launch.
+//  Real keys never get committed here: paste them into a NEW uncommitted copy
+//  or override in Xcode's build settings UI. See ios/README.md.
+//
+//  SUPABASE_URL              Your Supabase project URL (no trailing slash).
+//  SUPABASE_PUBLISHABLE_KEY  The public (anon/publishable) key, from the
+//                            Supabase dashboard under Project Settings > API.
+//  API_BASE_URL              Base URL of the deployed Priority website, e.g.
+//                            https://priority.example.com (no trailing slash).
+//
+SUPABASE_URL = https:/$()/YOUR-PROJECT.supabase.co
+SUPABASE_PUBLISHABLE_KEY = REPLACE_WITH_YOUR_PUBLISHABLE_KEY
+API_BASE_URL = https:/$()/YOUR-DEPLOYMENT.example.com
+
+// Optional developer-local overrides (gitignored; never committed):
+#include? "Config.local.xcconfig"

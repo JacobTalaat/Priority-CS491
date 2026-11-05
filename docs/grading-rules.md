@@ -10,7 +10,7 @@ Used (once #50 merges) when a class has a confirmed setup with at least one cate
 
 - Category weights plus the final exam weight must total 100 (the save step allows 0.001 for rounding).
 - The final exam is **its own category**, with the final mapped to it, and the final exam weight left at 0.
-- **Known gap:** the save step still accepts a final exam weight above 0, but the engine never reads it. Once the final is graded, a final mapped into another category counts at that category's weight instead. A Homework 70 / Final 30 course can then show 50 instead of 70.
+- A setup may store the final's weight in finalExamWeight with the final mapped to another category (the older save shape). The grade route folds it back out before grading: the picked final (`finalExamAssignmentId` in the class details) is unmapped from its category, and the weight becomes a category named "Final exam" — or is added to an existing `Final exam`/`Final` category — with the final mapped there. The weights still total 100, so the final counts at its own weight and shows in the breakdown. A setup with no pick has no final, so the save step refuses to confirm a final exam weight above 0 without one.
 - Every imported assignment must be mapped to a category before the setup can be saved (the form and the save step both check). The calculator skips any assignment missing from the mappings.
 
 ## Points based
@@ -23,7 +23,9 @@ Used (once #50 merges) when there is no confirmed setup, or no category weighted
 
 - **Ungraded work** is left out. It is not a zero.
 - **A graded zero** counts in full.
-- **A zero-point assignment** is left out, unless it has a score above zero (see below).
+- **A zero-point assignment** is left out, unless it has a score above zero.
+- **A score above the points possible** (extra credit) counts as-is: it adds to points earned and the points possible to it. Category and class percentages can therefore exceed 100.
+- **A score above zero on a zero-point assignment** (bonus) adds to points earned only. If a weighted category has no points possible besides the bonus, it contributes nothing to the weighted grade; in the per-category breakdown its percentage stays `null` while the earned points show. In the points engine the bonus adds to the overall earned total; if there is still no possible total, the result is insufficient data rather than a made-up percentage.
 
 ## What returns Unsupported
 
@@ -31,9 +33,7 @@ These apply to every assignment the calculator looks at: all of them for points,
 
 | Situation | Result |
 | --- | --- |
-| A score above the points possible (extra credit) | Unsupported |
 | A negative score | Unsupported |
-| A score above zero on a zero-point assignment | Unsupported |
 | A computed total or percentage that is not a finite number | Unsupported (a single non-number score is just ignored) |
 | No graded work that counts: nothing graded yet, or only work in 0-weight categories or worth 0 points | Insufficient data, which is not an error |
 

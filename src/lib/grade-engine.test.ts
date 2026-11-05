@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCategoryBreakdown, chooseGradeEngine, hasUsableCategoryWeights } from "./grade-engine";
 import type { GradeSetupPayload } from "./grade-setup";
-import type { GradeAssignment } from "./weighted-grade";
+import { calculateWeightedGrade, type GradeAssignment } from "./weighted-grade";
 
 function setupPayload(overrides: Partial<GradeSetupPayload> = {}): GradeSetupPayload {
   return {
@@ -104,5 +104,52 @@ describe("buildCategoryBreakdown", () => {
       { category: "Homework", weight: 50, percentage: 0, pointsEarned: 0, pointsPossible: 10, gradedCount: 1, ungradedCount: 0 },
       { category: "Labs", weight: 50, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
     ]);
+  });
+
+  it("lets a category grade above 100 from a score above points possible", () => {
+    const setup = setupPayload();
+    const assignments = [assignment("hw-1", 20, 21)];
+
+    const breakdown = buildCategoryBreakdown(setup, assignments);
+    expect(breakdown).toEqual([
+      { category: "Homework", weight: 100, percentage: 105, pointsEarned: 21, pointsPossible: 20, gradedCount: 1, ungradedCount: 0 },
+    ]);
+
+    // The breakdown still composes back into the weighted engine's number.
+    const weighted = calculateWeightedGrade(setup, assignments);
+    expect(weighted).toEqual({ status: "calculated", percentage: 105 });
+    const usable = breakdown.filter((entry) => entry.weight > 0 && entry.pointsPossible > 0);
+    const overall =
+      usable.reduce((total, entry) => total + (entry.pointsEarned / entry.pointsPossible) * 100 * entry.weight, 0) /
+      usable.reduce((total, entry) => total + entry.weight, 0);
+    expect(overall).toBe(105);
+  });
+
+  it("shows bonus points in pointsEarned while a category with no possible points stays null", () => {
+    const setup = setupPayload({
+      categories: [
+        { name: "Homework", weight: 50 },
+        { name: "Labs", weight: 50 },
+      ],
+      assignmentMappings: [
+        { assignmentId: "hw-1", category: "Homework" },
+        { assignmentId: "bonus", category: "Labs" },
+      ],
+    });
+    const assignments = [
+      assignment("hw-1", 10, 6),
+      assignment("bonus", 0, 5),
+    ];
+
+    const breakdown = buildCategoryBreakdown(setup, assignments);
+    expect(breakdown).toEqual([
+      { category: "Homework", weight: 50, percentage: 60, pointsEarned: 6, pointsPossible: 10, gradedCount: 1, ungradedCount: 0 },
+      { category: "Labs", weight: 50, percentage: null, pointsEarned: 5, pointsPossible: 0, gradedCount: 1, ungradedCount: 0 },
+    ]);
+
+    // The weighted engine fills the whole weight with Homework, matching the
+    // composition over the categories that carry points.
+    const weighted = calculateWeightedGrade(setup, assignments);
+    expect(weighted).toEqual({ status: "calculated", percentage: 60 });
   });
 });

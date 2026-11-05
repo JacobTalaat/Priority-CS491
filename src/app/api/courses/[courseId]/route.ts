@@ -101,7 +101,10 @@ export async function GET(request: Request, context: RouteContext) {
       pointsPossible: assignment.pointsPossible,
       htmlUrl: assignment.htmlUrl,
       assignmentGroup: assignment.assignmentGroup,
-      grade: assignment.grade,
+      // A grade row can now exist before a score does (the work was handed in or excused),
+      // but this response has always meant "graded" by a non-null grade, so it stays null
+      // until a score lands.
+      grade: assignment.grade && assignment.grade.score !== null ? assignment.grade : null,
     })),
   });
 }

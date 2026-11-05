@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, Notice, PageHeader, TextArea } from "@/components/ui";
 import { mappingSummary, unmappedAssignmentIds } from "@/lib/assignment-mapping";
@@ -259,6 +260,16 @@ export function confirmProblems(form: FormState, assignments: { id: string }[]):
   if (!Number.isFinite(finalExamWeight) || finalExamWeight < 0 || finalExamWeight > 100) {
     problems.push("The final exam weight must be from 0 to 100.");
   }
+  // The save step refuses this too: a final exam weight only counts toward the grade
+  // for the assignment picked as the final.
+  if (
+    Number.isFinite(finalExamWeight) &&
+    finalExamWeight > 0 &&
+    finalExamWeight <= 100 &&
+    !assignments.some((assignment) => assignment.id === form.finalExamAssignmentId)
+  ) {
+    problems.push("Pick which assignment is the final exam, or set the final exam weight to 0.");
+  }
   const total = categories.reduce(
     (sum, category) => sum + (Number.isFinite(category.weight) ? category.weight : 0),
     Number.isFinite(finalExamWeight) ? finalExamWeight : 0,
@@ -340,7 +351,9 @@ export function applySyllabusRead(
 export function WeightsSetup({
   initialCourses,
   initialCourseId,
-}: { initialCourses?: GradeSetupCourse[]; initialCourseId?: string } = {}) {
+  onboarding = false,
+}: { initialCourses?: GradeSetupCourse[]; initialCourseId?: string; onboarding?: boolean } = {}) {
+  const router = useRouter();
   const [courses, setCourses] = useState<GradeSetupCourse[]>(initialCourses ?? []);
   const [selectedCourseId, setSelectedCourseId] = useState(
     () => pickCourse(initialCourses ?? [], initialCourseId)?.id ?? "",
@@ -562,6 +575,10 @@ export function WeightsSetup({
       return;
     }
     logEvent("setup_confirmed");
+    if (onboarding && !wasConfirmed) {
+      router.replace("/onboarding");
+      return;
+    }
     const savedCourse = {
       ...selectedCourse,
       gradeSetup: { ...payload, confirmedAt: result.data.confirmedAt },
