@@ -34,10 +34,17 @@ describe("sendToUser", () => {
   it("sends to every saved subscription of the user and returns all zeros when there are none", async () => {
     expect(await sendToUser("user-1", MESSAGE)).toEqual({ sent: 0, failed: 0, removed: 0 });
     expect(mockSendPush).not.toHaveBeenCalled();
-    mockPushFindMany.mockResolvedValue([subscription("sub-1"), subscription("sub-2")]);
-    await sendToUser("user-1", MESSAGE);
-    expect(mockSendPush).toHaveBeenCalledTimes(2);
-    expect(mockSendPush).toHaveBeenLastCalledWith(subscription("sub-2"), MESSAGE);
+    const subs = [subscription("sub-1"), subscription("sub-2"), subscription("sub-3")];
+    mockPushFindMany.mockResolvedValue(subs);
+    expect(await sendToUser("user-1", MESSAGE)).toEqual({ sent: 3, failed: 0, removed: 0 });
+    for (const sub of subs) {
+      expect(mockSendPush).toHaveBeenCalledWith(sub, MESSAGE);
+    }
+    expect(mockSendPush.mock.calls.map((call) => (call[0] as { id: string }).id)).toEqual([
+      "sub-1",
+      "sub-2",
+      "sub-3",
+    ]);
   });
 
   it("scopes the lookup to the user and loads only the fields a send needs", async () => {
@@ -70,9 +77,14 @@ describe("sendToUser", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockPushFindMany.mockResolvedValue([subscription("sub-1"), subscription("sub-2")]);
     mockSendPush
-      .mockRejectedValueOnce(new Error("boom"))
+      .mockRejectedValueOnce(new Error("boom: https://push.example/sub-1 leaked"))
       .mockResolvedValueOnce("sent");
     expect(await sendToUser("user-1", MESSAGE)).toEqual({ sent: 1, failed: 1, removed: 0 });
+    const logged = errorSpy.mock.calls.filter((call) =>
+      call.includes("Web push send failed."),
+    );
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toEqual(["Web push send failed."]);
     errorSpy.mockRestore();
   });
 });
