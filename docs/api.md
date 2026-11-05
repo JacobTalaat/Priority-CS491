@@ -1102,7 +1102,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 **Response**
 
-`200` — the import completed; every count is the number of records written for that stage, and `gradesPosted` is the number of newly Canvas-posted grades detected during this sync (scores that went from absent to a number, recorded once per assignment in `GradePostedEvent`):
+`200` — the import completed; every count is the number of records written for that stage, and `gradesPosted` is the number of newly Canvas-posted grades detected during this sync (scores that went from absent to a number, recorded once per assignment in `GradePostedEvent`). Each newly posted grade also sends a "Grade posted" web push to every saved browser subscription, once per grade and only when the student's `notifyGradePosted` preference is on; a push failure never changes this response:
 
 ```json
 {
@@ -1826,7 +1826,7 @@ curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
 
 Runs one tick of the daily Canvas sync job. Every call counts: the job is a resumable tick rather than one long run, so a scheduler should call this every 15 minutes until the response reports `finished: true`. The tick syncs connected users (a stored Canvas token or a saved calendar feed) who have not been attempted yet in the current America/New_York calendar day, one at a time, and stops starting new users once 40 seconds of the tick are spent; every user it did start is awaited to completion. The per-day `SyncRun` is created by the first tick and later ticks add to its counters; the tick that finds nobody left sets `finishedAt`.
 
-Before each user is synced, the tick tries to take that account's sync lock. A student mid "Sync now" is recorded as `skipped-locked` for the day and never retried today, without counting as a failure. An attempt that stayed unfinished for more than 5 minutes (its process was killed) is reaped by the next tick as a timeout failure. Failures are recorded in `SyncFailure` with a fixed message per kind (`unauthorized`, `network`, `http`, `timeout`, `other`) that never contains raw error text, and each failed user also logs one fixed console line.
+Before each user is synced, the tick tries to take that account's sync lock. A student mid "Sync now" is recorded as `skipped-locked` for the day and never retried today, without counting as a failure. An attempt that stayed unfinished for more than 5 minutes (its process was killed) is reaped by the next tick as a timeout failure. Failures are recorded in `SyncFailure` with a fixed message per kind (`unauthorized`, `network`, `http`, `timeout`, `other`) that never contains raw error text, and each failed user also logs one fixed console line. Newly posted grades found during the sync trigger the same "Grade posted" web push described under `POST /api/canvas/sync`, once per grade and subject to the student's `notifyGradePosted` preference.
 
 This route is protected by a shared secret rather than an app session so any scheduler can call it. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for three ways to schedule the call (Vercel Cron, a crontab line with curl, or a GitHub Actions schedule).
 

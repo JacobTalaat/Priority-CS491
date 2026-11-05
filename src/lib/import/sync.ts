@@ -1,5 +1,6 @@
 import { CanvasError } from "@/lib/canvas";
 import { getCanvasStatus, getCanvasToken } from "@/lib/canvas-credentials";
+import { deliverGradePostedNotifications } from "@/lib/grade-posted-notify";
 import { getCalendarFeedUrl } from "@/lib/calendar-feed-credentials";
 import { prisma } from "@/lib/prisma";
 import { importAssignmentGroups } from "./assignment-groups";
@@ -91,6 +92,14 @@ async function finishSync(
   result: Omit<SyncResult, "gradesPosted">
 ): Promise<SyncResult> {
   const gradesPosted = snapshot ? await recordNewlyPostedGrades(userId, snapshot) : 0;
+  if (gradesPosted > 0) {
+    // A push failure must never fail or change the sync result.
+    try {
+      await deliverGradePostedNotifications(userId);
+    } catch {
+      console.error("grade-posted: delivery failed for one user");
+    }
+  }
   return { ...result, gradesPosted };
 }
 
