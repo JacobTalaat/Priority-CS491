@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { List, ListRow, PageHeader } from "@/components/ui";
 import { CanvasConnection } from "./canvas-connection";
 import { CalendarFeed } from "./calendar-feed";
+import { NotificationPreferences } from "./notification-preferences";
 import { PushNotifications } from "./push-notifications";
 import styles from "./settings.module.css";
 
@@ -13,6 +14,7 @@ export default function SettingsPage() {
       <PageHeader eyebrow="Account" title="Settings" />
       <CanvasConnection />
       <CalendarFeed />
+      <NotificationPreferences />
       <PushNotifications />
       <div className={styles.rest}>
         <List label="More settings">
