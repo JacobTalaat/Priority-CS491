@@ -45,6 +45,7 @@ model User {
   gradePostedEvents GradePostedEvent[]
   syncAttempts      SyncAttempt[]
   syncFailures      SyncFailure[]
+  nightlyDeliveries NightlyDelivery[]
 }
 
 model Session {
@@ -366,4 +367,20 @@ model SyncFailure {
   user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([runId])
+}
+
+// At-most-once marker for the nightly Tonight / Due tomorrow push: one row per
+// student per America/New_York day, claimed before anything is sent. The two
+// flags record what actually went out, so a send failure after the claim never
+// retries that student that night.
+model NightlyDelivery {
+  userId      String
+  day         String
+  sentAt      DateTime @default(now())
+  tonight     Boolean  @default(false)
+  dueTomorrow Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
 }

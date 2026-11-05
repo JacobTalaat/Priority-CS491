@@ -2182,6 +2182,124 @@ curl -i http://localhost:3000/api/jobs/daily-sync/runs \
 }
 ```
 
+### `GET /api/jobs/nightly`
+
+Runs one tick of the nightly reminders job: the "Tonight" and "Due tomorrow" pushes, each at the student's own chosen reminder time. Like the daily sync, the job is a resumable tick, so a scheduler should call this every 15 minutes; each tick handles the students whose most recent scheduled reminder time has already struck and stops starting new ones once 40 seconds of the tick are spent.
+
+Each reminder is tied to a scheduled occurrence: the instant in America/New_York when wall clock `HH:MM` struck (today's if it is past, otherwise yesterday's), so a 23:45 reminder seen by the 00:05 tick is still delivered, keyed to the previous New York day, with the messages computed as of that evening — "due tomorrow" then means the day after the evening the student asked about. A reminder that falls inside the spring-forward gap (like 02:30) counts as one wall-hour later; a fall-back repeat counts as its first pass. Lateness is measured in real minutes since the occurrence instant: more than 3 hours old (the scheduler was down) the day is claimed but nothing is sent.
+
+A candidate is a student with at least one push subscription and the `notifyTonight` or `notifyDueTomorrow` preference on. Before anything is sent the tick claims the night by creating the `NightlyDelivery` row, so delivery is at-most-once even when two ticks overlap — and that one row claims the whole night's bundle, so a crash between the "Tonight" push and the "Due tomorrow" push loses the second message by design. The messages come from the same wording as the today list, ranked by the same engine, with duplicate suppression between the two messages (see the messages under `POST /api/notifications/preferences`), and each push is sent with a 2-hour expiry, so it expires 2 hours after it is sent. A message counts as delivered only when at least one of the student's subscriptions responded; a claimed student whose sends all failed is flagged in the delivery row and never retried tonight. One failed student never stops the rest, and a claimed student is never retried that night.
+
+This route is protected by the same shared secret as the daily sync. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for scheduling examples.
+
+- **Method**: `GET`
+- **Path**: `/api/jobs/nightly`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i http://localhost:3000/api/jobs/nightly \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran. `day` is the New York day of the tick, `due` how many students owed a reminder now (today's or last night's occurrence, whichever struck), `sent` how many messages delivered at least one push this tick, `failed` how many messages were attempted where no subscription delivered, `nothingToSend` claimed students with nothing worth a push, `skippedLate` claimed-but-not-sent students whose occurrence was more than 3 hours old, and `remaining` owed students this tick did not get to (a claim lost to an overlapping tick counts as handled, not as remaining). A delivery row counts against the occurrence's New York day, so the day before midnight-carried reminders is their `NightlyDelivery` day, not this `day`.
+
+```json
+{
+  "day": "2026-10-22",
+  "due": 3,
+  "sent": 4,
+  "failed": 1,
+  "nothingToSend": 0,
+  "skippedLate": 1,
+  "remaining": 1
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Nightly reminders failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+### `POST /api/jobs/nightly`
+
+Runs the same tick of the nightly reminders job as `GET /api/jobs/nightly`, for curl-style schedulers. Same shared secret, same response.
+
+- **Method**: `POST`
+- **Path**: `/api/jobs/nightly`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i -X POST http://localhost:3000/api/jobs/nightly \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran:
+
+```json
+{
+  "day": "2026-10-22",
+  "due": 3,
+  "sent": 4,
+  "failed": 1,
+  "nothingToSend": 0,
+  "skippedLate": 1,
+  "remaining": 1
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Nightly reminders failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
 ---
 
 ### `POST /api/events`

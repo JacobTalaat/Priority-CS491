@@ -23,6 +23,12 @@ export const PUSH_TIMEOUT_MS = 10000;
 
 export type PushOutcome = "sent" | "failed" | "removed";
 
+export type PushSendOptions = {
+  // Overrides the default 12 h TTL; callers with time-sensitive pushes pass a
+  // shorter one so a stale alert is dropped by the push service itself.
+  ttlSeconds?: number;
+};
+
 function vapidDetails() {
   return {
     subject: env.vapidSubject,
@@ -47,7 +53,12 @@ async function handleSendFailure(target: PushTarget, error: unknown): Promise<Pu
   return "failed";
 }
 
-export async function sendPush(target: PushTarget, message: PushMessage): Promise<PushOutcome> {
+export async function sendPush(
+  target: PushTarget,
+  message: PushMessage,
+  options?: PushSendOptions,
+): Promise<PushOutcome> {
+  const ttlSeconds = options?.ttlSeconds ?? PUSH_TTL_SECONDS;
   try {
     if (!isAllowedPushEndpoint(target.endpoint)) {
       // A row pointing off the allowlist is stale or forged; delete it like a
@@ -60,7 +71,7 @@ export async function sendPush(target: PushTarget, message: PushMessage): Promis
         { endpoint: target.endpoint, keys: { p256dh: target.p256dh, auth: target.auth } },
         JSON.stringify(message),
         {
-          TTL: PUSH_TTL_SECONDS,
+          TTL: ttlSeconds,
           timeout: PUSH_TIMEOUT_MS,
           vapidDetails: vapidDetails(),
         },

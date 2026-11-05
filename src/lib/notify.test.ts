@@ -38,13 +38,22 @@ describe("sendToUser", () => {
     mockPushFindMany.mockResolvedValue(subs);
     expect(await sendToUser("user-1", MESSAGE)).toEqual({ sent: 3, failed: 0, removed: 0 });
     for (const sub of subs) {
-      expect(mockSendPush).toHaveBeenCalledWith(sub, MESSAGE);
+      expect(mockSendPush).toHaveBeenCalledWith(sub, MESSAGE, ...([] as unknown[]));
     }
     expect(mockSendPush.mock.calls.map((call) => (call[0] as { id: string }).id)).toEqual([
       "sub-1",
       "sub-2",
       "sub-3",
     ]);
+  });
+
+  it("passes an optional TTL through to every send", async () => {
+    const subs = [subscription("sub-1"), subscription("sub-2")];
+    mockPushFindMany.mockResolvedValue(subs);
+    await sendToUser("user-1", MESSAGE, { ttlSeconds: 7200 });
+    for (const sub of subs) {
+      expect(mockSendPush).toHaveBeenCalledWith(sub, MESSAGE, { ttlSeconds: 7200 });
+    }
   });
 
   it("scopes the lookup to the user and loads only the fields a send needs", async () => {
