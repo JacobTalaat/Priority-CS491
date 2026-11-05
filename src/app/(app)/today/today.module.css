@@ -1,0 +1,102 @@
+.status {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.errorState {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+.list {
+  max-width: 760px;
+  border-top: 1px solid var(--divider);
+  list-style: none;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 16px 4px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.rank {
+  padding-top: 1px;
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.body {
+  display: grid;
+  min-width: 0;
+  justify-items: start;
+  gap: 4px;
+}
+
+.title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 2px;
+  color: var(--secondary);
+  font-size: 13px;
+}
+
+.meta > span {
+  overflow-wrap: anywhere;
+}
+
+.overdue {
+  color: var(--danger);
+}
+
+.reason {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.atRisk,
+.withinReach {
+  margin-top: 4px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.atRisk {
+  color: var(--warning);
+}
+
+.withinReach {
+  color: var(--accent);
+}
+
+.share {
+  display: grid;
+  justify-items: end;
+  text-align: right;
+}
+
+.shareValue {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.shareLabel {
+  color: var(--muted);
+  font-size: 12px;
+}
