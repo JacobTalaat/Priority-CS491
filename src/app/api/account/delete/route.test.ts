@@ -73,6 +73,42 @@ describe("POST /api/account/delete", () => {
     expect(mockDeleteAuthUser).not.toHaveBeenCalled();
   });
 
+  it("refuses a two factor student with a password-only token before any password proof", async () => {
+    // The real gate in src/lib/auth.ts answers with the plain 401: data that
+    // deletes an account must not move on an un-elevated token.
+    mockVerifyAccessToken.mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+      aal: "aal1",
+    });
+    mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) =>
+      "authUserId" in args.where
+        ? { id: "authenticated-user", email: "student@example.com", twoFactorEnabled: true }
+        : { authUserId: "auth-user-1" }
+    );
+    const res = await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
+    expect(res.status).toBe(401);
+    expect(mockVerifyPassword).not.toHaveBeenCalled();
+    expect(mockUserDelete).not.toHaveBeenCalled();
+    expect(mockDeleteAuthUser).not.toHaveBeenCalled();
+  });
+
+  it("lets a two factor student through once the token is aal2", async () => {
+    mockVerifyAccessToken.mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+      aal: "aal2",
+    });
+    mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) =>
+      "authUserId" in args.where
+        ? { id: "authenticated-user", email: "student@example.com", twoFactorEnabled: true }
+        : { authUserId: "auth-user-1" }
+    );
+    const res = await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
+    expect(res.status).not.toBe(401);
+    expect(mockDeleteAuthUser).toHaveBeenCalled();
+  });
+
   it("returns 400 when the body is not JSON", async () => {
     const res = await POST(deleteRequest("not json", "valid-token"));
     expect(res.status).toBe(400);

@@ -5,6 +5,10 @@ import { env } from "@/lib/env";
 export type SupabaseIdentity = {
   authUserId: string;
   email: string;
+  // "aal1" is a password-only session, "aal2" one that has also been through
+  // the second factor. Only the aal2 token may act for a student with two
+  // factor on.
+  aal: "aal1" | "aal2";
 };
 
 function authClient(): SupabaseClient {
@@ -21,18 +25,40 @@ function adminClient(): SupabaseClient {
   });
 }
 
-function identityFromClaims(claims: { sub: string; email?: string }): SupabaseIdentity | null {
+function identityFromClaims(claims: { sub: string; email?: string; aal?: unknown }): SupabaseIdentity | null {
   if (claims.sub === "" || claims.email === undefined || claims.email === "") {
     return null;
   }
-  return { authUserId: claims.sub, email: claims.email };
+  return { authUserId: claims.sub, email: claims.email, aal: aalFromClaims(claims.aal) };
+}
+
+// Anything that is not exactly "aal2" counts as the first factor only; the
+// claims come from Supabase, never from the client, so an unknown value is
+// treated as the lower level to fail closed.
+function aalFromClaims(value: unknown): "aal1" | "aal2" {
+  return value === "aal2" ? "aal2" : "aal1";
 }
 
 function identityFromUser(user: Record<string, unknown>): SupabaseIdentity | null {
   if (typeof user.id !== "string" || user.id === "" || typeof user.email !== "string" || user.email === "") {
     return null;
   }
-  return { authUserId: user.id, email: user.email };
+  return { authUserId: user.id, email: user.email, aal: "aal1" };
+}
+
+// Reads the assurance level straight out of the JWT payload without verifying
+// it. Safe here: Supabase has just accepted this token, so its payload is
+// trusted to equal what it signed; this only exists because the legacy HS256
+// fallback path returns a user object with no claims to read the level from.
+// A missing or unparsable payload resolves to the lower level, never the
+// higher one.
+function aalFromJwtPayload(token: string): "aal1" | "aal2" {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString("utf8"));
+    return aalFromClaims(payload?.aal);
+  } catch {
+    return "aal1";
+  }
 }
 
 export async function verifyAccessToken(token: string): Promise<SupabaseIdentity | null> {
@@ -56,7 +82,13 @@ export async function verifyAccessToken(token: string): Promise<SupabaseIdentity
       return null;
     }
     const user = (await response.json()) as Record<string, unknown>;
-    return identityFromUser(user);
+    const identity = identityFromUser(user);
+    if (!identity) {
+      return null;
+    }
+    // The user lookup above proves the token is live; its aal rides in the
+    // same payload it signed, so read it without another verification pass.
+    return { ...identity, aal: aalFromJwtPayload(token) };
   } catch {
     return null;
   }
@@ -74,6 +106,72 @@ export async function deleteAuthUser(authUserId: string): Promise<void> {
   const { error } = await adminClient().auth.admin.deleteUser(authUserId);
   if (error) {
     throw new Error(`Supabase refused to delete the auth user: ${error.message}`);
+  }
+}
+
+// The admin MFA API answers with every factor the student enrolled, verified
+// or not. Only verified TOTP factors count for the two factor gate: an
+// unverified factor is a half-finished setup and must never lock a request.
+export async function listVerifiedTotpFactors(authUserId: string) {
+  const { data, error } = await adminClient().auth.admin.mfa.listFactors({ userId: authUserId });
+  if (error) {
+    throw new Error(`Supabase refused to list the MFA factors: ${error.message}`);
+  }
+  return data.factors.filter((factor) => factor.factor_type === "totp" && factor.status === "verified");
+}
+
+// Removes every TOTP factor the student has at Supabase, verified or not, so
+// their authenticator app stops working for every future question. The Prisma
+// row keeps the truth about whether two factor is actually on.
+export async function deleteAllTotpFactors(authUserId: string): Promise<void> {
+  const { data, error } = await adminClient().auth.admin.mfa.listFactors({ userId: authUserId });
+  if (error) {
+    throw new Error(`Supabase refused to list the MFA factors: ${error.message}`);
+  }
+  for (const factor of data.factors) {
+    if (factor.factor_type !== "totp") {
+      continue;
+    }
+    const { error: deleteError } = await adminClient().auth.admin.mfa.deleteFactor({
+      userId: authUserId,
+      id: factor.id,
+    });
+    if (deleteError) {
+      throw new Error(`Supabase refused to delete the MFA factor: ${deleteError.message}`);
+    }
+  }
+}
+
+// Acting AS the student: their own token rides in the Authorization header,
+// so the MFA endpoints answer for their account and no admin power is needed
+// to recognize a code the student could have typed into the browser. Only the
+// verified TOTP factor counts; "unreachable" is reported apart from a wrong
+// code so a network failure does not masquerade as one.
+export type StudentCodeCheck = "verified" | "rejected" | "unreachable";
+
+export async function verifyStudentTotpCode(token: string, code: string): Promise<StudentCodeCheck> {
+  const asStudent = createClient(env.supabaseUrl, env.supabasePublishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  try {
+    const { data: factors, error: listError } = await asStudent.auth.mfa.listFactors();
+    if (listError || !factors) {
+      return "unreachable";
+    }
+    const factor = factors.all.find(
+      (entry) => entry.factor_type === "totp" && entry.status === "verified"
+    );
+    if (!factor) {
+      return "rejected";
+    }
+    const { error: verifyError } = await asStudent.auth.mfa.challengeAndVerify({
+      factorId: factor.id,
+      code,
+    });
+    return verifyError ? "rejected" : "verified";
+  } catch {
+    return "unreachable";
   }
 }
 

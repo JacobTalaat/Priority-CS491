@@ -83,6 +83,15 @@ curl -i http://localhost:3000/api/auth/me \
 }
 ```
 
+`401` — a student who has turned two factor on sent a password-only token (they have not answered the code yet). Every protected route answers this with the plain body above and passes no data; this route is the one that also says what is missing, so the website and the iOS app can show the code screen instead of a dead session:
+
+```json
+{
+  "error": "Two factor code required",
+  "code": "mfa_required"
+}
+```
+
 ### `POST /api/ask`
 
 Answers a question about the student's classes using only the passages Priority retrieves from the student's saved syllabi, Canvas assignments (including their scores), and grade setup class details. For each question, the question and up to 8 retrieved passages from the student's own data are sent to the AI provider. When the AI can support an answer from those passages, each source it cites is built server-side from the matched passage: the source identifies the passage, and the `quote` is an excerpt the AI copied from it, verified to appear in the passage before being returned. A `found: false` response is a best effort: it means the AI could not support an answer from the matched data, not a guarantee that the data lacks it.
@@ -254,6 +263,217 @@ or the row was removed but the Supabase auth account could not be deleted, so th
 ```json
 {
   "error": "Your data was deleted, but your account is still there. Try again."
+}
+```
+
+### `GET /api/account/two-factor/status`
+
+Reports whether the student has two factor sign in on and how many unused recovery codes remain. Two factor is optional: every student who never turned it on is verified with the password alone and is unaffected by the gate this feature adds.
+
+- **Method**: `GET`
+- **Path**: `/api/account/two-factor/status`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/account/two-factor/status \
+  -H "Authorization: Bearer supabase-access-token"
+```
+
+**Response**
+
+`200` — current two factor state. `recoveryCodesLeft` counts the codes that have not been used yet, and is `0` whenever two factor is off:
+
+```json
+{
+  "enabled": true,
+  "recoveryCodesLeft": 8
+}
+```
+
+`401` — token missing, invalid, or expired, or a two factor student with a password-only token (see the note under `GET /api/auth/me`):
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `POST /api/account/two-factor/enable`
+
+Turns two factor sign in on after the student scanned the QR code and verified a six digit code from their authenticator app. Requires an `aal2` token — the session that verified the factor at Supabase — and confirms a verified TOTP factor exists there before switching the flag on. Answers with the ten recovery codes exactly once in plaintext; only SHA-256 hashes of the normalized codes are stored, and nothing is logged.
+
+- **Method**: `POST`
+- **Path**: `/api/account/two-factor/enable`
+
+**Request**
+
+No body. Send an `Authorization` header with the `aal2` token the browser held after the code check.
+
+```bash
+curl -i -X POST http://localhost:3000/api/account/two-factor/enable \
+  -H "Authorization: Bearer supabase-aal2-access-token"
+```
+
+**Response**
+
+`200` — two factor is on. The ten codes are shown once; each works a single time as a sign-in path when the authenticator app is lost:
+
+```json
+{
+  "recoveryCodes": [
+    "m7vj-m4l2-q5",
+    "3xlw-bhnp-6k",
+    "…9 more…"
+  ]
+}
+```
+
+`401` — no valid session, or the token has not been through the second factor:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`400` — no verified TOTP factor exists at Supabase:
+
+```json
+{
+  "error": "No verified authenticator app was found. Scan the QR code and verify it first."
+}
+```
+
+`409` — two factor is already on:
+
+```json
+{
+  "error": "Two factor sign in is already on."
+}
+```
+
+### `POST /api/account/two-factor/recover`
+
+The one route a student may call with a password-only token: it accepts one of the recovery codes instead of the authenticator code, for when the app is lost. Acceptance turns two factor off for the whole account. The code is normalized (lowercase, spaces and dashes ignored) and claimed atomically under a per-user lock, and the account must still have two factor on at the moment of the claim, so codes left over from an earlier setup can never act. A used code answers `400` forever. On success the TOTP factors are deleted at Supabase, the two factor flag is cleared, and the remaining codes are discarded, so the student continues the log in without the second factor and can set it up again later. Five wrong codes in 15 minutes per account rate-limit the route.
+
+- **Method**: `POST`
+- **Path**: `/api/account/two-factor/recover`
+
+**Request**
+
+JSON body with one recovery code exactly as a student could type it:
+
+- `code` (string) — e.g. `m7vj-m4l2-q5`
+
+```bash
+curl -i -X POST http://localhost:3000/api/account/two-factor/recover \
+  -H "Authorization: Bearer supabase-password-only-access-token" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"m7vj-m4l2-q5"}'
+```
+
+**Response**
+
+`200` — the code was accepted and two factor is now off entirely:
+
+```json
+{
+  "recovered": true
+}
+```
+
+`400` — the code is wrong, already used, from an earlier setup, belongs to another account, was not part of the body, or the body is not valid JSON:
+
+```json
+{
+  "error": "That recovery code is not right."
+}
+```
+
+`401` — no valid token (the Supabase token is still required even here):
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`429` — more than five wrong codes in 15 minutes; the `Retry-After` header carries the seconds remaining:
+
+```json
+{
+  "error": "Too many recovery code attempts. Try again later."
+}
+```
+
+`500` — the factors could not be deleted at Supabase; nothing was consumed, so the same code still works for a retry:
+
+```json
+{
+  "error": "Two factor could not be turned off right now. Try again shortly."
+}
+```
+
+### `POST /api/account/two-factor/disable`
+
+Turns two factor sign in off from Settings. Requires an `aal2` token and a current six digit code: Supabase is asked once more, acting as the student with their own token, whether the code passes, so only the person who can still answer the authenticator turns it off. Only then are the TOTP factors deleted at Supabase through the admin API, the two factor flag cleared, and any remaining recovery codes removed — all of it serialized per account under one lock.
+
+- **Method**: `POST`
+- **Path**: `/api/account/two-factor/disable`
+
+**Request**
+
+Send an `Authorization` header with the `aal2` token the browser already holds (it was issued after the last code check) and one current code in the JSON body:
+
+- `code` (string) — exactly six digits, from the authenticator app
+
+```bash
+curl -i -X POST http://localhost:3000/api/account/two-factor/disable \
+  -H "Authorization: Bearer supabase-aal2-access-token" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"123456"}'
+```
+
+**Response**
+
+`200` — two factor is off:
+
+```json
+{
+  "disabled": true
+}
+```
+
+`400` — the code is missing, not six digits, or wrong (nothing was changed):
+
+```json
+{
+  "error": "That code is not right. Try again."
+}
+```
+
+`401` — no valid session, or the token has not been through the second factor:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the code could not be checked with Supabase, or Supabase refused to delete the factors; nothing was changed:
+
+```json
+{
+  "error": "Could not check the code with the authenticator service. Try again."
+}
+```
+
+```json
+{
+  "error": "Could not turn two factor off. Try again."
 }
 ```
 

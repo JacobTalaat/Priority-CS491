@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getUserFromRequest, unauthorized } from "./auth";
+import { getUserFromRequest, mfaRequiredResponse, unauthorized } from "./auth";
 
-const { mockVerifyAccessToken, mockUserFindUnique, mockUserCreate, mockConsoleError } = vi.hoisted(() => ({
+const {
+  mockVerifyAccessToken,
+  mockUserFindUnique,
+  mockUserCreate,
+  mockConsoleError,
+} = vi.hoisted(() => ({
   mockVerifyAccessToken: vi.fn(),
   mockUserFindUnique: vi.fn(),
   mockUserCreate: vi.fn(),
@@ -35,8 +40,9 @@ function requestWithToken(token?: string) {
   return new Request("http://localhost/api/auth/me", { headers });
 }
 
-const IDENTITY_A = { authUserId: "auth-user-a", email: "student@example.com" };
-const IDENTITY_B = { authUserId: "auth-user-b", email: "other@example.com" };
+const IDENTITY_A = { authUserId: "auth-user-a", email: "student@example.com", aal: "aal1" };
+const IDENTITY_A_AAL2 = { ...IDENTITY_A, aal: "aal2" };
+const IDENTITY_B = { authUserId: "auth-user-b", email: "other@example.com", aal: "aal1" };
 
 describe("getUserFromRequest", () => {
   beforeEach(() => {
@@ -146,6 +152,55 @@ describe("getUserFromRequest", () => {
     expect(mockConsoleError).toHaveBeenCalledTimes(1);
     expect(String(mockConsoleError.mock.calls[0][0])).not.toContain(IDENTITY_A.email);
     expect(mockUserCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a student without two factor through on a plain aal1 password token", async () => {
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
+    mockUserFindUnique.mockResolvedValue({ id: "user-row-a", email: IDENTITY_A.email, twoFactorEnabled: false });
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
+      id: "user-row-a",
+      email: IDENTITY_A.email,
+    });
+  });
+
+  it("answers null for a two factor student whose token has not answered the second factor", async () => {
+    // No factor listing and no row change happen here: the recovery route and
+    // a correct code are the only ways a locked student gets back in.
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
+    mockUserFindUnique.mockResolvedValue({ id: "user-row-a", email: IDENTITY_A.email, twoFactorEnabled: true });
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toBeNull();
+    expect(mockUserCreate).not.toHaveBeenCalled();
+  });
+
+  it("lets a two factor student through once the token is aal2", async () => {
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A_AAL2);
+    mockUserFindUnique.mockResolvedValue({ id: "user-row-a", email: IDENTITY_A.email, twoFactorEnabled: true });
+    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
+      id: "user-row-a",
+      email: IDENTITY_A.email,
+    });
+    // The aal2 claim proves the second factor already, with nothing more to
+    // reach for.
+    expect(mockUserCreate).not.toHaveBeenCalled();
+  });
+
+  it("lets the recovery route through before the second factor, on request", async () => {
+    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
+    mockUserFindUnique.mockResolvedValue({ id: "user-row-a", email: IDENTITY_A.email, twoFactorEnabled: true });
+    await expect(
+      getUserFromRequest(requestWithToken("token-a"), { allowSingleFactor: true })
+    ).resolves.toEqual({ id: "user-row-a", email: IDENTITY_A.email });
+  });
+});
+
+describe("mfaRequiredResponse", () => {
+  it("answers the distinct 401 body the client-facing routes return", async () => {
+    const response = mfaRequiredResponse();
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Two factor code required",
+      code: "mfa_required",
+    });
   });
 });
 

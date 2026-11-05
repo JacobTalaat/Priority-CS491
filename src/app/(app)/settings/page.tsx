@@ -3,6 +3,7 @@ import { List, ListRow, PageHeader } from "@/components/ui";
 import { CanvasConnection } from "./canvas-connection";
 import { CalendarFeed } from "./calendar-feed";
 import { PushNotifications } from "./push-notifications";
+import { TwoFactor } from "./two-factor";
 import styles from "./settings.module.css";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -14,6 +15,7 @@ export default function SettingsPage() {
       <CanvasConnection />
       <CalendarFeed />
       <PushNotifications />
+      <TwoFactor />
       <div className={styles.rest}>
         <List label="More settings">
           <ListRow title="Calendar feed" meta="A backup way to load assignments" trailing="Soon" />

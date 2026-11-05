@@ -181,6 +181,34 @@ describe("GET /api/canvas/token", () => {
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ error: "Unauthorized" });
   });
+
+  it("refuses a two factor student with a password-only token and never touches a token body", async () => {
+    // The real gate in src/lib/auth.ts decides on the aal claim vs the flag;
+    // nothing from this route runs before that call is answered.
+    mockVerifyAccessToken.mockResolvedValue({ ...IDENTITY, aal: "aal1" });
+    mockUserFindUnique.mockImplementation(async (args: { where: Record<string, unknown> }) =>
+      args.where && "authUserId" in args.where
+        ? { ...authUserRow(), twoFactorEnabled: true }
+        : { canvasTokenCipher: null }
+    );
+    const res = await POST(postRequest({ token: TOKEN }));
+    expect(res.status).toBe(401);
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("saves through for a two factor student once the token is aal2", async () => {
+    mockVerifyAccessToken.mockResolvedValue({ ...IDENTITY, aal: "aal2" });
+    stubUserFindUnique({
+      canvasTokenCipher: null,
+      canvasBaseUrl: null,
+      canvasCheckedAt: null,
+    });
+    mockUserUpdate.mockResolvedValue({});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, { id: 42, name: "Student" })));
+    const res = await POST(postRequest({ token: TOKEN }));
+    expect(res.status).not.toBe(401);
+    expect(mockUserUpdate).toHaveBeenCalled();
+  });
 });
 
 describe("DELETE /api/canvas/token", () => {
