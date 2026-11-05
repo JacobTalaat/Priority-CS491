@@ -15,6 +15,26 @@ export function assignmentShares(
   setup: GradeSetupPayload | null,
   assignments: readonly GradeAssignment[],
 ): AssignmentShare[] {
+  // A rule the syllabus states but no engine can apply (a dropped score, a
+  // curve, a late penalty) reshuffles each affected assignment's effective
+  // weight, so any share this math reports would be confidently wrong — the
+  // points engine most of all, because it never sees the setup at all. The
+  // category label survives where the setup knows it, so a page can still say
+  // which slice the assignment sits in; the percent is what refuses.
+  if (setup && setup.unsupportedRules.length > 0) {
+    const categoriesByName = new Set(setup.categories.map((category) => category.name));
+    const categoryByAssignmentId = new Map<string, string>();
+    for (const mapping of setup.assignmentMappings) {
+      if (categoriesByName.has(mapping.category) && !categoryByAssignmentId.has(mapping.assignmentId)) {
+        categoryByAssignmentId.set(mapping.assignmentId, mapping.category);
+      }
+    }
+    return assignments.map((assignment) => ({
+      assignmentId: assignment.id,
+      share: null,
+      category: categoryByAssignmentId.get(assignment.id) ?? null,
+    }));
+  }
   // A final exam weight held outside the categories belongs to no assignment,
   // so every share computed without it would be confidently wrong: a 70/30
   // course would rank its final as a slice of Homework. The grade route folds

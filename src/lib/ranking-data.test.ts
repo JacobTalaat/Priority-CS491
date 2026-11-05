@@ -13,6 +13,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 import { loadOpenWork } from "./ranking-data";
+import { reasonFor } from "./item-reason";
 import { rankOpenWork, type OpenWorkItem, type RankedItem } from "./ranking";
 
 // 12:30 PM EDT on Wednesday 2026-10-14.
@@ -343,6 +344,113 @@ describe("loadOpenWork", () => {
     // cutoff flag would be provisional.
     expect(ranked).toHaveLength(1);
     expect(ranked[0]).toMatchObject({ assignmentId: "hw-1", boundary: null });
+  });
+
+  it("gives no flags to a points course with unsupported rules", async () => {
+    mockCourseFindMany.mockResolvedValue([
+      {
+        id: "course-1",
+        name: "Algorithms",
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 0 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "hw-2", category: "Homework" },
+          ],
+          finalExamWeight: 100,
+          cutoffs: { A: 90, F: 0 },
+          classDetails: {},
+          unsupportedRules: ["Lowest quiz dropped"],
+        },
+        assignments: [
+          assignment("hw-1", { title: "Problem set" }),
+          assignment("hw-2", { title: "Quiz", grade: { score: 45 } }),
+        ],
+      },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    // The points engine grades 45/50 = 90%, right at the A cutoff, but the
+    // rule the syllabus states makes the grade unsupported, so no flag — and
+    // no confident share either: the rule would reshuffle the slices the
+    // points math, which never sees the setup, reports.
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]).toMatchObject({ assignmentId: "hw-1", share: null, boundary: null });
+    // The reason line must not quote a grade share the setup takes away.
+    expect(reasonFor(ranked[0], NOW)).not.toMatch(/percent/);
+    expect(reasonFor(ranked[0], NOW)).toBe("No due date");
+  });
+
+  it("does not let an unsupported course's paper share outrank the same-day work it really should trail", async () => {
+    // Two items due today: one in a healthy course whose real share is a third
+    // of the grade, and one in a course where a paper share of 50 would come
+    // out of weighted math that "drop the lowest quiz" invalidates. The
+    // healthy item keeps its computed rank; the unsupported one never carries
+    // a share that could race it to the top.
+    mockCourseFindMany.mockResolvedValue([
+      {
+        id: "course-1",
+        name: "Algorithms",
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 100 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "hw-2", category: "Homework" },
+            { assignmentId: "hw-3", category: "Homework" },
+          ],
+          finalExamWeight: 0,
+          cutoffs: {},
+          classDetails: {},
+          unsupportedRules: [],
+        },
+        assignments: [
+          assignment("hw-1", {
+            title: "Problem set",
+            pointsPossible: 100,
+            dueAt: new Date("2026-10-14T13:00:00-04:00"),
+            hasDueDate: true,
+          }),
+          assignment("hw-2", { title: "Quiz", pointsPossible: 100, grade: { score: 80 } }),
+          assignment("hw-3", { title: "Lab", pointsPossible: 100, grade: { score: 90 } }),
+        ],
+      },
+      {
+        id: "course-2",
+        name: "Statistics",
+        gradeSetup: {
+          categories: [{ name: "Quizzes", weight: 100 }],
+          assignmentMappings: [
+            { assignmentId: "stat-1", category: "Quizzes" },
+            { assignmentId: "stat-2", category: "Quizzes" },
+          ],
+          finalExamWeight: 0,
+          cutoffs: {},
+          classDetails: {},
+          unsupportedRules: ["The lowest quiz score is dropped."],
+        },
+        assignments: [
+          assignment("stat-1", {
+            title: "Quiz",
+            pointsPossible: 100,
+            dueAt: new Date("2026-10-15T00:00:00-04:00"),
+            hasDueDate: true,
+          }),
+          assignment("stat-2", { title: "Prelab", pointsPossible: 100, grade: { score: 70 } }),
+        ],
+      },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    expect(ranked.map((entry) => entry.assignmentId)).toEqual(["hw-1", "stat-1"]);
+    expect(ranked[0]).toMatchObject({
+      share: expect.closeTo(33.33, 2),
+      score: expect.closeTo(33.33, 2),
+    });
+    // The unsupported item still appears, but with no share and no score a
+    // "drop the lowest quiz" rule could have inflated.
+    expect(ranked[1]).toMatchObject({ share: null, score: null, boundary: null });
   });
 
   it("gives a picked final its own share and flags from the folded setup", async () => {

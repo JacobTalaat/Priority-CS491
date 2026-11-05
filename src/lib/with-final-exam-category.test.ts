@@ -12,6 +12,7 @@ function setup(overrides: Partial<GradeSetupPayload> = {}): GradeSetupPayload {
     finalExamWeight: 30,
     cutoffs: { A: 90 },
     classDetails: { finalExamAssignmentId: "final-1" },
+    unsupportedRules: [],
     ...overrides,
   };
 }
@@ -30,6 +31,7 @@ describe("withFinalExamCategory", () => {
       finalExamWeight: 0,
       cutoffs: { A: 90 },
       classDetails: { finalExamAssignmentId: "final-1" },
+      unsupportedRules: [],
     });
   });
 
@@ -94,6 +96,7 @@ describe("withFinalExamCategory with a Final category that holds other work", ()
       finalExamWeight: 30,
       cutoffs: {},
       classDetails: { finalExamAssignmentId: "exam" },
+      unsupportedRules: [],
     };
     const normalized = withFinalExamCategory(setup);
     const grade = calculateWeightedGrade(normalized, [
@@ -124,6 +127,7 @@ describe("withFinalExamCategory with a Final category that holds other work", ()
       finalExamWeight: 30,
       cutoffs: {},
       classDetails: { finalExamAssignmentId: "exam" },
+      unsupportedRules: [],
     };
     expect(withFinalExamCategory(setup).categories.map((category) => category.name)).toEqual([
       "Homework",

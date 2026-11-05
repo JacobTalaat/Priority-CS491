@@ -553,6 +553,8 @@ export function WeightsSetup({
           ? form.finalExamAssignmentId
           : null,
       },
+      // The form has no rule editor, so keep the rules already saved for this course.
+      unsupportedRules: selectedCourse.gradeSetup?.unsupportedRules ?? [],
     };
   }
 
@@ -896,7 +898,7 @@ export function WeightsSetup({
                 <Notice tone="warning">
                   This syllabus has {unsupportedCount === 1 ? "a grading rule" : `${unsupportedCount} grading rules`}{" "}
                   Priority can&apos;t calculate, listed under &quot;What the syllabus also said&quot; below. You can still
-                  confirm, but your grade here won&apos;t include {unsupportedCount === 1 ? "it" : "them"}.
+                  confirm, but Priority can&apos;t calculate this class&apos;s grade while the rule is saved.
                 </Notice>
               ) : null}
 

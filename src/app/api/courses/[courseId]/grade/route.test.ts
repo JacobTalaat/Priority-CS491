@@ -26,6 +26,7 @@ const EXPECTED_SELECT = {
       finalExamWeight: true,
       cutoffs: true,
       classDetails: true,
+      unsupportedRules: true,
       confirmedAt: true,
     },
   },
@@ -234,6 +235,83 @@ describe("GET /api/courses/[courseId]/grade", () => {
       { category: "Homework", weight: 40, percentage: 0, pointsEarned: 0, pointsPossible: 50, gradedCount: 1, ungradedCount: 0 },
       { category: "Exams", weight: 60, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
     ]);
+  });
+
+  it("refuses a points-based course whose saved setup carries an unsupported rule", async () => {
+    // No category has weight, so the points engine is chosen; the stored "drop the lowest
+    // quiz" rule must still stop a confident number, because the points engine never sees
+    // the setup.
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          ...setupRow,
+          categories: [{ name: "Quizzes", weight: 0 }],
+          assignmentMappings: [{ assignmentId: "hw-1", category: "Quizzes" }],
+          finalExamWeight: 100,
+          unsupportedRules: ["Lowest quiz dropped"],
+        },
+        assignments: [{ id: "hw-1", pointsPossible: 10, grade: { score: 9 } }],
+      }),
+    );
+
+    const body = await (await GET(request(), context)).json();
+
+    expect(body.engine).toBe("points");
+    expect(body.grade).toEqual({ status: "unsupported", reason: "unsupported-rule" });
+    // The rule would be invisible to the points math, so even a paper share is
+    // refused; the category label survives.
+    expect(body.shares).toEqual([{ assignmentId: "hw-1", share: null, category: "Quizzes" }]);
+  });
+
+  it("reports null shares for a weighted course whose setup carries a rule", async () => {
+    // "Drop the lowest quiz" reshuffles every slice the weighted math reports,
+    // so the confident "worth 20% of your grade" figure must go stale too.
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: { ...setupRow, unsupportedRules: ["The lowest quiz score is dropped."] },
+        assignments: weightedAssignments,
+      }),
+    );
+
+    const body = await (await GET(request(), context)).json();
+
+    expect(body.grade).toEqual({ status: "unsupported", reason: "unsupported-rule" });
+    expect(body.shares).toEqual([
+      { assignmentId: "hw-1", share: null, category: "Homework" },
+      { assignmentId: "hw-2", share: null, category: "Homework" },
+      { assignmentId: "exam-1", share: null, category: "Exams" },
+    ]);
+  });
+
+  it("refuses the final exam question too when the setup carries an unsupported rule", async () => {
+    // The grade itself is already refused; the final exam box must not sneak a
+    // confident "needed" score out the other door.
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        gradeSetup: {
+          ...setupRow,
+          categories: [{ name: "Quizzes", weight: 0 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Quizzes" },
+            { assignmentId: "hw-2", category: "Quizzes" },
+          ],
+          finalExamWeight: 100,
+          cutoffs: { A: 90 },
+          classDetails: { finalExamAssignmentId: "hw-2" },
+          unsupportedRules: ["Lowest quiz dropped"],
+        },
+        assignments: [
+          { id: "hw-1", pointsPossible: 10, grade: { score: 9 } },
+          { id: "hw-2", pointsPossible: 100, grade: null },
+        ],
+      }),
+    );
+
+    const body = await (await GET(request(), context)).json();
+
+    expect(body.engine).toBe("weighted");
+    expect(body.grade).toEqual({ status: "unsupported", reason: "unsupported-rule" });
+    expect(body.finalExam).toEqual({ status: "unsupported" });
   });
 
   it("grades a picked final as its own category instead of inside its mapped one", async () => {

@@ -55,7 +55,7 @@ describe("final exam representation from a syllabus read", () => {
       return;
     }
     // Homework earned everything, the final earned nothing: the syllabus's 70/30 split is 70%.
-    expect(calculateWeightedGrade(parsed.data, assignments)).toEqual({
+    expect(calculateWeightedGrade({ ...parsed.data, unsupportedRules: parsed.data.unsupportedRules ?? [] }, assignments)).toEqual({
       status: "calculated",
       percentage: 70,
     });
@@ -81,7 +81,9 @@ describe("final exam representation from a syllabus read", () => {
     if (!parsed.ok) {
       return;
     }
-    const choice = chooseGradeEngine(withFinalExamCategory(parsed.data));
+    const choice = chooseGradeEngine(
+      withFinalExamCategory({ ...parsed.data, unsupportedRules: parsed.data.unsupportedRules ?? [] }),
+    );
     expect(choice.engine).toBe("weighted");
     expect(choice.setup).not.toBeNull();
     if (!choice.setup) {

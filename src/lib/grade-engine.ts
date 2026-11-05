@@ -1,5 +1,11 @@
 import type { GradeSetupPayload } from "@/lib/grade-setup";
-import { roundPercentage, type GradeAssignment } from "@/lib/weighted-grade";
+import { calculatePointsGrade } from "@/lib/points-grade";
+import {
+  calculateWeightedGrade,
+  roundPercentage,
+  type GradeAssignment,
+  type WeightedGradeResult,
+} from "@/lib/weighted-grade";
 
 export type GradeEngineChoice =
   | { engine: "weighted"; setup: GradeSetupPayload }
@@ -28,6 +34,26 @@ export function chooseGradeEngine(setup: GradeSetupPayload | null): GradeEngineC
     return { engine: "weighted", setup };
   }
   return { engine: "points", setup: null };
+}
+
+// The one place a course's grade is computed. A rule the syllabus states but no
+// engine can apply (drop lowest, curve, late penalty) is in the saved setup,
+// not in the scores, so it is checked here, before choosing an engine: the
+// points engine never sees the setup, and a points-based course with a dropped
+// quiz must not get a confident number any more than a weighted one.
+export function calculateCourseGrade(
+  setup: GradeSetupPayload | null,
+  assignments: readonly GradeAssignment[],
+): { choice: GradeEngineChoice; grade: WeightedGradeResult } {
+  const choice = chooseGradeEngine(setup);
+  if (setup && setup.unsupportedRules.length > 0) {
+    return { choice, grade: { status: "unsupported", reason: "unsupported-rule" } };
+  }
+  const grade =
+    choice.engine === "weighted"
+      ? calculateWeightedGrade(choice.setup, assignments)
+      : calculatePointsGrade(assignments);
+  return { choice, grade };
 }
 
 // The accumulation mirrors calculateWeightedGrade guard for guard so that the

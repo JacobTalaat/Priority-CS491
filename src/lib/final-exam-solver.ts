@@ -1,7 +1,6 @@
-import type { GradeEngineChoice } from "@/lib/grade-engine";
+import { calculateCourseGrade, type GradeEngineChoice } from "@/lib/grade-engine";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
-import { calculatePointsGrade } from "@/lib/points-grade";
-import { calculateWeightedGrade, type GradeAssignment, type WeightedGradeResult } from "@/lib/weighted-grade";
+import type { GradeAssignment, WeightedGradeResult } from "@/lib/weighted-grade";
 
 export type FinalExamLetterResult =
   | { letter: string; status: "needed"; score: number; percent: number }
@@ -14,6 +13,7 @@ export type FinalExamResult =
   | { status: "final-not-gradable" }
   | { status: "already-graded" }
   | { status: "final-not-counted" }
+  | { status: "unsupported" }
   | { status: "solved"; results: FinalExamLetterResult[]; otherWorkPending: boolean };
 
 export type FinalExamInput = {
@@ -24,6 +24,9 @@ export type FinalExamInput = {
   // The saved setup's weight held outside the categories. No engine reads it,
   // so a final whose weight lives there is invisible to the grade.
   finalExamWeight: number;
+  // The saved setup's rules no engine can apply. The engine choice for a
+  // points course carries no setup at all, so these ride along explicitly.
+  unsupportedRules: string[];
 };
 
 // Bisection stops once lo and hi are this close, so the reported score is
@@ -47,6 +50,7 @@ export function solveFinalExam({
   finalAssignmentId,
   cutoffs,
   finalExamWeight,
+  unsupportedRules,
 }: FinalExamInput): FinalExamResult {
   const final = finalAssignmentId
     ? assignments.find((assignment) => assignment.id === finalAssignmentId)
@@ -63,6 +67,13 @@ export function solveFinalExam({
     // must never override it.
     return { status: "already-graded" };
   }
+  // A rule the syllabus states but no engine can apply makes every grade the
+  // engines could report provisional, in a points course exactly as much as a
+  // weighted one: the points engine never sees the setup, so the refusal has
+  // to happen here, before any confident "needed" score is invented.
+  if (unsupportedRules.length > 0 || (choice.engine === "weighted" && choice.setup.unsupportedRules.length > 0)) {
+    return { status: "unsupported" };
+  }
   // Bisection only means something when the final's score moves the grade.
   // A final weighted outside the categories, or one mapped to no weighted
   // category, is ignored by the engine, so every answer would be a confident
@@ -71,13 +82,15 @@ export function solveFinalExam({
     return { status: "final-not-counted" };
   }
 
+  // The same one place a course's grade is computed answers the hypotheticals:
+  // the solver and the grade route can never disagree, because they ask the
+  // very same function. A points engine sees no setup at all.
+  const setup = choice.engine === "weighted" ? choice.setup : null;
   const gradeWithFinalScore = (score: number): WeightedGradeResult => {
     const hypothetical = assignments.map((assignment) =>
       assignment.id === final.id ? { ...assignment, grade: { score } } : assignment,
     );
-    return choice.engine === "weighted"
-      ? calculateWeightedGrade(choice.setup, hypothetical)
-      : calculatePointsGrade(hypothetical);
+    return calculateCourseGrade(setup, hypothetical).grade;
   };
   const reaches = (score: number, cutoff: number): boolean => {
     const grade = gradeWithFinalScore(score);
@@ -223,6 +236,8 @@ export function describeFinalExamResult(
       return "Your final exam is already graded, so there is nothing left to aim for on it.";
     case "final-not-counted":
       return "Your final exam isn't counted in your grade setup yet. Give it its own category with its weight to see what you need on it.";
+    case "unsupported":
+      return "This class has a grading rule (like a dropped score, curve, or late penalty) that Priority can't grade yet.";
     case "solved":
       if (result.results.length === 0) {
         return "No letter grades are set up for this class, so there is nothing to aim for yet.";
