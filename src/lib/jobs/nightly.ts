@@ -1,53 +1,51 @@
 import { messagesFor } from "@/lib/notification-messages";
 import { nyDayOf } from "@/lib/ny-day";
-import { prisma } from "@/lib/prisma";
-import { loadOpenWork } from "@/lib/ranking-data";
+import {
+  nyTimeString,
+  nyWallTimeToInstant,
+  previousNyDay,
+} from "@/lib/ny-time";
 import { sendToUser } from "@/lib/notify";
+import { prisma } from "@/lib/prisma";
+import type { RankedItem } from "@/lib/ranking";
+import { loadOpenWork } from "@/lib/ranking-data";
 
 // A serverless tick runs under a hard per-request time limit, so it stops
 // STARTING new users once this much of the tick is spent; every user it did
-// start is awaited to completion. The next tick resumes with the rest.
-export const NIGHTLY_TICK_BUDGET_MS = 40_000;
+// start is awaited to completion. A started user costs at most 10 s of load
+// (the race below times out) plus 10 s of sends in parallel, so the worst
+// tick is 30 s of starts + 10 s + 10 s, inside the route's 60 s window.
+export const NIGHTLY_TICK_BUDGET_MS = 30_000;
 
-// A reminder whose time passed more than this long ago is too stale to send:
-// the scheduler was down, and a "start tonight" nudge arriving at 23:30 is not
-// useful. The day is still claimed so the user is not retried tonight.
+// A load that hangs is raced against this timer: budget checks only guard
+// STARTING a user, so an unbounded load could run the request past its limit
+// and lose the claimed reminder. On timeout the claim stays and the tick
+// moves on, exactly like any other per-user failure.
+export const NIGHTLY_USER_LOAD_TIMEOUT_MS = 10_000;
+
+// A scheduled reminder whose occurrence passed more than this long ago is too
+// stale to send: the scheduler was down, and a "start tonight" nudge arriving
+// at 23:30 is not useful. The day is still claimed so the user is not retried
+// that night.
 export const LATE_SEND_LIMIT_MINUTES = 180;
 
-const TIME_ZONE = "America/New_York";
+// A LastEventId-free web push lives for this long. Twelve hours would let a
+// "Tonight" push arrive the next morning, when the advice is stale.
+export const NIGHTLY_PUSH_TTL_SECONDS = 2 * 60 * 60;
 
 // The default when stored nightlyReminderTime cannot be parsed, matching the
 // column default in the schema.
 const FALLBACK_REMINDER_MINUTES = 20 * 60;
 
-// Wall-clock reading needs hour and minute only; en-GB with h23 keeps midnight
-// at "00" instead of "24".
-const NY_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-GB", {
-  timeZone: TIME_ZONE,
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-
 export type NightlyTickResult = {
   day: string;
   due: number;
   sent: number;
+  failed: number;
   nothingToSend: number;
   skippedLate: number;
   remaining: number;
 };
-
-// Minutes since midnight on the wall clock in America/New_York, DST-safe by
-// construction: only the wall-clock HH:MM of "now" is ever read.
-function nyMinutesOfDay(instant: Date): number {
-  const parts = NY_CLOCK_FORMATTER.formatToParts(instant);
-  const part = (type: Intl.DateTimeFormatPartTypes): string => {
-    const found = parts.find((entry) => entry.type === type);
-    return found ? found.value : "";
-  };
-  return Number(part("hour")) * 60 + Number(part("minute"));
-}
 
 // "HH:MM" to minutes since midnight; anything unparseable falls back to 20:00.
 function reminderMinutesOf(value: string): number {
@@ -62,17 +60,36 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002";
 }
 
+function loadRankedWithTimeout(userId: string, occurrenceInstant: Date): Promise<RankedItem[]> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("nightly: load timed out")),
+      NIGHTLY_USER_LOAD_TIMEOUT_MS,
+    );
+    loadOpenWork(userId, occurrenceInstant).then(
+      (ranked) => {
+        clearTimeout(timer);
+        resolve(ranked);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function runNightlyTick(
   now: () => Date = () => new Date(),
 ): Promise<NightlyTickResult> {
   const tickStartedAt = now();
   const day = nyDayOf(tickStartedAt);
+  const previousDay = previousNyDay(day);
 
   const candidates = await prisma.user.findMany({
     where: {
       OR: [{ notifyTonight: true }, { notifyDueTomorrow: true }],
       pushSubscriptions: { some: {} },
-      nightlyDeliveries: { none: { day } },
     },
     select: {
       id: true,
@@ -83,28 +100,61 @@ export async function runNightlyTick(
     orderBy: { id: "asc" },
   });
 
-  const owed = candidates.filter(
-    (user) => reminderMinutesOf(user.nightlyReminderTime) <= nyMinutesOfDay(now()),
-  );
+  // One row claims the whole night's bundle, so a row for the occurrence day
+  // means the reminder was handled. Without that row in hand the candidate
+  // goes back through the claim below, whose unique key settles overlaps too.
+  const decided = await prisma.nightlyDelivery.findMany({
+    where: { day: { in: [day, previousDay] } },
+    select: { userId: true, day: true },
+  });
+  const decidedDays = new Set(decided.map((row) => `${row.userId}\n${row.day}`));
+
+  const owed: Array<{
+    user: (typeof candidates)[number];
+    occurrenceDay: string;
+    occurrenceInstant: Date;
+  }> = [];
+  for (const user of candidates) {
+    const tickInstant = now();
+    const reminderMinutes = reminderMinutesOf(user.nightlyReminderTime);
+    const reminderTime = nyTimeString(reminderMinutes);
+    // The reminder the student is owed is the most recent scheduled occurrence
+    // at or before now: tonight's time if it already struck, otherwise just
+    // before midnight struck their time from yesterday — the 00:05 tick must
+    // still deliver a 23:45 reminder, keyed to the previous New York day.
+    const tonightAtReminder = nyWallTimeToInstant(day, reminderTime);
+    const occurrence =
+      tonightAtReminder.getTime() <= tickInstant.getTime()
+        ? { day, instant: tonightAtReminder }
+        : {
+            day: previousDay,
+            instant: nyWallTimeToInstant(previousDay, reminderTime),
+          };
+    if (decidedDays.has(`${user.id}\n${occurrence.day}`)) {
+      continue;
+    }
+    owed.push({
+      user,
+      occurrenceDay: occurrence.day,
+      occurrenceInstant: occurrence.instant,
+    });
+  }
 
   let sent = 0;
+  let failed = 0;
   let nothingToSend = 0;
   let skippedLate = 0;
   let processed = 0;
-  for (const user of owed) {
+  for (const { user, occurrenceDay, occurrenceInstant } of owed) {
     if (now().getTime() - tickStartedAt.getTime() >= NIGHTLY_TICK_BUDGET_MS) {
       break;
     }
-    const tickInstant = now();
-    const reminderMinutes = reminderMinutesOf(user.nightlyReminderTime);
-    const lateBy = nyMinutesOfDay(tickInstant) - reminderMinutes;
-
-    // Claim the delivery day first. The (user, day) key is unique, so when two
+    // Claim the occurrence first. The (user, day) key is unique, so when two
     // ticks overlap only one of them gets the student; the other moves on.
     let claimed = false;
     try {
       await prisma.nightlyDelivery.create({
-        data: { userId: user.id, day, tonight: false, dueTomorrow: false },
+        data: { userId: user.id, day: occurrenceDay, tonight: false, dueTomorrow: false },
       });
       claimed = true;
     } catch (error) {
@@ -113,35 +163,58 @@ export async function runNightlyTick(
       }
     }
     if (!claimed) {
+      // Another tick took this user; their night is being handled, so they
+      // never sit in `remaining`.
+      processed += 1;
       continue;
     }
 
-    if (lateBy > LATE_SEND_LIMIT_MINUTES) {
+    if (
+      now().getTime() - occurrenceInstant.getTime() >
+      LATE_SEND_LIMIT_MINUTES * 60_000
+    ) {
       skippedLate += 1;
       processed += 1;
       continue;
     }
 
     try {
-      const ranked = await loadOpenWork(user.id, tickInstant);
+      // "Due tomorrow" is read as of the evening the student asked about, not
+      // the 00:05 instant's date.
+      const ranked = await loadRankedWithTimeout(user.id, occurrenceInstant);
       const messages = messagesFor(
         {
           notifyTonight: user.notifyTonight,
           notifyGradePosted: false,
           notifyDueTomorrow: user.notifyDueTomorrow,
         },
-        { ranked, now: tickInstant },
+        { ranked, now: occurrenceInstant },
       );
-      const tonight = messages.some((message) => message.kind === "tonight");
-      const dueTomorrow = messages.some((message) => message.kind === "due-tomorrow");
-      for (const message of messages) {
-        await sendToUser(user.id, message);
-      }
+      // All messages go out in one parallel round, so the user is bounded by
+      // one web-push timeout rather than one per message.
+      const counts = await Promise.all(
+        messages.map((message) => sendToUser(user.id, message, { ttlSeconds: NIGHTLY_PUSH_TTL_SECONDS })),
+      );
+      let tonight = false;
+      let dueTomorrow = false;
+      messages.forEach((message, index) => {
+        // A message with no delivered push reads as no delivery: without this
+        // a send-failure could burn the claim while nothing ever arrived.
+        if (counts[index].sent > 0) {
+          sent += 1;
+          if (message.kind === "tonight") {
+            tonight = true;
+          } else if (message.kind === "due-tomorrow") {
+            dueTomorrow = true;
+          }
+        } else {
+          failed += 1;
+        }
+      });
       await prisma.nightlyDelivery.update({
-        where: { userId_day: { userId: user.id, day } },
+        where: { userId_day: { userId: user.id, day: occurrenceDay } },
         data: { tonight, dueTomorrow },
       });
-      sent += messages.length;
       if (messages.length === 0) {
         nothingToSend += 1;
       }
@@ -156,6 +229,7 @@ export async function runNightlyTick(
     day,
     due: owed.length,
     sent,
+    failed,
     nothingToSend,
     skippedLate,
     remaining: owed.length - processed,

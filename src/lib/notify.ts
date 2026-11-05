@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { sendPush, type PushMessage } from "@/lib/web-push";
+import { sendPush, type PushMessage, type PushSendOptions } from "@/lib/web-push";
 
 export type SendCounts = { sent: number; failed: number; removed: number };
 
-export async function sendToUser(userId: string, message: PushMessage): Promise<SendCounts> {
+export async function sendToUser(
+  userId: string,
+  message: PushMessage,
+  options?: PushSendOptions,
+): Promise<SendCounts> {
   const subscriptions = await prisma.pushSubscription.findMany({
     where: { userId },
     select: { id: true, endpoint: true, p256dh: true, auth: true },
@@ -13,7 +17,7 @@ export async function sendToUser(userId: string, message: PushMessage): Promise<
   const outcomes = await Promise.all(
     subscriptions.map(async (subscription) => {
       try {
-        return await sendPush(subscription, message);
+        return await sendPush(subscription, message, ...(options ? [options] : []));
       } catch {
         console.error("Web push send failed.");
         return "failed" as const;

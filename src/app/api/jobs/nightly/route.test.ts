@@ -40,6 +40,7 @@ function tickResult() {
     day: "2026-10-22",
     due: 3,
     sent: 4,
+    failed: 1,
     nothingToSend: 0,
     skippedLate: 1,
     remaining: 1,
