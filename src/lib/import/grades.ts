@@ -30,11 +30,15 @@ export async function importGrades(
   );
   const storedAssignments = await prisma.assignment.findMany({
     where: { courseId: course.id },
-    select: { id: true, canvasId: true },
+    select: { id: true, canvasId: true, grade: { select: { isManual: true } } },
   });
   const assignmentIdByCanvasId = new Map<string, string>();
+  const manualAssignmentIds = new Set<string>();
   for (const assignment of storedAssignments) {
     assignmentIdByCanvasId.set(assignment.canvasId, assignment.id);
+    if (assignment.grade?.isManual) {
+      manualAssignmentIds.add(assignment.id);
+    }
   }
   let imported = 0;
   let skipped = 0;
@@ -65,6 +69,11 @@ export async function importGrades(
         ? undefined
         : assignmentIdByCanvasId.get(String(submission.assignment_id));
     if (localAssignmentId === undefined) {
+      skipped += 1;
+      continue;
+    }
+    // a grade the student typed by hand is theirs; the sync may not take it back
+    if (manualAssignmentIds.has(localAssignmentId)) {
       skipped += 1;
       continue;
     }
