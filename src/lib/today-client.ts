@@ -29,3 +29,26 @@ export type TodayResponse = {
 export function getToday() {
   return apiRequest<TodayResponse>("/api/today", { token: getToken() });
 }
+
+// What the student was looking at when they tapped, for the study's event log.
+export type ShownItem = { rank: number; listGeneratedAt: string };
+
+// The website identifies itself so the event log can tell web taps from app taps, and every
+// action carries its own request id so a retried request is never logged twice.
+function actionHeaders(requestId: string): Record<string, string> {
+  return { "X-Priority-Client": "web", "X-Priority-Request-Id": requestId };
+}
+
+export function markDone(assignmentId: string, shown: ShownItem, requestId: string) {
+  return apiRequest<{ assignmentId: string; status: string }>(
+    `/api/today/items/${encodeURIComponent(assignmentId)}/done`,
+    { method: "POST", token: getToken(), body: shown, headers: actionHeaders(requestId) },
+  );
+}
+
+export function undoItem(assignmentId: string, requestId: string) {
+  return apiRequest<{ assignmentId: string; undone: boolean }>(
+    `/api/today/items/${encodeURIComponent(assignmentId)}`,
+    { method: "DELETE", token: getToken(), headers: actionHeaders(requestId) },
+  );
+}
