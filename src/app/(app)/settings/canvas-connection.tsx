@@ -135,6 +135,7 @@ export function CanvasConnection() {
 
       {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
       {loadError ? <Notice tone="error">{loadError}</Notice> : null}
+      <SyncNow showSyncButton={connected} />
       {status === null && !loadError ? (
         <p className={styles.loading} role="status">
           Checking your Canvas connection…
@@ -153,7 +154,6 @@ export function CanvasConnection() {
               <dd>{formatCheckedAt(status?.checkedAt ?? null)}</dd>
             </div>
           </dl>
-          <SyncNow />
           <div className={styles.actions}>
             <Button variant="secondary" onClick={handleTest} loading={busy === "test"} disabled={busy !== null}>
               Test connection

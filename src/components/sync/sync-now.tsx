@@ -11,13 +11,15 @@ type Message = { tone: "success" | "error"; text: string } | null;
 type SyncNowProps = {
   // Lets the page refresh its own data (e.g. the course list) after a sync.
   onSynced?: (result: SyncResult) => void;
+  showSyncButton?: boolean;
 };
 
-export function SyncNow({ onSynced }: SyncNowProps) {
+export function SyncNow({ onSynced, showSyncButton = true }: SyncNowProps) {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState<Message>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -28,6 +30,8 @@ export function SyncNow({ onSynced }: SyncNowProps) {
       }
       if (result.ok) {
         setLastSyncedAt(result.data.lastSyncedAt);
+      } else {
+        setLoadError(result.error);
       }
       setLoaded(true);
     });
@@ -52,6 +56,7 @@ export function SyncNow({ onSynced }: SyncNowProps) {
       });
       return;
     }
+    setLoadError(null);
     setLastSyncedAt(result.data.lastSyncedAt);
     setMessage({ tone: "success", text: syncSummary(result.data) });
     onSynced?.(result.data);
@@ -60,20 +65,26 @@ export function SyncNow({ onSynced }: SyncNowProps) {
   return (
     <div className={styles.sync}>
       <div className={styles.row}>
-        <Button variant="secondary" onClick={handleSync} loading={syncing}>
-          {syncing ? "Syncing…" : "Sync now"}
-        </Button>
+        {showSyncButton ? (
+          <Button variant="secondary" onClick={handleSync} loading={syncing}>
+            {syncing ? "Syncing…" : "Sync now"}
+          </Button>
+        ) : null}
         <p className={styles.last} aria-live="polite">
           <span className={styles.label}>Last synced</span>{" "}
           {loaded ? (
-            <time dateTime={lastSyncedAt ?? undefined} title={lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : undefined}>
-              {syncing ? "Syncing with Canvas…" : formatLastSynced(lastSyncedAt, now)}
+            <time
+              dateTime={lastSyncedAt ?? undefined}
+              title={lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : undefined}
+            >
+              {loadError ? "Unavailable" : syncing ? "Syncing with Canvas…" : formatLastSynced(lastSyncedAt, now)}
             </time>
           ) : (
             "…"
           )}
         </p>
       </div>
+      {loadError ? <Notice tone="error">{loadError}</Notice> : null}
       {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
     </div>
   );

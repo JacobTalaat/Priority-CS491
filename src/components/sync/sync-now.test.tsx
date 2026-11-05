@@ -9,4 +9,10 @@ describe("SyncNow", () => {
     expect(html).not.toContain("disabled");
     expect(html).toContain("Last synced");
   });
+
+  it("can show the last synced time without offering a sync action", () => {
+    const html = renderToStaticMarkup(<SyncNow showSyncButton={false} />);
+    expect(html).not.toContain("<button");
+    expect(html).toContain("Last synced");
+  });
 });

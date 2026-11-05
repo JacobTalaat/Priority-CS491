@@ -69,6 +69,41 @@
   gap: 18px;
 }
 
+.deleteAccountForm {
+  display: grid;
+  width: min(100%, 520px);
+  justify-items: start;
+  gap: 16px;
+}
+
+.deleteAccountConfirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.deleteAccountConfirmation input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  accent-color: var(--danger);
+}
+
+.deleteAccountButton {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger);
+}
+
+.deleteAccountButton:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger);
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
