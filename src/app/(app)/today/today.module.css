@@ -3,6 +3,45 @@
   font-size: 14px;
 }
 
+.emptyState {
+  display: grid;
+  width: min(100%, 560px);
+  justify-items: start;
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.emptyMark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  border-radius: 50%;
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.emptyMessage {
+  display: grid;
+  gap: 6px;
+}
+
+.emptyMessage h2 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.emptyMessage p {
+  color: var(--secondary);
+  font-size: 14px;
+}
+
 .errorState {
   display: grid;
   justify-items: start;

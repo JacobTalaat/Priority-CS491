@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Notice, PageHeader } from "@/components/ui";
+import { Button, ButtonLink, Notice, PageHeader } from "@/components/ui";
 import { getToday } from "@/lib/today-client";
 import type { TodayItem } from "@/lib/today-client";
 import { boundaryTag, dueLabel, shareLabel } from "@/lib/today-list";
@@ -60,7 +60,18 @@ export function TodayList() {
 
 export function TodayItems({ items }: { items: TodayItem[] }) {
   if (items.length === 0) {
-    return <p className={styles.status}>Nothing on your list right now.</p>;
+    return (
+      <section className={styles.emptyState} aria-labelledby="today-empty-title">
+        <span className={styles.emptyMark} aria-hidden="true">✓</span>
+        <div className={styles.emptyMessage}>
+          <h2 id="today-empty-title">You&apos;re all caught up!</h2>
+          <p>There are no open items right now. Your Today list is ready when new work arrives.</p>
+        </div>
+        <ButtonLink href="/classes" variant="secondary">
+          View classes
+        </ButtonLink>
+      </section>
+    );
   }
   return (
     <ol className={styles.list} aria-label="Today">
