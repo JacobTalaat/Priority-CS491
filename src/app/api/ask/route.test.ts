@@ -1,15 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockSessionFindUnique, mockCourseFindFirst, mockAnswerQuestion } = vi.hoisted(() => ({
-  mockSessionFindUnique: vi.fn(),
-  mockCourseFindFirst: vi.fn(),
-  mockAnswerQuestion: vi.fn(),
-}));
+import { Prisma } from "@/generated/prisma/client";
+
+const { mockSessionFindUnique, mockCourseFindFirst, mockAnswerQuestion, mockAskLogCreate } =
+  vi.hoisted(() => ({
+    mockSessionFindUnique: vi.fn(),
+    mockCourseFindFirst: vi.fn(),
+    mockAnswerQuestion: vi.fn(),
+    mockAskLogCreate: vi.fn(),
+  }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     session: { findUnique: mockSessionFindUnique },
     course: { findFirst: mockCourseFindFirst },
+    askLog: { create: mockAskLogCreate },
   },
 }));
 
@@ -59,6 +64,7 @@ describe("POST /api/ask", () => {
     mockSessionFindUnique.mockReset().mockResolvedValue(sessionRow());
     mockCourseFindFirst.mockReset().mockResolvedValue({ id: "course-2" });
     mockAnswerQuestion.mockReset().mockResolvedValue(ANSWER);
+    mockAskLogCreate.mockReset().mockResolvedValue({});
   });
 
   it("answers with server-built sources for the authenticated student", async () => {
@@ -151,6 +157,110 @@ describe("POST /api/ask", () => {
     }
     expect(mockAnswerQuestion).not.toHaveBeenCalled();
     expect(mockCourseFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("logs every question that reached the answering step for the accuracy study", async () => {
+    const response = await POST(request({ question: "when is homework 3 due", courseId: "course-2" }));
+    expect(response.status).toBe(200);
+    expect(mockAskLogCreate).toHaveBeenCalledWith({
+      data: {
+        userId: "user-1",
+        question: "when is homework 3 due",
+        outcome: "found",
+        answer: "Friday, Oct 23.",
+        found: true,
+        sourceCount: 1,
+        courseId: "course-2",
+        sources: ANSWER.sources,
+      },
+    });
+  });
+
+  it("logs a not-found outcome with a null answer and no sources", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockAnswerQuestion.mockResolvedValue({ ok: true, found: false });
+    const response = await POST(request({ question: "  what is the meaning of life  " }));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      found: false,
+      message: "Priority couldn't find that in your syllabus or Canvas data.",
+    });
+    expect(mockAskLogCreate).toHaveBeenCalledWith({
+      data: {
+        userId: "user-1",
+        question: "what is the meaning of life",
+        outcome: "not-found",
+        answer: null,
+        found: false,
+        sourceCount: 0,
+        courseId: null,
+        sources: Prisma.DbNull,
+      },
+    });
+    errorSpy.mockRestore();
+  });
+
+  it("logs failed and cap-reached outcomes with a null answer, and their responses keep their status", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockAnswerQuestion.mockResolvedValue({ ok: false, reason: "cap-reached" });
+    const capped = await POST(request({ question: "why", courseId: "course-2" }));
+    expect(capped.status).toBe(503);
+    await expect(capped.json()).resolves.toEqual({
+      error: "Priority's AI budget for this month is used up, so it couldn't answer. Try again later.",
+    });
+    expect(mockAskLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        outcome: "cap-reached",
+        answer: null,
+        found: false,
+        sources: Prisma.DbNull,
+        courseId: "course-2",
+      }),
+    });
+
+    mockAskLogCreate.mockClear().mockRejectedValue(new Error("connection refused"));
+    mockAnswerQuestion.mockResolvedValue({ ok: false, reason: "failed" });
+    const failed = await POST(request({ question: "why" }));
+    expect(failed.status).toBe(502);
+    await expect(failed.json()).resolves.toEqual({
+      error: "Priority couldn't answer that right now. Try again.",
+    });
+    expect(mockAskLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        outcome: "failed",
+        answer: null,
+        courseId: null,
+      }),
+    });
+    errorSpy.mockRestore();
+  });
+
+  it("does not log questions that never reached the answering step", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockAnswerQuestion.mockResolvedValue({ ok: false, reason: "invalid-question" });
+    const response = await POST(request({ question: "   " }));
+    expect(response.status).toBe(400);
+
+    mockCourseFindFirst.mockResolvedValue(null);
+    const foreign = await POST(request({ question: "why", courseId: "course-9" }));
+    expect(foreign.status).toBe(404);
+
+    expect(mockAskLogCreate).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("leaves the 200 response unchanged when logging fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockAskLogCreate.mockRejectedValue(new Error("connection refused"));
+    const response = await POST(request({ question: "when is homework 3 due" }));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      found: true,
+      answer: "Friday, Oct 23.",
+      sources: ANSWER.sources,
+    });
+    expect(errorSpy).toHaveBeenCalledWith("Failed to store ask question log");
+    errorSpy.mockRestore();
   });
 
   it("requires an app session", async () => {

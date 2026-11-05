@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCourseFindMany } = vi.hoisted(() => ({
+const { mockCourseFindMany, mockItemStateFindMany } = vi.hoisted(() => ({
   mockCourseFindMany: vi.fn(),
+  mockItemStateFindMany: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     course: { findMany: mockCourseFindMany },
+    itemState: { findMany: mockItemStateFindMany },
   },
 }));
 
 import { loadOpenWork } from "./ranking-data";
+import { reasonFor } from "./item-reason";
 import { rankOpenWork, type OpenWorkItem, type RankedItem } from "./ranking";
 
 // 12:30 PM EDT on Wednesday 2026-10-14.
@@ -31,6 +34,7 @@ function assignment(id: string, overrides: Record<string, unknown> = {}) {
 describe("loadOpenWork", () => {
   beforeEach(() => {
     mockCourseFindMany.mockReset().mockResolvedValue([]);
+    mockItemStateFindMany.mockReset().mockResolvedValue([]);
   });
 
   it("queries only the user's current courses", async () => {
@@ -349,8 +353,11 @@ describe("loadOpenWork", () => {
         name: "Algorithms",
         gradeSetup: {
           categories: [{ name: "Homework", weight: 0 }],
-          assignmentMappings: [],
-          finalExamWeight: 0,
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "hw-2", category: "Homework" },
+          ],
+          finalExamWeight: 100,
           cutoffs: { A: 90, F: 0 },
           classDetails: {},
           unsupportedRules: ["Lowest quiz dropped"],
@@ -365,9 +372,169 @@ describe("loadOpenWork", () => {
     const ranked = await loadOpenWork("user-1", NOW);
 
     // The points engine grades 45/50 = 90%, right at the A cutoff, but the
-    // rule the syllabus states makes the grade unsupported, so no flag.
+    // rule the syllabus states makes the grade unsupported, so no flag — and
+    // no confident share either: the rule would reshuffle the slices the
+    // points math, which never sees the setup, reports.
     expect(ranked).toHaveLength(1);
-    expect(ranked[0]).toMatchObject({ assignmentId: "hw-1", share: 50, boundary: null });
+    expect(ranked[0]).toMatchObject({ assignmentId: "hw-1", share: null, boundary: null });
+    // The reason line must not quote a grade share the setup takes away.
+    expect(reasonFor(ranked[0], NOW)).not.toMatch(/percent/);
+    expect(reasonFor(ranked[0], NOW)).toBe("No due date");
+  });
+
+  it("does not let an unsupported course's paper share outrank the same-day work it really should trail", async () => {
+    // Two items due today: one in a healthy course whose real share is a third
+    // of the grade, and one in a course where a paper share of 50 would come
+    // out of weighted math that "drop the lowest quiz" invalidates. The
+    // healthy item keeps its computed rank; the unsupported one never carries
+    // a share that could race it to the top.
+    mockCourseFindMany.mockResolvedValue([
+      {
+        id: "course-1",
+        name: "Algorithms",
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 100 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "hw-2", category: "Homework" },
+            { assignmentId: "hw-3", category: "Homework" },
+          ],
+          finalExamWeight: 0,
+          cutoffs: {},
+          classDetails: {},
+          unsupportedRules: [],
+        },
+        assignments: [
+          assignment("hw-1", {
+            title: "Problem set",
+            pointsPossible: 100,
+            dueAt: new Date("2026-10-14T13:00:00-04:00"),
+            hasDueDate: true,
+          }),
+          assignment("hw-2", { title: "Quiz", pointsPossible: 100, grade: { score: 80 } }),
+          assignment("hw-3", { title: "Lab", pointsPossible: 100, grade: { score: 90 } }),
+        ],
+      },
+      {
+        id: "course-2",
+        name: "Statistics",
+        gradeSetup: {
+          categories: [{ name: "Quizzes", weight: 100 }],
+          assignmentMappings: [
+            { assignmentId: "stat-1", category: "Quizzes" },
+            { assignmentId: "stat-2", category: "Quizzes" },
+          ],
+          finalExamWeight: 0,
+          cutoffs: {},
+          classDetails: {},
+          unsupportedRules: ["The lowest quiz score is dropped."],
+        },
+        assignments: [
+          assignment("stat-1", {
+            title: "Quiz",
+            pointsPossible: 100,
+            dueAt: new Date("2026-10-15T00:00:00-04:00"),
+            hasDueDate: true,
+          }),
+          assignment("stat-2", { title: "Prelab", pointsPossible: 100, grade: { score: 70 } }),
+        ],
+      },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    expect(ranked.map((entry) => entry.assignmentId)).toEqual(["hw-1", "stat-1"]);
+    expect(ranked[0]).toMatchObject({
+      share: expect.closeTo(33.33, 2),
+      score: expect.closeTo(33.33, 2),
+    });
+    // The unsupported item still appears, but with no share and no score a
+    // "drop the lowest quiz" rule could have inflated.
+    expect(ranked[1]).toMatchObject({ share: null, score: null, boundary: null });
+  });
+
+  it("gives a picked final its own share and flags from the folded setup", async () => {
+    mockCourseFindMany.mockResolvedValue([
+      {
+        id: "course-1",
+        name: "Algorithms",
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 70 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "hw-2", category: "Homework" },
+            { assignmentId: "hw-3", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 30,
+          cutoffs: { "A-": 90 },
+          classDetails: { finalExamAssignmentId: "final-1" },
+        },
+        assignments: [
+          assignment("hw-1", {
+            title: "Problem set",
+            dueAt: new Date("2026-10-14T17:00:00-04:00"),
+            hasDueDate: true,
+          }),
+          assignment("hw-2", { title: "Quiz", pointsPossible: 40 }),
+          assignment("hw-3", { title: "Lab", grade: { score: 45 } }),
+          assignment("final-1", { title: "Final exam", pointsPossible: 100 }),
+        ],
+      },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    // The fold moves the final into its own 30% category, so its share is 30
+    // and the homework shares (25 + 20 here, plus the skipped 25 on the graded
+    // lab) sum to the category's 70, instead of all being null before folding.
+    const byId = new Map(ranked.map((entry) => [entry.assignmentId, entry]));
+    expect(byId.get("final-1")?.share).toBe(30);
+    expect(byId.get("hw-1")?.share).toBe(25);
+    expect(byId.get("hw-2")?.share).toBe(20);
+    // 45 of 50 points = 90% in the only graded category, which the fold leaves
+    // as the homework 70% slice: the flag comes from the folded grade.
+    expect(byId.get("hw-1")?.boundary).toEqual({
+      letter: "A-",
+      cutoff: 90,
+      direction: "at-risk",
+      distance: 0,
+    });
+  });
+
+  it("still gives null shares when the final weight sits outside the categories unpicked", async () => {
+    mockCourseFindMany.mockResolvedValue([
+      {
+        id: "course-1",
+        name: "Algorithms",
+        gradeSetup: {
+          categories: [{ name: "Homework", weight: 70 }],
+          assignmentMappings: [
+            { assignmentId: "hw-1", category: "Homework" },
+            { assignmentId: "final-1", category: "Homework" },
+          ],
+          finalExamWeight: 30,
+          cutoffs: { "A-": 90 },
+          classDetails: {},
+        },
+        assignments: [
+          assignment("hw-1", {
+            title: "Problem set",
+            dueAt: new Date("2026-10-14T17:00:00-04:00"),
+            hasDueDate: true,
+          }),
+          assignment("final-1", { title: "Final exam", pointsPossible: 100 }),
+        ],
+      },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    // Without a picked final the fold cannot normalise the setup, so the 30%
+    // slice belongs to no assignment and unknown shares stay honest.
+    const byId = new Map(ranked.map((entry) => [entry.assignmentId, entry]));
+    expect(byId.get("hw-1")?.share).toBeNull();
+    expect(byId.get("final-1")?.share).toBeNull();
   });
 
   it("adds flags after ranking, leaving the order and scores identical", async () => {
@@ -439,6 +606,95 @@ describe("loadOpenWork", () => {
       { letter: "A-", cutoff: 89, direction: "at-risk", distance: 0 },
       { letter: "A-", cutoff: 89, direction: "at-risk", distance: 0 },
     ]);
+  });
+});
+
+describe("loadOpenWork hides done and skipped items", () => {
+  function course(...assignmentIds: string[]) {
+    return {
+      id: "course-1",
+      name: "Algorithms",
+      gradeSetup: null,
+      assignments: assignmentIds.map((id) => assignment(id)),
+    };
+  }
+
+  beforeEach(() => {
+    mockCourseFindMany.mockReset().mockResolvedValue([]);
+    mockItemStateFindMany.mockReset().mockResolvedValue([]);
+  });
+
+  it("loads the item states in one extra query, not one per item", async () => {
+    mockCourseFindMany.mockResolvedValue([course("a", "b", "c", "d")]);
+
+    await loadOpenWork("user-1", NOW);
+
+    expect(mockItemStateFindMany).toHaveBeenCalledTimes(1);
+    expect(mockItemStateFindMany).toHaveBeenCalledWith({ where: { userId: "user-1" } });
+  });
+
+  it("leaves out an item the student marked done, even before a grade lands", async () => {
+    mockCourseFindMany.mockResolvedValue([course("done", "open")]);
+    mockItemStateFindMany.mockResolvedValue([
+      { userId: "user-1", assignmentId: "done", status: "done", skippedDay: null, updatedAt: NOW },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    expect(ranked.map((entry) => entry.assignmentId)).toEqual(["open"]);
+  });
+
+  it("leaves out an item skipped for today, in New York", async () => {
+    mockCourseFindMany.mockResolvedValue([course("skipped", "open")]);
+    mockItemStateFindMany.mockResolvedValue([
+      { userId: "user-1", assignmentId: "skipped", status: "skipped", skippedDay: "2026-10-14", updatedAt: NOW },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    expect(ranked.map((entry) => entry.assignmentId)).toEqual(["open"]);
+  });
+
+  it("brings an item back the New York day after its skip", async () => {
+    // The skip is stored with yesterday's day; 12:30 PM EDT on 2026-10-15 makes
+    // "today" 2026-10-15 in New York, so the item is visible again.
+    mockCourseFindMany.mockResolvedValue([course("skipped", "open")]);
+    mockItemStateFindMany.mockResolvedValue([
+      { userId: "user-1", assignmentId: "skipped", status: "skipped", skippedDay: "2026-10-14", updatedAt: NOW },
+    ]);
+
+    const tomorrow = new Date("2026-10-15T16:30:00.000Z");
+    const ranked = await loadOpenWork("user-1", tomorrow);
+
+    expect(ranked.map((entry) => entry.assignmentId)).toEqual(["open", "skipped"]);
+  });
+
+  it("does not hide a skip that belongs to some other day", async () => {
+    mockCourseFindMany.mockResolvedValue([course("skipped", "open")]);
+    mockItemStateFindMany.mockResolvedValue([
+      { userId: "user-1", assignmentId: "skipped", status: "skipped", skippedDay: "2026-10-20", updatedAt: NOW },
+    ]);
+
+    const ranked = await loadOpenWork("user-1", NOW);
+
+    expect(ranked.map((entry) => entry.assignmentId)).toEqual(["open", "skipped"]);
+  });
+
+  it("keeps a skip hidden right up to New York midnight, then gives it back at 12:15 AM", async () => {
+    // 2026-10-15T03:30Z is 11:30 PM in New York on 2026-10-14, but 2026-10-15
+    // in UTC: computing "today" in UTC instead of New York would free the item
+    // while the student is still in the skip's day.
+    mockCourseFindMany.mockResolvedValue([course("skipped", "open")]);
+    mockItemStateFindMany.mockResolvedValue([
+      { userId: "user-1", assignmentId: "skipped", status: "skipped", skippedDay: "2026-10-14", updatedAt: NOW },
+    ]);
+
+    const justBeforeMidnight = new Date("2026-10-15T03:45:00.000Z");
+    expect((await loadOpenWork("user-1", justBeforeMidnight)).map((entry) => entry.assignmentId)).toEqual(["open"]);
+
+    // 2026-10-15T04:15Z is 12:15 AM in New York on 2026-10-15: a new day.
+    const justAfterMidnight = new Date("2026-10-15T04:15:00.000Z");
+    expect((await loadOpenWork("user-1", justAfterMidnight)).map((entry) => entry.assignmentId)).toEqual(["open", "skipped"]);
   });
 });
 

@@ -28,8 +28,16 @@ function solve(
   finalAssignmentId: string | null,
   cutoffs: Record<string, number>,
   finalExamWeight = 0,
+  unsupportedRules: string[] = [],
 ) {
-  return solveFinalExam({ choice, assignments, finalAssignmentId, cutoffs, finalExamWeight } satisfies FinalExamInput);
+  return solveFinalExam({
+    choice,
+    assignments,
+    finalAssignmentId,
+    cutoffs,
+    finalExamWeight,
+    unsupportedRules,
+  } satisfies FinalExamInput);
 }
 
 function needed(result: FinalExamResult, letter: string): { score: number; percent: number } {
@@ -354,6 +362,9 @@ describe("describeFinalExamResult", () => {
     expect(describeFinalExamResult({ status: "already-graded" })).toBe(
       "Your final exam is already graded, so there is nothing left to aim for on it.",
     );
+    expect(describeFinalExamResult({ status: "unsupported" })).toBe(
+      "This class has a grading rule (like a dropped score, curve, or late penalty) that Priority can't grade yet.",
+    );
     expect(describeFinalExamResult({ status: "solved", results: [], otherWorkPending: false })).toBe(
       "No letter grades are set up for this class, so there is nothing to aim for yet.",
     );
@@ -374,6 +385,36 @@ describe("describeFinalExamResult", () => {
 });
 
 describe("solveFinalExam refuses to answer about a final the grade does not count", () => {
+  it("reports unsupported for a points-based course whose setup carries a rule", () => {
+    // 27 of 30 points earned elsewhere, the final worth 100 of 130, so the
+    // points engine could claim A needs 90 — but a rule no engine can apply
+    // (the stored "drop the lowest quiz") makes any such number invented,
+    // because the points engine never sees the setup at all.
+    const assignments = [makeAssignment("hw-1", 30, 27), makeAssignment("final-1", 100)];
+    expect(
+      solve({ engine: "points", setup: null }, assignments, "final-1", { A: 90, B: 80, C: 70 }, 0, [
+        "The lowest quiz score is dropped.",
+      ]),
+    ).toEqual({ status: "unsupported" });
+  });
+
+  it("reports unsupported for a weighted course whose setup carries a rule", () => {
+    // The same course that solves cleanly above must refuse once the saved
+    // setup names a rule the engines cannot express, engine choice aside.
+    expect(solve(weightedChoice, weightedAssignments, "final-1", { A: 90 }, 0, ["Lowest quiz dropped"])).toEqual({
+      status: "unsupported",
+    });
+  });
+
+  it("reports unsupported from the chosen setup even when the rules list rides empty", () => {
+    // The setup itself is the source of truth for a weighted course; the list
+    // passed along beside it must not be the only guard.
+    const setupWithRule = { ...weightedSetup, unsupportedRules: ["Late penalty of 10%"] };
+    expect(solve({ engine: "weighted", setup: setupWithRule }, weightedAssignments, "final-1", { A: 90 })).toEqual({
+      status: "unsupported",
+    });
+  });
+
   it("reports final-not-counted when the final is mapped to no category in a weighted course", () => {
     // Homework 40% plus a final whose 60% sits in finalExamWeight: the engine
     // never sees the final, so "A out of reach" and "B secured" would both be

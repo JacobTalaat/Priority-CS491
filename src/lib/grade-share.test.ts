@@ -139,6 +139,49 @@ describe("weighted shares", () => {
   });
 });
 
+describe("shares refuse unsupported rules", () => {
+  it("returns null shares with their category labels for a weighted setup carrying a rule", () => {
+    // "Drop the lowest quiz" changes each affected quiz's effective weight, so
+    // the slices the weighted math reports would be confidently wrong.
+    const setup = setupPayload({
+      categories: [
+        { name: "Homework", weight: 40 },
+        { name: "Exams", weight: 60 },
+      ],
+      assignmentMappings: [
+        { assignmentId: "hw-1", category: "Homework" },
+        { assignmentId: "hw-2", category: "Homework" },
+        { assignmentId: "exam-1", category: "Exams" },
+      ],
+      unsupportedRules: ["The lowest quiz score is dropped."],
+    });
+    const assignments = [assignment("hw-1", 50), assignment("hw-2", 150), assignment("exam-1", 150)];
+
+    expect(assignmentShares(setup, assignments)).toEqual([
+      { assignmentId: "hw-1", share: null, category: "Homework" },
+      { assignmentId: "hw-2", share: null, category: "Homework" },
+      { assignmentId: "exam-1", share: null, category: "Exams" },
+    ]);
+  });
+
+  it("returns null shares for a setup whose rules reach the points path", () => {
+    // No usable category weight means the points engine runs without the
+    // setup, so the rules have to be checked before that path is taken.
+    const setup = setupPayload({
+      categories: [{ name: "Homework", weight: 0 }],
+      assignmentMappings: [{ assignmentId: "hw-1", category: "Homework" }],
+      finalExamWeight: 100,
+      unsupportedRules: ["Lowest quiz dropped"],
+    });
+    const assignments = [assignment("hw-1", 10), assignment("final", 10)];
+
+    expect(assignmentShares(setup, assignments)).toEqual([
+      { assignmentId: "hw-1", share: null, category: "Homework" },
+      { assignmentId: "final", share: null, category: null },
+    ]);
+  });
+});
+
 describe("points shares", () => {
   it("splits points across the course by pointsPossible", () => {
     const assignments = [

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parseSavedSetup } from "@/lib/grade-setup";
+import { parseSavedSetup, withFinalExamCategory } from "@/lib/grade-setup";
 import { type WeightedGradeResult } from "@/lib/weighted-grade";
 import { buildCategoryBreakdown, calculateCourseGrade, type CategoryBreakdown } from "@/lib/grade-engine";
 import { readFinalExamAssignmentId, solveFinalExam, type FinalExamResult } from "@/lib/final-exam-solver";
@@ -65,7 +65,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
-  const setup = parseSavedSetup(course.gradeSetup);
+  const savedSetup = parseSavedSetup(course.gradeSetup);
+  // Normalize before choosing the engine so a final exam weight parked outside the
+  // categories grades as its own category instead of inside the final's mapped one.
+  // The solver and the shares read the same normalized setup, so they agree with
+  // the grade instead of treating the counted final as not counted.
+  const setup = savedSetup ? withFinalExamCategory(savedSetup) : null;
   const assignments = course.assignments.map((assignment) => ({
     id: assignment.id,
     pointsPossible: assignment.pointsPossible,
@@ -88,6 +93,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     finalAssignmentId: readFinalExamAssignmentId(setup),
     cutoffs: setup?.cutoffs ?? {},
     finalExamWeight: setup?.finalExamWeight ?? 0,
+    unsupportedRules: setup?.unsupportedRules ?? [],
   });
 
   return NextResponse.json({
