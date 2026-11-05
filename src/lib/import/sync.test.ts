@@ -14,7 +14,6 @@ const {
   mockImportGrades,
   mockImportCalendarAssignments,
   mockGetCalendarFeedUrl,
-  mockDeliverGradePosted,
 } = vi.hoisted(() => ({
   mockFindMany: vi.fn(),
   mockUserFindUnique: vi.fn(),
@@ -29,7 +28,6 @@ const {
   mockImportGrades: vi.fn(),
   mockImportCalendarAssignments: vi.fn(),
   mockGetCalendarFeedUrl: vi.fn(),
-  mockDeliverGradePosted: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -59,10 +57,6 @@ vi.mock("./assignments", () => ({ importAssignments: mockImportAssignments }));
 vi.mock("./grades", () => ({ importGrades: mockImportGrades }));
 
 vi.mock("./calendar-assignments", () => ({ importCalendarAssignments: mockImportCalendarAssignments }));
-
-vi.mock("@/lib/grade-posted-notify", () => ({
-  deliverGradePostedNotifications: mockDeliverGradePosted,
-}));
 
 import { CanvasError } from "@/lib/canvas";
 import { CalendarFeedError } from "@/lib/calendar-feed";
@@ -105,8 +99,6 @@ describe("syncUser", () => {
     mockImportCalendarAssignments.mockReset();
     mockGetCalendarFeedUrl.mockReset();
     mockGetCalendarFeedUrl.mockResolvedValue(null);
-    mockDeliverGradePosted.mockReset();
-    mockDeliverGradePosted.mockResolvedValue({ notified: 0, suppressed: 0 });
     vi.setSystemTime(new Date(CLOCKS_AT));
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -323,55 +315,5 @@ describe("syncUser", () => {
     expect(mockGradePostedEventCreate).toHaveBeenCalledWith({
       data: { userId: USER_ID, assignmentId: "assignment-2", score: 90 },
     });
-  });
-
-  it("sends grade-posted pushes when it recorded newly posted grades", async () => {
-    mockAssignmentFindMany
-      .mockResolvedValueOnce([gradedAssignment("assignment-1", 80)])
-      .mockResolvedValueOnce([
-        gradedAssignment("assignment-1", 80),
-        gradedAssignment("assignment-2", 95),
-      ]);
-    const result = await syncUser(USER_ID);
-    expect(mockDeliverGradePosted).toHaveBeenCalledTimes(1);
-    expect(mockDeliverGradePosted).toHaveBeenCalledWith(USER_ID);
-    expect(result.gradesPosted).toBe(1);
-  });
-
-  it("sends no grade-posted pushes when no grade was newly posted", async () => {
-    mockAssignmentFindMany
-      .mockResolvedValueOnce([gradedAssignment("assignment-1", 80)])
-      .mockResolvedValueOnce([gradedAssignment("assignment-1", 80)]);
-    const result = await syncUser(USER_ID);
-    expect(result.gradesPosted).toBe(0);
-    expect(mockDeliverGradePosted).not.toHaveBeenCalled();
-  });
-
-  it("sends no grade-posted pushes on a first sync, even with grades recorded", async () => {
-    mockUserFindUnique.mockResolvedValue({ lastSyncedAt: null });
-    const result = await syncUser(USER_ID);
-    expect(result.gradesPosted).toBe(0);
-    expect(mockDeliverGradePosted).not.toHaveBeenCalled();
-  });
-
-  it("a grade-posted push failure never fails the sync or changes its result", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockAssignmentFindMany
-      .mockResolvedValueOnce([gradedAssignment("assignment-1", 80)])
-      .mockResolvedValueOnce([
-        gradedAssignment("assignment-1", 80),
-        gradedAssignment("assignment-2", 95),
-      ]);
-    mockDeliverGradePosted.mockRejectedValue(new Error("deliver exploded"));
-    await expect(syncUser(USER_ID)).resolves.toEqual({
-      lastSyncedAt: new Date(CLOCKS_AT),
-      courses: 0,
-      assignmentGroups: 0,
-      assignments: 0,
-      grades: 0,
-      gradesPosted: 1,
-    });
-    expect(errorSpy).toHaveBeenCalledWith("grade-posted: delivery failed for one user");
-    errorSpy.mockRestore();
   });
 });

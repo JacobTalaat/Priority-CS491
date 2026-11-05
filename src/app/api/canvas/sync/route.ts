@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { CanvasError } from "@/lib/canvas";
 import { CalendarFeedError } from "@/lib/calendar-feed";
+import { deliverGradePostedNotifications } from "@/lib/grade-posted-notify";
 import { acquireSyncLock, releaseSyncLock, syncUser } from "@/lib/import/sync";
 import { prisma } from "@/lib/prisma";
 
@@ -19,29 +20,41 @@ export async function POST(request: Request) {
       { status: 409 }
     );
   }
+  let syncResult: Awaited<ReturnType<typeof syncUser>> | null = null;
+  let syncError: unknown = null;
   try {
-    const result = await syncUser(user.id);
-    return NextResponse.json(result);
+    syncResult = await syncUser(user.id);
   } catch (error) {
-    if (error instanceof Error && error.message === "Canvas not connected") {
-      return NextResponse.json({ error: "Canvas not connected" }, { status: 409 });
-    }
-    if (error instanceof CalendarFeedError) {
-      return NextResponse.json({ error: error.message }, { status: 502 });
-    }
-    if (error instanceof CanvasError && error.kind === "unauthorized") {
-      return NextResponse.json({ error: "Canvas rejected this token" }, { status: 400 });
-    }
-    if (error instanceof CanvasError && error.kind === "network") {
-      return NextResponse.json({ error: "Could not reach Canvas" }, { status: 502 });
-    }
-    if (error instanceof CanvasError) {
-      return NextResponse.json({ error: "Canvas request failed" }, { status: 502 });
-    }
-    return NextResponse.json({ error: "Sync failed" }, { status: 500 });
+    syncError = error;
   } finally {
     await releaseSyncLock(user.id);
   }
+  if (syncResult !== null) {
+    // Pushes go out once the sync lock is free and must never fail the response.
+    try {
+      await deliverGradePostedNotifications(user.id);
+    } catch {
+      console.error("grade-posted: delivery failed for one user");
+    }
+    return NextResponse.json(syncResult);
+  }
+  const error = syncError;
+  if (error instanceof Error && error.message === "Canvas not connected") {
+    return NextResponse.json({ error: "Canvas not connected" }, { status: 409 });
+  }
+  if (error instanceof CalendarFeedError) {
+    return NextResponse.json({ error: error.message }, { status: 502 });
+  }
+  if (error instanceof CanvasError && error.kind === "unauthorized") {
+    return NextResponse.json({ error: "Canvas rejected this token" }, { status: 400 });
+  }
+  if (error instanceof CanvasError && error.kind === "network") {
+    return NextResponse.json({ error: "Could not reach Canvas" }, { status: 502 });
+  }
+  if (error instanceof CanvasError) {
+    return NextResponse.json({ error: "Canvas request failed" }, { status: 502 });
+  }
+  return NextResponse.json({ error: "Sync failed" }, { status: 500 });
 }
 
 export async function GET(request: Request) {
