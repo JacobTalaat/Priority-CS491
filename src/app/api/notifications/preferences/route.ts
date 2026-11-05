@@ -83,5 +83,13 @@ export async function PATCH(request: Request) {
     data,
     select: preferenceSelect,
   });
+  // Turned off grades never push again, so pending ones must not pile up for
+  // a later toggle-on to revive as a backlog of old pushes.
+  if (data.notifyGradePosted === false) {
+    await prisma.gradePostedEvent.updateMany({
+      where: { userId: user.id, notifiedAt: null },
+      data: { notifiedAt: new Date() },
+    });
+  }
   return NextResponse.json(preferences);
 }

@@ -1,5 +1,6 @@
 import { CalendarFeedError } from "@/lib/calendar-feed";
 import { CanvasError } from "@/lib/canvas";
+import { deliverGradePostedNotifications } from "@/lib/grade-posted-notify";
 import { acquireSyncLock, releaseSyncLock, syncUser } from "@/lib/import/sync";
 import { prisma } from "@/lib/prisma";
 
@@ -155,6 +156,7 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
       });
       continue;
     }
+    let synced: Awaited<ReturnType<typeof syncUser>> | null = null;
     try {
       const result = await syncUser(userId);
       await prisma.syncAttempt.update({
@@ -165,6 +167,7 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
         where: { id: run.id },
         data: { usersSucceeded: { increment: 1 }, gradesPosted: { increment: result.gradesPosted } },
       });
+      synced = result;
     } catch (error) {
       const kind = classifyFailure(error);
       await prisma.syncAttempt.update({
@@ -182,6 +185,14 @@ export async function runDailyTick(now: () => Date = () => new Date()): Promise<
       console.error(`daily-sync: runId=${run.id} kind=${kind} sync failed for one user`);
     } finally {
       await releaseSyncLock(userId);
+    }
+    if (synced !== null) {
+      // Pushes go out once the sync lock is free and must never fail the tick.
+      try {
+        await deliverGradePostedNotifications(userId);
+      } catch {
+        console.error("grade-posted: delivery failed for one user");
+      }
     }
   }
 

@@ -37,11 +37,10 @@ export async function releaseSyncLock(userId: string): Promise<void> {
   await prisma.user.updateMany({ where: { id: userId }, data: { syncStartedAt: null } });
 }
 
-// when manual grades (Grade.isManual, from another open PR) merge, they must
-// be excluded here so a hand-entered score never counts as a Canvas-posted grade
+// hand-entered grades are excluded so they never count as posted by Canvas
 async function readCurrentCourseScores(userId: string): Promise<Map<string, number>> {
   const assignments = await prisma.assignment.findMany({
-    where: { course: { userId, isCurrent: true }, grade: { score: { not: null } } },
+    where: { course: { userId, isCurrent: true }, grade: { score: { not: null }, isManual: false } },
     select: { id: true, grade: { select: { score: true } } },
   });
   const scores = new Map<string, number>();

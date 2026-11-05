@@ -29,6 +29,17 @@ describe("apiRequest", () => {
     });
   });
 
+  it("adds extra headers next to the token", async () => {
+    const fetchMock = vi.fn(async () => Response.json({}, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await apiRequest("/api/thing", { method: "POST", token: "t", headers: { "X-Priority-Client": "web" } });
+    expect(fetchMock).toHaveBeenCalledWith("/api/thing", {
+      method: "POST",
+      headers: { "X-Priority-Client": "web", Authorization: "Bearer t" },
+      body: undefined,
+    });
+  });
+
   it("sends a plain GET with no headers by default", async () => {
     const fetchMock = mockFetch(Response.json({}));
 

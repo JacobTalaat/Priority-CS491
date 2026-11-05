@@ -974,7 +974,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 **Response**
 
-`200` — the import completed; every count is the number of records written for that stage, and `gradesPosted` is the number of newly Canvas-posted grades detected during this sync (scores that went from absent to a number, recorded once per assignment in `GradePostedEvent`):
+`200` — the import completed; every count is the number of records written for that stage, and `gradesPosted` is the number of newly Canvas-posted grades detected during this sync (scores that went from absent to a number, recorded once per assignment in `GradePostedEvent`). After the sync finishes, a "Grade posted" web push goes to every saved browser subscription for each grade detected in the last 12 hours, at most 3 per sync, once per grade; turning `notifyGradePosted` off discards the pending grades. A push failure never changes this response:
 
 ```json
 {
@@ -1067,6 +1067,7 @@ JSON body with:
 - `finalExamWeight` — number from 0 to 100. Together with category weights it must total 100.
 - `cutoffs` — object mapping grade labels to percentage cutoffs from 0 to 100.
 - `classDetails` — object mapping detail names to text, numbers, or `null`. A `finalExamAssignmentId` entry names the assignment that is the final exam (the Weights form saves `null` when none is picked).
+- `unsupportedRules` (optional) — array of at most 20 short text rules (each at most 500 characters) the grade engine cannot express, such as drops, curves, extra credit, or late penalties. Omitting the field keeps the rules already saved for the course; sending an explicit list (including an empty one) replaces them. A value that is present but not a valid list is rejected. A course with any saved rule gets no computed grade.
 
 ```bash
 curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
@@ -1082,7 +1083,8 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
     ],
     "finalExamWeight": 20,
     "cutoffs": { "A": 90, "B": 80, "C": 70 },
-    "classDetails": { "instructor": "Professor Example", "section": "02" }
+    "classDetails": { "instructor": "Professor Example", "section": "02" },
+    "unsupportedRules": ["The lowest quiz score is dropped."]
   }'
 ```
 
@@ -1125,6 +1127,192 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 ```json
 {
   "error": "Current course not found."
+}
+```
+
+### `POST /api/courses/[courseId]/grades`
+
+Saves the student's own grade for one assignment of a current course. If a grade is already stored for that assignment — including one imported from Canvas — it is replaced, and the stored grade is marked as manually entered. A manually entered grade is protected from the Canvas sync: the next sync will not overwrite it.
+
+- **Method**: `POST`
+- **Path**: `/api/courses/[courseId]/grades`
+
+**Request**
+
+JSON body with:
+
+- `assignmentId` (string) — an assignment belonging to this course
+- `score` (number) — the score the student earned. It cannot be negative, but it may sit above the assignment's points possible, and a positive score on an assignment worth zero points is accepted too; either counts as extra credit, the way Canvas grades it.
+
+```bash
+curl -i -X POST http://localhost:3000/api/courses/course-id/grades \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"assignmentId":"assignment-id","score":18}'
+```
+
+**Response**
+
+`200` — the grade was saved:
+
+```json
+{
+  "grade": {
+    "id": "grade-id",
+    "assignmentId": "assignment-id",
+    "score": 18,
+    "gradedAt": "2026-10-21T18:30:00.000Z",
+    "isManual": true,
+    "createdAt": "2026-10-21T18:30:00.000Z",
+    "updatedAt": "2026-10-21T18:30:00.000Z"
+  }
+}
+```
+
+`400` — the body was not valid JSON, the assignment was not named, or the score was missing, not a number, or below zero:
+
+```json
+{
+  "error": "Enter a score as a number."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student, or the assignment does not belong to that course:
+
+```json
+{
+  "error": "Assignment not found in this course."
+}
+```
+
+### `PATCH /api/courses/[courseId]/grades`
+
+Changes the score of a grade the student saved by hand. It refuses to touch a grade imported from Canvas, because the next sync would overwrite the change anyway.
+
+- **Method**: `PATCH`
+- **Path**: `/api/courses/[courseId]/grades`
+
+**Request**
+
+JSON body with:
+
+- `assignmentId` (string) — an assignment belonging to this course that has a manually entered grade
+- `score` (number) — the corrected score. It cannot be negative, but it may sit above the assignment's points possible, and a positive score on an assignment worth zero points is accepted too; either counts as extra credit, the way Canvas grades it.
+
+```bash
+curl -i -X PATCH http://localhost:3000/api/courses/course-id/grades \
+  -H "Authorization: Bearer opaque-bearer-token" \
+  -H "Content-Type: application/json" \
+  -d '{"assignmentId":"assignment-id","score":19}'
+```
+
+**Response**
+
+`200` — the score was changed:
+
+```json
+{
+  "grade": {
+    "id": "grade-id",
+    "assignmentId": "assignment-id",
+    "score": 19,
+    "gradedAt": "2026-10-21T18:31:00.000Z",
+    "isManual": true,
+    "createdAt": "2026-10-21T18:30:00.000Z",
+    "updatedAt": "2026-10-21T18:31:00.000Z"
+  }
+}
+```
+
+`400` — invalid JSON, a missing or invalid score, with the same messages as `POST`.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student, the assignment does not belong to that course, or no grade is saved for that assignment:
+
+```json
+{
+  "error": "No grade is saved for this assignment."
+}
+```
+
+`409` — the saved grade comes from Canvas:
+
+```json
+{
+  "error": "This grade comes from Canvas, so it can't be edited or deleted here."
+}
+```
+
+### `DELETE /api/courses/[courseId]/grades`
+
+Deletes a grade the student saved by hand, for example to hand the assignment back to Canvas, which will import the real grade on the next sync. It refuses to delete a grade imported from Canvas.
+
+- **Method**: `DELETE`
+- **Path**: `/api/courses/[courseId]/grades`
+
+**Request**
+
+The assignment named in the `assignmentId` query parameter, or in a JSON body with the same field:
+
+```bash
+curl -i -X DELETE "http://localhost:3000/api/courses/course-id/grades?assignmentId=assignment-id" \
+  -H "Authorization: Bearer opaque-bearer-token"
+```
+
+**Response**
+
+`200` — the grade was deleted:
+
+```json
+{
+  "deleted": true
+}
+```
+
+`400` — no assignment was named:
+
+```json
+{
+  "error": "Choose the assignment whose grade you want to delete."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the course is not a current course belonging to the student, the assignment does not belong to that course, or no grade is saved for that assignment:
+
+```json
+{
+  "error": "No grade is saved for this assignment."
+}
+```
+
+`409` — the saved grade comes from Canvas:
+
+```json
+{
+  "error": "This grade comes from Canvas, so it can't be edited or deleted here."
 }
 ```
 
@@ -1363,6 +1551,7 @@ A final exam weight is graded as its own category for the picked final: before t
 
 When the grade cannot be worked out, `grade.status` says so. `insufficient-data` means nothing graded enough to produce a percentage yet (it is never a fake 0%). `unsupported.reason` explains the grading rule the engine cannot express:
 
+- `unsupported-rule` — the saved setup carries a rule no engine can express (a drop, a curve, a late penalty, and the like), so no confident number is reported for the course.
 - `negative-score` — a stored grade below zero.
 - `non-finite-result` — the arithmetic produced a number that is not usable.
 
@@ -1370,11 +1559,11 @@ Extra credit is not a stop condition: a score above the assignment's points poss
 
 Each `breakdown` entry carries the category's share of the course (`weight`), the percentage earned within it, and the raw `pointsEarned` and `pointsPossible` it came from, so the figure can be checked by eye. `percentage` is `null` when nothing in the category is graded yet — different from `0`, which means graded and exactly zero points. `gradedCount` counts assignments whose grades were included in the tallies; `ungradedCount` counts mapped assignments still waiting for a grade.
 
-The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the final exam is picked but mapped nowhere while its weight lives outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
+The response also carries `finalExam`: the score the student needs on the final exam for each letter grade. It is only solved when the saved grade setup picked which assignment is the final exam (`classDetails.finalExamAssignmentId`) and that final does not have a grade yet. Otherwise `finalExam.status` says so: `no-final` when the setup picked nothing valid, `final-not-gradable` when the picked assignment has no gradable points, `already-graded` — a real score is never overridden with a what-if — `unsupported` when the saved setup carries a rule the engines cannot express (the same rules that make the course grade itself refused: a what-if about such a course would be exactly as provisional), or `final-not-counted` when the grade engine would ignore the final's score: it is mapped to no category with weight, or the final exam is picked but mapped nowhere while its weight lives outside the categories (`finalExamWeight` above 0, which no engine reads). Answering then would only invent a "secured" or "out of reach". When it is `solved`, `results` holds one entry per letter among A, B, and C. A letter uses its plain cutoff when the setup has one, otherwise the lowest cutoff in its family (for example `B-` when only `B+` and `B-` are set), named by that label. An entry is `needed` with `score` in final-exam points and `percent` as a share of the final's points possible (both rounded up, so entering exactly the reported numbers cannot fall short, and never above a perfect final), `secured` when even a 0 on the final reaches the cutoff, `out-of-reach` with `best`, the grade a perfect final brings, or `unknown` when the grade engine cannot grade the course.
 
 The needed score assumes every other ungraded assignment keeps counting the way the engine counts it today: ungraded work is left out of the grade, so the rest of the current average holds as-is. If more ungraded work is graded later, the real grade can land lower or higher than predicted, so `secured` and `out-of-reach` are only certain when nothing else is still to be graded. `otherWorkPending` on a `solved` result is `true` when other counted work has no grade yet; the student-facing sentences then say the answer holds "if your other grades stay where they are".
 
-The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` or `unsupported`. When a picked final exam's weight lives outside the categories, the route folds that weight into the final's own category before computing shares, so the final carries the slice the syllabus gave it. If the setup holds a weight outside the categories with no final exam picked and mapped, that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final.
+The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` — but when `grade.status` is `unsupported`, every share is `null` (with the mapped `category` kept where the setup knows it): a rule like a drop or a curve reshuffles the slice each assignment would carry, so any figure would be wrong. When a picked final exam's weight lives outside the categories, the route folds that weight into the final's own category before computing shares, so the final carries the slice the syllabus gave it. If the setup holds a weight outside the categories with no final exam picked and mapped, that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final.
 
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
@@ -1698,7 +1887,7 @@ curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
 
 Runs one tick of the daily Canvas sync job. Every call counts: the job is a resumable tick rather than one long run, so a scheduler should call this every 15 minutes until the response reports `finished: true`. The tick syncs connected users (a stored Canvas token or a saved calendar feed) who have not been attempted yet in the current America/New_York calendar day, one at a time, and stops starting new users once 40 seconds of the tick are spent; every user it did start is awaited to completion. The per-day `SyncRun` is created by the first tick and later ticks add to its counters; the tick that finds nobody left sets `finishedAt`.
 
-Before each user is synced, the tick tries to take that account's sync lock. A student mid "Sync now" is recorded as `skipped-locked` for the day and never retried today, without counting as a failure. An attempt that stayed unfinished for more than 5 minutes (its process was killed) is reaped by the next tick as a timeout failure. Failures are recorded in `SyncFailure` with a fixed message per kind (`unauthorized`, `network`, `http`, `timeout`, `other`) that never contains raw error text, and each failed user also logs one fixed console line.
+Before each user is synced, the tick tries to take that account's sync lock. A student mid "Sync now" is recorded as `skipped-locked` for the day and never retried today, without counting as a failure. An attempt that stayed unfinished for more than 5 minutes (its process was killed) is reaped by the next tick as a timeout failure. Failures are recorded in `SyncFailure` with a fixed message per kind (`unauthorized`, `network`, `http`, `timeout`, `other`) that never contains raw error text, and each failed user also logs one fixed console line. After a successful sync, a "Grade posted" web push goes out for each grade detected in the last 12 hours (at most 3 per sync, once per grade) as described under `POST /api/canvas/sync`; turning `notifyGradePosted` off discards the pending grades.
 
 This route is protected by a shared secret rather than an app session so any scheduler can call it. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for three ways to schedule the call (Vercel Cron, a crontab line with curl, or a GitHub Actions schedule).
 
@@ -1854,6 +2043,124 @@ curl -i http://localhost:3000/api/jobs/daily-sync/runs \
 ```json
 {
   "error": "Unauthorized"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+### `GET /api/jobs/nightly`
+
+Runs one tick of the nightly reminders job: the "Tonight" and "Due tomorrow" pushes, each at the student's own chosen reminder time. Like the daily sync, the job is a resumable tick, so a scheduler should call this every 15 minutes; each tick handles the students whose most recent scheduled reminder time has already struck and stops starting new ones once 40 seconds of the tick are spent.
+
+Each reminder is tied to a scheduled occurrence: the instant in America/New_York when wall clock `HH:MM` struck (today's if it is past, otherwise yesterday's), so a 23:45 reminder seen by the 00:05 tick is still delivered, keyed to the previous New York day, with the messages computed as of that evening — "due tomorrow" then means the day after the evening the student asked about. A reminder that falls inside the spring-forward gap (like 02:30) counts as one wall-hour later; a fall-back repeat counts as its first pass. Lateness is measured in real minutes since the occurrence instant: more than 3 hours old (the scheduler was down) the day is claimed but nothing is sent.
+
+A candidate is a student with at least one push subscription and the `notifyTonight` or `notifyDueTomorrow` preference on. Before anything is sent the tick claims the night by creating the `NightlyDelivery` row, so delivery is at-most-once even when two ticks overlap — and that one row claims the whole night's bundle, so a crash between the "Tonight" push and the "Due tomorrow" push loses the second message by design. The messages come from the same wording as the today list, ranked by the same engine, with duplicate suppression between the two messages (see the messages under `POST /api/notifications/preferences`), and each push is sent with a 2-hour expiry, so it expires 2 hours after it is sent. A message counts as delivered only when at least one of the student's subscriptions responded; a claimed student whose sends all failed is flagged in the delivery row and never retried tonight. One failed student never stops the rest, and a claimed student is never retried that night.
+
+This route is protected by the same shared secret as the daily sync. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for scheduling examples.
+
+- **Method**: `GET`
+- **Path**: `/api/jobs/nightly`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i http://localhost:3000/api/jobs/nightly \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran. `day` is the New York day of the tick, `due` how many students owed a reminder now (today's or last night's occurrence, whichever struck), `sent` how many messages delivered at least one push this tick, `failed` how many messages were attempted where no subscription delivered, `nothingToSend` claimed students with nothing worth a push, `skippedLate` claimed-but-not-sent students whose occurrence was more than 3 hours old, and `remaining` owed students this tick did not get to (a claim lost to an overlapping tick counts as handled, not as remaining). A delivery row counts against the occurrence's New York day, so the day before midnight-carried reminders is their `NightlyDelivery` day, not this `day`.
+
+```json
+{
+  "day": "2026-10-22",
+  "due": 3,
+  "sent": 4,
+  "failed": 1,
+  "nothingToSend": 0,
+  "skippedLate": 1,
+  "remaining": 1
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Nightly reminders failed"
+}
+```
+
+`503` — `CRON_SECRET` is not configured on the server:
+
+```json
+{
+  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+}
+```
+
+### `POST /api/jobs/nightly`
+
+Runs the same tick of the nightly reminders job as `GET /api/jobs/nightly`, for curl-style schedulers. Same shared secret, same response.
+
+- **Method**: `POST`
+- **Path**: `/api/jobs/nightly`
+
+**Request**
+
+No body. Send an `Authorization` header with the `CRON_SECRET` bearer token.
+
+```bash
+curl -i -X POST http://localhost:3000/api/jobs/nightly \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+**Response**
+
+`200` — the tick ran:
+
+```json
+{
+  "day": "2026-10-22",
+  "due": 3,
+  "sent": 4,
+  "failed": 1,
+  "nothingToSend": 0,
+  "skippedLate": 1,
+  "remaining": 1
+}
+```
+
+`401` — the shared secret is missing or wrong:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the tick could not be carried out, for example the database was unreachable:
+
+```json
+{
+  "error": "Nightly reminders failed"
 }
 ```
 

@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockVerifyAccessToken, mockUserFindUnique, mockUserUpdate } = vi.hoisted(() => ({
+const { mockVerifyAccessToken, mockUserFindUnique, mockUserUpdate, mockGradePostedUpdateMany } = vi.hoisted(() => ({
   mockVerifyAccessToken: vi.fn(),
   mockUserFindUnique: vi.fn(),
   mockUserUpdate: vi.fn(),
+  mockGradePostedUpdateMany: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -13,6 +14,7 @@ vi.mock("@/lib/supabase", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
+    gradePostedEvent: { updateMany: mockGradePostedUpdateMany },
   },
 }));
 
@@ -57,6 +59,7 @@ describe("/api/notifications/preferences", () => {
       ...preferencesRow(),
       ...args.data,
     }));
+    mockGradePostedUpdateMany.mockReset().mockResolvedValue({ count: 0 });
   });
 
   it("returns the authenticated student's saved preferences", async () => {
@@ -162,5 +165,23 @@ describe("/api/notifications/preferences", () => {
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
     expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("turning grades off discards this user's pending grade-posted events", async () => {
+    const response = await PATCH(request("PATCH", { notifyGradePosted: false }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ...preferencesRow(), notifyGradePosted: false });
+    expect(mockGradePostedUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mockGradePostedUpdateMany).toHaveBeenCalledWith({
+      where: { userId: "user-1", notifiedAt: null },
+      data: { notifiedAt: expect.any(Date) },
+    });
+  });
+
+  it("leaves pending events alone when grades stay on and when the field is absent", async () => {
+    await PATCH(request("PATCH", { notifyGradePosted: true }));
+    await PATCH(request("PATCH", { notifyTonight: false }));
+    expect(mockGradePostedUpdateMany).not.toHaveBeenCalled();
   });
 });

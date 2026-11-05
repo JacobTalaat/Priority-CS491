@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockVerifyAccessToken, mockUserFindUnique, mockSyncUser, mockAcquireSyncLock, mockReleaseSyncLock } =
+const { mockVerifyAccessToken, mockUserFindUnique, mockSyncUser, mockAcquireSyncLock, mockReleaseSyncLock, mockDeliverGradePosted } =
   vi.hoisted(() => ({
     mockVerifyAccessToken: vi.fn(),
     mockUserFindUnique: vi.fn(),
     mockSyncUser: vi.fn(),
     mockAcquireSyncLock: vi.fn(),
     mockReleaseSyncLock: vi.fn(),
+    mockDeliverGradePosted: vi.fn(),
   }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -23,6 +24,10 @@ vi.mock("@/lib/import/sync", () => ({
   syncUser: mockSyncUser,
   acquireSyncLock: mockAcquireSyncLock,
   releaseSyncLock: mockReleaseSyncLock,
+}));
+
+vi.mock("@/lib/grade-posted-notify", () => ({
+  deliverGradePostedNotifications: mockDeliverGradePosted,
 }));
 
 import { CanvasError } from "@/lib/canvas";
@@ -51,6 +56,8 @@ describe("POST /api/canvas/sync", () => {
     mockSyncUser.mockReset();
     mockAcquireSyncLock.mockReset().mockResolvedValue(true);
     mockReleaseSyncLock.mockReset().mockResolvedValue(undefined);
+    mockDeliverGradePosted.mockReset();
+    mockDeliverGradePosted.mockResolvedValue({ attempted: 0, suppressed: 0 });
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -173,6 +180,91 @@ describe("POST /api/canvas/sync", () => {
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ error: "Unauthorized" });
     expect(mockSyncUser).not.toHaveBeenCalled();
+  });
+
+  it("delivers grade pushes after the lock is released, and the 200 body is unchanged", async () => {
+    const order: string[] = [];
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
+    mockSyncUser.mockImplementation(async () => {
+      order.push("sync");
+      return {
+        lastSyncedAt: LAST_SYNCED_AT,
+        courses: 1,
+        assignmentGroups: 0,
+        assignments: 2,
+        grades: 0,
+        gradesPosted: 1,
+      };
+    });
+    mockReleaseSyncLock.mockImplementation(async () => {
+      order.push("release");
+    });
+    mockDeliverGradePosted.mockImplementation(async (userId: string) => {
+      order.push(`deliver:${userId}`);
+      return { attempted: 1, suppressed: 0 };
+    });
+    const res = await POST(syncRequest("POST"));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      lastSyncedAt: "2026-10-07T19:00:00.000Z",
+      courses: 1,
+      assignmentGroups: 0,
+      assignments: 2,
+      grades: 0,
+      gradesPosted: 1,
+    });
+    expect(order).toEqual(["sync", "release", "deliver:user-1"]);
+    expect(mockDeliverGradePosted).toHaveBeenCalledWith("user-1");
+  });
+
+  it("delivers grade pushes even when the successful sync posted no new grades", async () => {
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
+    mockSyncUser.mockResolvedValue({
+      lastSyncedAt: LAST_SYNCED_AT,
+      courses: 0,
+      assignmentGroups: 0,
+      assignments: 0,
+      grades: 0,
+      gradesPosted: 0,
+    });
+    const res = await POST(syncRequest("POST"));
+    expect(res.status).toBe(200);
+    expect(mockDeliverGradePosted).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed sync releases the lock and delivers no grade pushes", async () => {
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
+    mockSyncUser.mockRejectedValue(new CanvasError("network", "Canvas could not be reached."));
+    const res = await POST(syncRequest("POST"));
+    expect(res.status).toBe(502);
+    expect(mockReleaseSyncLock).toHaveBeenCalledWith("user-1");
+    expect(mockDeliverGradePosted).not.toHaveBeenCalled();
+  });
+
+  it("a rejected delivery logs one fixed line and never changes the 200 response", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
+    mockSyncUser.mockResolvedValue({
+      lastSyncedAt: LAST_SYNCED_AT,
+      courses: 0,
+      assignmentGroups: 0,
+      assignments: 0,
+      grades: 0,
+      gradesPosted: 2,
+    });
+    mockDeliverGradePosted.mockRejectedValue(new Error("deliver exploded"));
+    const res = await POST(syncRequest("POST"));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      lastSyncedAt: "2026-10-07T19:00:00.000Z",
+      courses: 0,
+      assignmentGroups: 0,
+      assignments: 0,
+      grades: 0,
+      gradesPosted: 2,
+    });
+    expect(console.error).toHaveBeenCalledWith("grade-posted: delivery failed for one user");
+    errorSpy.mockRestore();
   });
 });
 
