@@ -32,6 +32,7 @@ export async function GET(request: Request) {
           finalExamWeight: true,
           cutoffs: true,
           classDetails: true,
+          unsupportedRules: true,
           confirmedAt: true,
         },
       },

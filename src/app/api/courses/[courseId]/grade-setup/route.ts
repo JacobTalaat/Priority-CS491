@@ -53,11 +53,32 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
+  // A final exam weight only grades when the final itself is picked, so confirming a
+  // weight above 0 without that pick would save a setup the engine grades wrong.
+  const finalExamAssignmentId = parsed.data.classDetails.finalExamAssignmentId;
+  if (
+    parsed.data.finalExamWeight > 0 &&
+    (typeof finalExamAssignmentId !== "string" || !assignmentIds.has(finalExamAssignmentId))
+  ) {
+    return NextResponse.json(
+      { error: "Pick which assignment is the final exam, or set the final exam weight to 0." },
+      { status: 400 },
+    );
+  }
+
   const confirmedAt = new Date();
+  // Only an explicit unsupportedRules list replaces what is saved; a body that omits the
+  // field keeps the saved rules, because leaving them out does not mean there are none.
+  // On create there is no saved row, so an omitted field starts at the empty default.
+  const { unsupportedRules, ...setupFields } = parsed.data;
   await prisma.courseGradeSetup.upsert({
     where: { courseId: course.id },
-    create: { courseId: course.id, ...parsed.data, confirmedAt },
-    update: { ...parsed.data, confirmedAt },
+    create: { courseId: course.id, ...setupFields, unsupportedRules: unsupportedRules ?? [], confirmedAt },
+    update: {
+      ...setupFields,
+      confirmedAt,
+      ...(unsupportedRules === undefined ? {} : { unsupportedRules }),
+    },
   });
   return NextResponse.json({ confirmed: true, courseId: course.id, confirmedAt });
 }

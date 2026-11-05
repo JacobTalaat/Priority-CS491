@@ -165,6 +165,7 @@ const confirmedCourse: GradeSetupCourse = {
       finalExamAssignmentId: "a2",
     },
     confirmedAt: "2026-10-20T16:00:00.000Z",
+    unsupportedRules: [],
   },
 };
 
@@ -373,6 +374,7 @@ describe("confirmProblems", () => {
     categories: [{ name: "Homework", weight: "80" }],
     finalExamWeight: "20",
     assignmentMappings: { a1: "Homework", a2: "Homework" },
+    finalExamAssignmentId: "a2",
   });
 
   it("is empty for a complete setup", () => {
@@ -383,6 +385,22 @@ describe("confirmProblems", () => {
     expect(confirmProblems({ ...valid(), finalExamWeight: "15" }, assignments)).toEqual([
       "Weights add up to 95%. They need to total 100%.",
     ]);
+  });
+
+  it("asks for the final exam when it carries weight but none is picked", () => {
+    expect(confirmProblems({ ...valid(), finalExamAssignmentId: "" }, assignments)).toEqual([
+      "Pick which assignment is the final exam, or set the final exam weight to 0.",
+    ]);
+  });
+
+  it("does not ask for a final exam when the final exam weight is 0", () => {
+    const noFinalWeight: FormState = {
+      ...valid(),
+      categories: [{ name: "Homework", weight: "100" }],
+      finalExamWeight: "0",
+      finalExamAssignmentId: "",
+    };
+    expect(confirmProblems(noFinalWeight, assignments)).toEqual([]);
   });
 
   it("counts unmapped assignments", () => {

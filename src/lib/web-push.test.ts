@@ -76,6 +76,15 @@ describe("sendPush", () => {
     );
   });
 
+  it("uses the caller's TTL when one is given", async () => {
+    await sendPush(TARGET, MESSAGE, { ttlSeconds: 7200 });
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      JSON.stringify(MESSAGE),
+      expect.objectContaining({ TTL: 7200, timeout: PUSH_TIMEOUT_MS }),
+    );
+  });
+
   it("counts a success, resets the failure counter, and stamps lastSuccessAt", async () => {
     const outcome = await sendPush(TARGET, MESSAGE);
     expect(outcome).toBe("sent");

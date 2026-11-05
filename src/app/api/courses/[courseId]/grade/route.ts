@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parseSavedSetup } from "@/lib/grade-setup";
-import { calculatePointsGrade } from "@/lib/points-grade";
-import { calculateWeightedGrade, type WeightedGradeResult } from "@/lib/weighted-grade";
-import { buildCategoryBreakdown, chooseGradeEngine, type CategoryBreakdown } from "@/lib/grade-engine";
+import { parseSavedSetup, withFinalExamCategory } from "@/lib/grade-setup";
+import { type WeightedGradeResult } from "@/lib/weighted-grade";
+import { buildCategoryBreakdown, calculateCourseGrade, type CategoryBreakdown } from "@/lib/grade-engine";
 import { readFinalExamAssignmentId, solveFinalExam, type FinalExamResult } from "@/lib/final-exam-solver";
 import { assignmentShares, type AssignmentShare } from "@/lib/grade-share";
 
@@ -48,6 +47,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
           finalExamWeight: true,
           cutoffs: true,
           classDetails: true,
+          unsupportedRules: true,
           confirmedAt: true,
         },
       },
@@ -65,18 +65,19 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
-  const setup = parseSavedSetup(course.gradeSetup);
-  const choice = chooseGradeEngine(setup);
+  const savedSetup = parseSavedSetup(course.gradeSetup);
+  // Normalize before choosing the engine so a final exam weight parked outside the
+  // categories grades as its own category instead of inside the final's mapped one.
+  // The solver and the shares read the same normalized setup, so they agree with
+  // the grade instead of treating the counted final as not counted.
+  const setup = savedSetup ? withFinalExamCategory(savedSetup) : null;
   const assignments = course.assignments.map((assignment) => ({
     id: assignment.id,
     pointsPossible: assignment.pointsPossible,
     grade: assignment.grade,
   }));
 
-  const grade =
-    choice.engine === "weighted"
-      ? calculateWeightedGrade(choice.setup, assignments)
-      : calculatePointsGrade(assignments);
+  const { choice, grade } = calculateCourseGrade(setup, assignments);
   // Only an unsupported grade has nothing to break down: the engine gave up
   // on the course as a whole, so per-category figures would be misleading.
   const breakdown =
@@ -92,6 +93,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     finalAssignmentId: readFinalExamAssignmentId(setup),
     cutoffs: setup?.cutoffs ?? {},
     finalExamWeight: setup?.finalExamWeight ?? 0,
+    unsupportedRules: setup?.unsupportedRules ?? [],
   });
 
   return NextResponse.json({

@@ -31,7 +31,7 @@ const SETUP = {
   assignmentMappings: [{ assignmentId: "assignment-1", category: "Homework" }],
   finalExamWeight: 20,
   cutoffs: { A: 90, B: 80 },
-  classDetails: { instructor: "Professor Example", section: "02" },
+  classDetails: { instructor: "Professor Example", section: "02", finalExamAssignmentId: "assignment-1" },
 };
 
 function request(body: unknown = SETUP, withSession = true) {
@@ -101,6 +101,42 @@ describe("POST /api/courses/[courseId]/grade-setup", () => {
     });
   });
 
+  it("keeps saved rules when the body omits the unsupportedRules field", async () => {
+    const response = await POST(request(), context);
+    expect(response.status).toBe(200);
+    const [upsertArgs] = mockGradeSetupUpsert.mock.calls;
+    expect(upsertArgs[0].update).not.toHaveProperty("unsupportedRules");
+    expect(upsertArgs[0].update.confirmedAt).toEqual(expect.any(Date));
+  });
+
+  it("clears saved rules only on an explicit empty list", async () => {
+    const response = await POST(request({ ...SETUP, unsupportedRules: [] }), context);
+    expect(response.status).toBe(200);
+    const [upsertArgs] = mockGradeSetupUpsert.mock.calls;
+    expect(upsertArgs[0].update.unsupportedRules).toEqual([]);
+    expect(upsertArgs[0].create.unsupportedRules).toEqual([]);
+  });
+
+  it("saves rules the body provides explicitly", async () => {
+    const response = await POST(request({ ...SETUP, unsupportedRules: ["drop the lowest quiz"] }), context);
+    expect(response.status).toBe(200);
+    const [upsertArgs] = mockGradeSetupUpsert.mock.calls;
+    expect(upsertArgs[0].update.unsupportedRules).toEqual(["drop the lowest quiz"]);
+  });
+
+  it("rejects a malformed unsupportedRules value with 400 instead of saving", async () => {
+    const malformed = ["drop the lowest quiz", [{ id: "nope" }], 7, true];
+    for (const unsupportedRules of malformed) {
+      mockGradeSetupUpsert.mockClear();
+      const response = await POST(request({ ...SETUP, unsupportedRules }), context);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "Unsupported rules must be a list of at most 20 short text rules.",
+      });
+      expect(mockGradeSetupUpsert).not.toHaveBeenCalled();
+    }
+  });
+
   it("rejects invalid JSON and invalid weights without saving", async () => {
     const invalidWeights = await POST(request({ ...SETUP, finalExamWeight: 19 }), context);
     expect(invalidWeights.status).toBe(400);
@@ -133,6 +169,59 @@ describe("POST /api/courses/[courseId]/grade-setup", () => {
       error: "An assignment mapping does not belong to this course.",
     });
     expect(mockGradeSetupUpsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects a final exam weight without a picked final", async () => {
+    const response = await POST(
+      request({ ...SETUP, classDetails: { instructor: "Professor Example", section: "02" } }),
+      context,
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Pick which assignment is the final exam, or set the final exam weight to 0.",
+    });
+    expect(mockGradeSetupUpsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects a final exam weight with a final that is not an assignment of this course", async () => {
+    mockAssignmentFindMany.mockResolvedValue([{ id: "assignment-1" }, { id: "assignment-2" }]);
+    const response = await POST(
+      request({
+        ...SETUP,
+        assignmentMappings: [
+          { assignmentId: "assignment-1", category: "Homework" },
+          { assignmentId: "assignment-2", category: "Homework" },
+        ],
+        classDetails: { ...SETUP.classDetails, finalExamAssignmentId: "assignment-3" },
+      }),
+      context,
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Pick which assignment is the final exam, or set the final exam weight to 0.",
+    });
+    expect(mockGradeSetupUpsert).not.toHaveBeenCalled();
+  });
+
+  it("saves a weight of 0 with no final picked", async () => {
+    const response = await POST(
+      request({
+        ...SETUP,
+        finalExamWeight: 0,
+        categories: [
+          { name: "Homework", weight: 70 },
+          { name: "Exams", weight: 30 },
+        ],
+        classDetails: { instructor: "Professor Example", section: "02" },
+      }),
+      context,
+    );
+    expect(response.status).toBe(200);
+    expect(mockGradeSetupUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ finalExamWeight: 0 }),
+      }),
+    );
   });
 
   it("does not save a setup for another user's or a non-current course", async () => {

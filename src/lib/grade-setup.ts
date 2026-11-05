@@ -14,11 +14,70 @@ export type GradeSetupPayload = {
   finalExamWeight: number;
   cutoffs: Record<string, number>;
   classDetails: Record<string, string | number | null>;
+  unsupportedRules: string[];
+};
+
+export type GradeSetupParseData = Omit<GradeSetupPayload, "unsupportedRules"> & {
+  unsupportedRules?: string[];
 };
 
 export type GradeSetupParseResult =
-  | { ok: true; data: GradeSetupPayload }
+  | { ok: true; data: GradeSetupParseData }
   | { ok: false; error: string };
+
+// The grade engines only read weights through categories, yet a setup may park the
+// final exam's weight in finalExamWeight with the final assignment mapped into another
+// category. Folding that weight into a category here lets such a saved setup grade
+// as the syllabus stated, while the setup stays stored exactly as confirmed.
+export function withFinalExamCategory(setup: GradeSetupPayload): GradeSetupPayload {
+  const finalExamAssignmentId = setup.classDetails.finalExamAssignmentId;
+  if (
+    setup.finalExamWeight <= 0 ||
+    typeof finalExamAssignmentId !== "string" ||
+    finalExamAssignmentId.length === 0 ||
+    !setup.assignmentMappings.some((mapping) => mapping.assignmentId === finalExamAssignmentId)
+  ) {
+    return setup;
+  }
+
+  // Copy everything so the saved setup never changes under us.
+  const categories = setup.categories.map((category) => ({ ...category }));
+  // An existing "Final exam" / "Final" category takes the weight only when nothing but
+  // the picked final is graded in it. A name is not enough: a "Final" category can hold a
+  // final project, and pooling that with the exam would weight both by their combined share.
+  const existingFinal = categories.find((category) => {
+    const normalizedName = category.name.trim().toLowerCase();
+    if (normalizedName !== "final exam" && normalizedName !== "final") {
+      return false;
+    }
+    return setup.assignmentMappings.every(
+      (mapping) => mapping.category !== category.name || mapping.assignmentId === finalExamAssignmentId,
+    );
+  });
+  let finalCategoryName: string;
+  if (existingFinal) {
+    existingFinal.weight += setup.finalExamWeight;
+    finalCategoryName = existingFinal.name;
+  } else {
+    // Category names must stay unique, so a taken name gets a plain suffix.
+    const taken = new Set(categories.map((category) => category.name.trim().toLowerCase()));
+    finalCategoryName = taken.has("final exam") ? "Final exam (picked)" : "Final exam";
+    categories.push({ name: finalCategoryName, weight: setup.finalExamWeight });
+  }
+
+  const assignmentMappings = setup.assignmentMappings.filter(
+    (mapping) => mapping.assignmentId !== finalExamAssignmentId,
+  );
+  assignmentMappings.push({ assignmentId: finalExamAssignmentId, category: finalCategoryName });
+
+  return {
+    ...setup,
+    categories,
+    assignmentMappings,
+    // The weight now lives in a category; totals still sum to 100.
+    finalExamWeight: 0,
+  };
+}
 
 // A saved row is a confirmed setup: the confirm step is what writes it.
 // The stored JSON is re-validated because the database could hold anything;
@@ -30,6 +89,7 @@ export type SavedGradeSetupRow =
       finalExamWeight: unknown;
       cutoffs: unknown;
       classDetails: unknown;
+      unsupportedRules: unknown;
     }
   | null;
 
@@ -38,7 +98,8 @@ export function parseSavedSetup(row: SavedGradeSetupRow): GradeSetupPayload | nu
     return null;
   }
   const parsed = parseGradeSetup(row);
-  return parsed.ok ? parsed.data : null;
+  // A row saved before unsupported rules existed has none on record.
+  return parsed.ok ? { ...parsed.data, unsupportedRules: parsed.data.unsupportedRules ?? [] } : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -47,6 +108,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPercentage(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+// Three-way result: an omitted field is reported as absent (undefined) so the save route
+// keeps the saved rules, while any malformed value (non-array, non-string entry, blank,
+// over 500 characters, or more than 20 entries) is rejected rather than coerced.
+const MAX_UNSUPPORTED_RULES = 20;
+const MAX_UNSUPPORTED_RULE_LENGTH = 500;
+
+function parseUnsupportedRules(value: unknown): string[] | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  if (value.length > MAX_UNSUPPORTED_RULES) {
+    return null;
+  }
+  const rules: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      return null;
+    }
+    const rule = entry.trim();
+    if (rule.length === 0 || rule.length > MAX_UNSUPPORTED_RULE_LENGTH) {
+      return null;
+    }
+    rules.push(rule);
+  }
+  return rules;
 }
 
 export function parseGradeSetup(value: unknown): GradeSetupParseResult {
@@ -140,8 +231,20 @@ export function parseGradeSetup(value: unknown): GradeSetupParseResult {
     classDetails[label.trim()] = detail;
   }
 
-  return {
-    ok: true,
-    data: { categories, assignmentMappings, finalExamWeight: value.finalExamWeight, cutoffs, classDetails },
+  const unsupportedRules = parseUnsupportedRules(value.unsupportedRules);
+  if (unsupportedRules === null) {
+    return { ok: false, error: "Unsupported rules must be a list of at most 20 short text rules." };
+  }
+
+  const data: GradeSetupParseData = {
+    categories,
+    assignmentMappings,
+    finalExamWeight: value.finalExamWeight,
+    cutoffs,
+    classDetails,
   };
+  if (unsupportedRules !== undefined) {
+    data.unsupportedRules = unsupportedRules;
+  }
+  return { ok: true, data };
 }

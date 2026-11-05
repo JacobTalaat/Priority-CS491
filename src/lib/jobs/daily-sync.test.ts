@@ -12,6 +12,7 @@ const {
   mockSyncUser,
   mockAcquireSyncLock,
   mockReleaseSyncLock,
+  mockDeliverGradePosted,
 } = vi.hoisted(() => ({
   mockUserFindMany: vi.fn(),
   mockSyncRunUpsert: vi.fn(),
@@ -24,6 +25,7 @@ const {
   mockSyncUser: vi.fn(),
   mockAcquireSyncLock: vi.fn(),
   mockReleaseSyncLock: vi.fn(),
+  mockDeliverGradePosted: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -39,6 +41,10 @@ vi.mock("@/lib/import/sync", () => ({
   syncUser: mockSyncUser,
   acquireSyncLock: mockAcquireSyncLock,
   releaseSyncLock: mockReleaseSyncLock,
+}));
+
+vi.mock("@/lib/grade-posted-notify", () => ({
+  deliverGradePostedNotifications: mockDeliverGradePosted,
 }));
 
 import { CanvasError } from "@/lib/canvas";
@@ -171,6 +177,8 @@ describe("runDailyTick", () => {
     mockSyncUser.mockReset().mockResolvedValue(okSync());
     mockAcquireSyncLock.mockReset().mockResolvedValue(true);
     mockReleaseSyncLock.mockReset().mockResolvedValue(undefined);
+    mockDeliverGradePosted.mockReset();
+    mockDeliverGradePosted.mockResolvedValue({ attempted: 0, suppressed: 0 });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -375,5 +383,64 @@ describe("runDailyTick", () => {
     const { clock } = makeClock();
     const result = await runDailyTick(clock);
     expect(result.gradesPosted).toBe(8);
+  });
+
+  it("delivers grade pushes after the lock is released on every successful sync", async () => {
+    const order: string[] = [];
+    mockUserFindMany.mockResolvedValue([{ id: "user-a" }]);
+    mockSyncUser.mockImplementation(async () => {
+      order.push("sync");
+      return okSync(2);
+    });
+    mockReleaseSyncLock.mockImplementation(async () => {
+      order.push("release");
+    });
+    mockDeliverGradePosted.mockImplementation(async (userId: string) => {
+      order.push(`deliver:${userId}`);
+      return { attempted: 1, suppressed: 0 };
+    });
+    const { clock } = makeClock();
+    await runDailyTick(clock);
+    expect(order).toEqual(["sync", "release", "deliver:user-a"]);
+    expect(mockDeliverGradePosted).toHaveBeenCalledWith("user-a");
+  });
+
+  it("delivers grade pushes even when a successful sync posted no new grades", async () => {
+    mockUserFindMany.mockResolvedValue([{ id: "user-a" }]);
+    const { clock } = makeClock();
+    await runDailyTick(clock);
+    expect(mockDeliverGradePosted).toHaveBeenCalledTimes(1);
+    expect(mockDeliverGradePosted).toHaveBeenCalledWith("user-a");
+  });
+
+  it("a failed sync releases the lock and delivers no grade pushes", async () => {
+    mockUserFindMany.mockResolvedValue([{ id: "user-bad" }, { id: "user-good" }]);
+    mockSyncUser.mockImplementation((userId: string) => {
+      if (userId === "user-bad") {
+        return Promise.reject(new CanvasError("network", "Canvas could not be reached.", 503));
+      }
+      return Promise.resolve(okSync());
+    });
+    const { clock } = makeClock();
+    await runDailyTick(clock);
+    expect(mockDeliverGradePosted).toHaveBeenCalledTimes(1);
+    expect(mockDeliverGradePosted).not.toHaveBeenCalledWith("user-bad");
+    expect(mockDeliverGradePosted).toHaveBeenCalledWith("user-good");
+  });
+
+  it("a rejected delivery is logged as one fixed line and never changes the tick result", async () => {
+    mockUserFindMany.mockResolvedValue([{ id: "user-a" }]);
+    mockDeliverGradePosted.mockRejectedValue(new Error("deliver exploded"));
+    const { clock } = makeClock();
+    await expect(runDailyTick(clock)).resolves.toMatchObject({
+      day: "2026-10-22",
+      attemptedThisTick: 1,
+      remaining: 0,
+      usersSucceeded: 1,
+      usersFailed: 0,
+      gradesPosted: 0,
+      finished: true,
+    });
+    expect(console.error).toHaveBeenCalledWith("grade-posted: delivery failed for one user");
   });
 });
