@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { CanvasError } from "@/lib/canvas";
 import { CalendarFeedError } from "@/lib/calendar-feed";
-import { syncUser } from "@/lib/import/sync";
+import { acquireSyncLock, releaseSyncLock, syncUser } from "@/lib/import/sync";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +11,13 @@ export async function POST(request: Request) {
   const user = await getUserFromRequest(request);
   if (!user) {
     return unauthorized();
+  }
+  const acquired = await acquireSyncLock(user.id);
+  if (!acquired) {
+    return NextResponse.json(
+      { error: "A sync is already running for your account. Try again in a minute." },
+      { status: 409 }
+    );
   }
   try {
     const result = await syncUser(user.id);
@@ -32,6 +39,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Canvas request failed" }, { status: 502 });
     }
     return NextResponse.json({ error: "Sync failed" }, { status: 500 });
+  } finally {
+    await releaseSyncLock(user.id);
   }
 }
 

@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockVerifyAccessToken, mockUserFindUnique, mockSyncUser } = vi.hoisted(() => ({
-  mockVerifyAccessToken: vi.fn(),
-  mockUserFindUnique: vi.fn(),
-  mockSyncUser: vi.fn(),
-}));
+const { mockVerifyAccessToken, mockUserFindUnique, mockSyncUser, mockAcquireSyncLock, mockReleaseSyncLock } =
+  vi.hoisted(() => ({
+    mockVerifyAccessToken: vi.fn(),
+    mockUserFindUnique: vi.fn(),
+    mockSyncUser: vi.fn(),
+    mockAcquireSyncLock: vi.fn(),
+    mockReleaseSyncLock: vi.fn(),
+  }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -18,6 +21,8 @@ vi.mock("@/lib/supabase", () => ({
 
 vi.mock("@/lib/import/sync", () => ({
   syncUser: mockSyncUser,
+  acquireSyncLock: mockAcquireSyncLock,
+  releaseSyncLock: mockReleaseSyncLock,
 }));
 
 import { CanvasError } from "@/lib/canvas";
@@ -44,6 +49,8 @@ describe("POST /api/canvas/sync", () => {
     mockVerifyAccessToken.mockReset().mockResolvedValue({ authUserId: "auth-user-1", email: "student@example.com" });
     mockUserFindUnique.mockReset();
     mockSyncUser.mockReset();
+    mockAcquireSyncLock.mockReset().mockResolvedValue(true);
+    mockReleaseSyncLock.mockReset().mockResolvedValue(undefined);
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -59,6 +66,7 @@ describe("POST /api/canvas/sync", () => {
       assignmentGroups: 12,
       assignments: 30,
       grades: 21,
+      gradesPosted: 2,
     });
     const res = await POST(syncRequest("POST"));
     expect(res.status).toBe(200);
@@ -68,8 +76,44 @@ describe("POST /api/canvas/sync", () => {
       assignmentGroups: 12,
       assignments: 30,
       grades: 21,
+      gradesPosted: 2,
     });
     expect(mockSyncUser).toHaveBeenCalledWith("user-1");
+  });
+
+  it("takes the sync lock before syncing and releases it on success", async () => {
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
+    mockSyncUser.mockResolvedValue({
+      lastSyncedAt: LAST_SYNCED_AT,
+      courses: 0,
+      assignmentGroups: 0,
+      assignments: 0,
+      grades: 0,
+      gradesPosted: 0,
+    });
+    const res = await POST(syncRequest("POST"));
+    expect(res.status).toBe(200);
+    expect(mockAcquireSyncLock).toHaveBeenCalledWith("user-1");
+    expect(mockReleaseSyncLock).toHaveBeenCalledWith("user-1");
+  });
+
+  it("releases the lock even when the sync fails", async () => {
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
+    mockSyncUser.mockRejectedValue(new Error("Canvas not connected"));
+    await POST(syncRequest("POST"));
+    expect(mockReleaseSyncLock).toHaveBeenCalledWith("user-1");
+  });
+
+  it("returns 409 without syncing when another sync holds the lock", async () => {
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com" });
+    mockAcquireSyncLock.mockResolvedValue(false);
+    const res = await POST(syncRequest("POST"));
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: "A sync is already running for your account. Try again in a minute.",
+    });
+    expect(mockSyncUser).not.toHaveBeenCalled();
+    expect(mockReleaseSyncLock).not.toHaveBeenCalled();
   });
 
   it("returns 409 when Canvas is not connected", async () => {
