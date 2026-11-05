@@ -11,12 +11,14 @@ struct PriorityApp: App {
             Group {
                 switch model.state {
                 case .restoring:
-                    // Keep the screen blank for a beat while the Keychain is
-                    // checked, so a signed-out flash doesn't flicker in.
+                    // The Keychain check takes a frame, so this repeats the
+                    // launch screen (the mark on the launch background, centred
+                    // on the whole screen) instead of flashing a spinner.
                     ZStack {
-                        Color.black.ignoresSafeArea()
-                        ProgressView().tint(.white)
+                        Color("LaunchBackground")
+                        Image("LaunchMark")
                     }
+                    .ignoresSafeArea()
                 case .signedOut:
                     LogInView(model: model)
                 case .signedIn:

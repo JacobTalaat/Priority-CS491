@@ -46,8 +46,17 @@
 	<array>
 		<integer>1</integer>
 	</array>
+	<!-- The launch screen is the app icon's mark on the app background, so opening the app
+	     moves straight from the icon into the first screen without a flash of system color. -->
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchMark</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<false/>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
