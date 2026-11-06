@@ -20,6 +20,13 @@ function supabase() {
   return client;
 }
 
+// Only for the two factor flow: the MFA steps have to run against the same
+// browser client that owns the session, so a code challenge can hand the
+// promoted aal2 session back to the exact storage everything else reads from.
+export function browserAuthClient() {
+  return supabase();
+}
+
 export type Credentials = {
   email: string;
   password: string;

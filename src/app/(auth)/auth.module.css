@@ -71,6 +71,22 @@
   text-decoration: underline;
 }
 
+/* The code step's stage switch is a button that has to look like the links
+   around it: invisible chrome, accent text. */
+.switch button {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.switch button:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 720px) {
   .shell {
     gap: 32px;

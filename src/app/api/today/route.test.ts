@@ -73,6 +73,34 @@ describe("GET /api/today", () => {
     expect(mockLoadOpenWork).not.toHaveBeenCalled();
   });
 
+  it("refuses a two factor student with a password-only token and answers nothing", async () => {
+    // The real gate in src/lib/auth.ts decides: the token's aal is checked
+    // against the account's twoFactorEnabled flag with nothing else involved.
+    mockVerifyAccessToken.mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+      aal: "aal1",
+    });
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com", twoFactorEnabled: true });
+    const response = await GET(request());
+
+    expect(response.status).toBe(401);
+    expect(mockLoadOpenWork).not.toHaveBeenCalled();
+  });
+
+  it("lets a two factor student through once the token is aal2", async () => {
+    mockVerifyAccessToken.mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+      aal: "aal2",
+    });
+    mockUserFindUnique.mockResolvedValue({ id: "user-1", email: "student@example.com", twoFactorEnabled: true });
+    const response = await GET(request());
+
+    expect(response.status).not.toBe(401);
+    expect(mockLoadOpenWork).toHaveBeenCalled();
+  });
+
   it("loads open work for the authenticated student, so no other student's items can appear", async () => {
     await GET(request());
 
