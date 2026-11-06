@@ -176,9 +176,8 @@ describe("parsePlanSteps", () => {
     expect(atLimit).toEqual({ ok: true, steps: expect.any(Array) });
   });
 
-  it("rejects extra prose around the JSON, including fenced blocks", () => {
+  it("rejects extra prose without a fence around the JSON", () => {
     for (const raw of [
-      "```json\n" + planWith(PLAN_MIN_STEPS) + "\n```",
       "Sure! " + planWith(PLAN_MIN_STEPS),
       planWith(PLAN_MIN_STEPS) + " Hope this helps.",
       "",
@@ -186,6 +185,28 @@ describe("parsePlanSteps", () => {
     ]) {
       expect(parsePlanSteps(raw)).toEqual({ ok: false });
     }
+  });
+
+  it("accepts a fenced plan, with or without the json tag, decoding the exact steps", () => {
+    const plan = planWith(PLAN_MIN_STEPS);
+    const decoded = {
+      ok: true,
+      steps: [
+        { title: "Step 1", minutes: 30 },
+        { title: "Step 2", minutes: 30 },
+        { title: "Step 3", minutes: 30 },
+      ],
+    };
+    expect(parsePlanSteps("```json\n" + plan + "\n```")).toEqual(decoded);
+    expect(parsePlanSteps("```\n" + plan + "\n```")).toEqual(decoded);
+  });
+
+  it("still rejects a fenced reply with an invalid shape", () => {
+    expect(parsePlanSteps("```json\n" + planWith(PLAN_MIN_STEPS - 1) + "\n```")).toEqual({ ok: false });
+  });
+
+  it("still rejects a fenced reply over the hours budget", () => {
+    expect(parsePlanSteps("```json\n" + planWith(3, 60) + "\n```", 150)).toEqual({ ok: false });
   });
 
   it("rejects the wrong top-level shape", () => {
