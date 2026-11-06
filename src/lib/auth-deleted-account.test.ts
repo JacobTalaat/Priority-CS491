@@ -20,12 +20,9 @@ vi.mock("@/lib/supabase", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
-      findUnique: async ({ where }: { where: { authUserId?: string; email?: string; id?: string } }) => {
+      findUnique: async ({ where }: { where: { authUserId?: string; id?: string } }) => {
         if (where.authUserId) {
           return rows.find((r) => r.authUserId === where.authUserId) ?? null;
-        }
-        if (where.email) {
-          return rows.find((r) => r.email === where.email) ?? null;
         }
         return rows.find((r) => r.id === where.id) ?? null;
       },
@@ -92,9 +89,12 @@ describe("audit probe: deleted account + still-valid access token", () => {
     ).toEqual([{ email: "student@njit.edu", authUserId: "auth-NEW" }]);
   });
 
-  it("a ghost row seeded before the fix is removed, not adopted, when the same email signs up again", async () => {
+  it("a ghost row seeded before the fix stays untouched and the re-signup fails closed", async () => {
     // From before the fix: the deleted account's token got to create a row,
-    // and now the table already holds it when the student comes back.
+    // and now the table already holds it when the student comes back. The
+    // signup with the same email is refused, and the ghost row is neither
+    // adopted nor erased: erasing would wipe the holder's data if the
+    // database is ever pointed at a different Supabase project.
     mockVerify.mockImplementation(async (t: string) =>
       t === "old-token"
         ? { authUserId: "auth-OLD", email: "student@njit.edu" }
@@ -104,14 +104,8 @@ describe("audit probe: deleted account + still-valid access token", () => {
     liveAuth.add("auth-NEW");
 
     const fresh = await getUserFromRequest(req("new-token"));
-    expect(fresh).not.toBeNull();
-    expect(rows).toHaveLength(1);
-    expect(
-      rows.map((r) => ({ email: r.email, authUserId: r.authUserId }))
-    ).toEqual([{ email: "student@njit.edu", authUserId: "auth-NEW" }]);
-    // A new row was created: its id cannot be the ghost's, so any
-    // re-link/adopt implementation of the orphan would fail here.
-    expect(rows[0]?.id).not.toBe("row-1");
+    expect(fresh).toBeNull();
+    expect(rows).toEqual([{ id: "row-1", email: "student@njit.edu", authUserId: "auth-OLD" }]);
   });
 
   it("the post-create check removes a row that slipped past a pre-create all-clear before the auth user was deleted", async () => {

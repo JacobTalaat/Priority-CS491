@@ -152,29 +152,6 @@ describe("getUserFromRequest", () => {
     expect(mockUserDeleteMany).not.toHaveBeenCalled();
   });
 
-  it("post-checks the fresh row of the orphan cleanup path too", async () => {
-    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
-    // 1: no row for this auth user. 2: no race winner. 3: the email holder.
-    mockUserFindUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: "orphan-row", email: IDENTITY_A.email, authUserId: "auth-user-old" });
-    mockAuthUserExists
-      .mockResolvedValueOnce(true) // pre-create
-      .mockResolvedValueOnce(false) // the holder's account is gone -> orphan removed
-      .mockResolvedValueOnce(false); // the fresh row's auth user vanished concurrently
-    mockUserCreate
-      .mockRejectedValueOnce({ code: "P2002" })
-      .mockResolvedValueOnce({ id: "user-row-new", email: IDENTITY_A.email });
-    mockUserDeleteMany.mockResolvedValue({ count: 1 });
-    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toBeNull();
-    expect(mockUserDeleteMany).toHaveBeenCalledTimes(2);
-    // The second delete is scoped to the row that was just created.
-    expect(mockUserDeleteMany).toHaveBeenNthCalledWith(2, {
-      where: { id: "user-row-new", authUserId: "auth-user-a" },
-    });
-  });
-
   it("reuses the same Prisma row on the second request instead of creating another", async () => {
     mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
     mockUserFindUnique.mockResolvedValue({ id: "user-row-a", email: IDENTITY_A.email });
@@ -242,99 +219,25 @@ describe("getUserFromRequest", () => {
     expect(mockUserDeleteMany).not.toHaveBeenCalled();
   });
 
-  it("refuses to touch the email holder whose auth account still exists", async () => {
+  it("returns null for a signup whose email is held by a row whose auth user is gone, without touching that row", async () => {
+    // An orphan row holds the email under a deleted auth account. The row is
+    // neither adopted nor erased: a fail-closed refusal is the only answer,
+    // since erasing would wipe the holder's data if the database is ever
+    // pointed at a different Supabase project (every auth id changes there).
     mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
-    // 1: no row for this auth user. 2: no race winner. 3: another row holds the email.
+    // 1: no row for this auth user. 2: no race winner.
     mockUserFindUnique
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: "user-row-holder", email: IDENTITY_A.email, authUserId: "auth-user-b" });
-    mockAuthUserExists.mockResolvedValue(true);
-    mockUserCreate.mockRejectedValue({ code: "P2002" });
-    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toBeNull();
-    expect(mockUserDeleteMany).not.toHaveBeenCalled();
-    expect(mockUserCreate).toHaveBeenCalledTimes(1);
-    expect(mockAuthUserExists).toHaveBeenCalledWith("auth-user-b");
-  });
-
-  it("fails closed when it cannot tell whether the email holder's auth account exists", async () => {
-    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
-    mockUserFindUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: "user-row-holder", email: IDENTITY_A.email, authUserId: "auth-user-b" });
-    mockAuthUserExists
-      .mockResolvedValueOnce(true) // this sign-up's own auth user is live
-      .mockResolvedValueOnce(null); // the holder's account cannot be checked
-    mockUserCreate.mockRejectedValue({ code: "P2002" });
-    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toBeNull();
-    expect(mockUserDeleteMany).not.toHaveBeenCalled();
-    expect(mockUserCreate).toHaveBeenCalledTimes(1);
-  });
-
-  it("erases an orphan row of a deleted auth account and creates a fresh one", async () => {
-    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
-    // 1: no row for this auth user. 2: no race winner. 3: the email holder.
-    mockUserFindUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: "orphan-row", email: IDENTITY_A.email, authUserId: "auth-user-old" });
-    mockAuthUserExists
-      .mockResolvedValueOnce(true) // this sign-up's own auth user is live
-      .mockResolvedValueOnce(false); // the holder's account is deleted
-    mockUserCreate
-      .mockRejectedValueOnce({ code: "P2002" })
-      .mockResolvedValueOnce({ id: "user-row-new", email: IDENTITY_A.email });
-    mockUserDeleteMany.mockResolvedValue({ count: 1 });
-    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
-      id: "user-row-new",
-      email: IDENTITY_A.email,
-    });
-    // The delete is scoped so a concurrent change cannot remove the wrong row.
-    expect(mockUserDeleteMany).toHaveBeenCalledWith({
-      where: { id: "orphan-row", authUserId: "auth-user-old" },
-    });
-    expect(mockUserCreate).toHaveBeenCalledTimes(2);
-    // The removal is logged without the email or any ids.
-    expect(mockConsoleError).toHaveBeenCalledTimes(1);
-    expect(String(mockConsoleError.mock.calls[0][0])).not.toContain("auth-user-old");
-    expect(String(mockConsoleError.mock.calls[0][0])).not.toContain(IDENTITY_A.email);
-  });
-
-  it("hands back the race winner when the retry create loses the email again", async () => {
-    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
-    // 1: no row for this auth user. 2: no race winner. 3: the email holder.
-    // 4: a concurrent create of this auth user won the freed email.
-    mockUserFindUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: "orphan-row", email: IDENTITY_A.email, authUserId: "auth-user-old" })
-      .mockResolvedValueOnce({ id: "race-row", email: IDENTITY_A.email, authUserId: "auth-user-a" });
-    mockAuthUserExists
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false);
-    mockUserCreate.mockRejectedValue({ code: "P2002" });
-    mockUserDeleteMany.mockResolvedValue({ count: 1 });
-    await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toEqual({
-      id: "race-row",
-      email: IDENTITY_A.email,
-    });
-    expect(mockUserDeleteMany).toHaveBeenCalledTimes(1);
-  });
-
-  it("answers null when even the freed email is lost to a race with no winner", async () => {
-    mockVerifyAccessToken.mockResolvedValue(IDENTITY_A);
-    mockUserFindUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: "orphan-row", email: IDENTITY_A.email, authUserId: "auth-user-old" })
       .mockResolvedValueOnce(null);
-    mockAuthUserExists
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false);
-    mockUserCreate.mockRejectedValue({ code: "P2002" });
-    mockUserDeleteMany.mockResolvedValue({ count: 1 });
+    mockUserCreate.mockRejectedValueOnce({ code: "P2002" });
     await expect(getUserFromRequest(requestWithToken("token-a"))).resolves.toBeNull();
+    expect(mockUserCreate).toHaveBeenCalledTimes(1);
+    expect(mockUserDeleteMany).not.toHaveBeenCalled();
+    // The holder's id is never even looked up in Supabase.
+    expect(mockAuthUserExists).not.toHaveBeenCalledWith("auth-user-old");
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      "Refusing to reassign a user row to a Supabase account that does not already own it"
+    );
   });
 
   it("rethrows Prisma errors that are not unique-constraint races", async () => {

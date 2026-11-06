@@ -84,57 +84,17 @@ export async function getUserFromRequest(request: Request) {
       return { id: winner.id, email: identity.email };
     }
     // The conflict is on the email: another row holds it and no row belongs to
-    // this Supabase account. If that row's own auth account is gone it is an
-    // orphan of a deleted account — erased data that came back through a
-    // still-valid token — and it can be removed to free the email. It is
-    // erased, never adopted: the new sign-up's ownership of the address is
-    // unproven until email confirmation is on, and adopting could hand the
-    // orphan's Canvas token to the wrong person. The scoped delete only fires
-    // if the row still belongs to the same auth user.
-    const holder = await prisma.user.findUnique({
-      where: { email: identity.email },
-    });
-    if (!holder) {
-      // No row owns the email after all, yet the create failed; nothing is
-      // known, so fail closed as before.
-      console.error(
-        "Refusing to reassign a user row to a Supabase account that does not already own it"
-      );
-      return null;
-    }
-    if ((await authUserExists(holder.authUserId)) !== false) {
-      // The holder's auth account still exists (or the check is unknown), so
-      // nobody has proven this row is abandoned: a signup with someone else's
-      // address succeeds until email confirmation is on. Fail closed, and the
-      // row stays exactly as it is.
-      console.error(
-        "Refusing to reassign a user row to a Supabase account that does not already own it"
-      );
-      return null;
-    }
-    console.error("Deleting an orphaned user row left behind by a deleted auth account");
-    await prisma.user.deleteMany({
-      where: { id: holder.id, authUserId: holder.authUserId },
-    });
-    try {
-      const created = await prisma.user.create({
-        data: { authUserId: identity.authUserId, email: identity.email },
-      });
-      return await finishCreate(identity, created);
-    } catch (retryError) {
-      if (!isUniqueConstraintError(retryError)) {
-        throw retryError;
-      }
-      // A concurrent request created the row with this auth account while the
-      // orphan was being removed: its row is the one to hand back.
-      const race = await prisma.user.findUnique({
-        where: { authUserId: identity.authUserId },
-      });
-      if (race) {
-        return { id: race.id, email: identity.email };
-      }
-      return null;
-    }
+    // this Supabase account. The owner of the address is unproven — a signup
+    // with someone else's address succeeds until email confirmation is on — so
+    // the row stays exactly as it is: neither adopting nor erasing it. Erasing
+    // would wipe the holder's data on re-sign-up if the database is ever
+    // pointed at a different Supabase project, where every returning user's
+    // auth id changes. Adopting could hand the row's Canvas token to the wrong
+    // person. Fail closed: the request is unauthorized.
+    console.error(
+      "Refusing to reassign a user row to a Supabase account that does not already own it"
+    );
+    return null;
   }
 }
 
