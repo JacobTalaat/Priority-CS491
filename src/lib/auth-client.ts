@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { apiRequest } from "./api-client";
-import { env } from "@/lib/env";
+import { publicEnv } from "@/lib/public-env";
 import { clearToken } from "@/lib/session";
 
 export const MIN_PASSWORD_LENGTH = 8;
@@ -14,7 +14,7 @@ export const MIN_PASSWORD_LENGTH = 8;
 let client: ReturnType<typeof createClient> | null = null;
 
 function supabase() {
-  client ??= createClient(env.supabaseUrl, env.supabasePublishableKey, {
+  client ??= createClient(publicEnv.supabaseUrl, publicEnv.supabasePublishableKey, {
     auth: { persistSession: true, autoRefreshToken: true },
   });
   return client;

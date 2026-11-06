@@ -7,7 +7,7 @@ import { env } from "@/lib/env";
 // scheduler can carry a single header. Compare in constant time once the
 // lengths match, and answer 503 when the secret was never set up.
 export const CRON_SECRET_NOT_CONFIGURED_MESSAGE =
-  "Daily sync is not configured. Set CRON_SECRET to at least 32 characters.";
+  "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters.";
 
 export type CronSecretCheck = { ok: true } | { ok: false; response: NextResponse };
 
