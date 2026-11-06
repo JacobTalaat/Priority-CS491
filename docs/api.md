@@ -1939,7 +1939,7 @@ curl -i http://localhost:3000/api/jobs/daily-sync \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -1997,7 +1997,7 @@ curl -i -X POST http://localhost:3000/api/jobs/daily-sync \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -2050,7 +2050,7 @@ curl -i http://localhost:3000/api/jobs/daily-sync/runs \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -2060,7 +2060,7 @@ Runs one tick of the nightly reminders job: the "Tonight" and "Due tomorrow" pus
 
 Each reminder is tied to a scheduled occurrence: the instant in America/New_York when wall clock `HH:MM` struck (today's if it is past, otherwise yesterday's), so a 23:45 reminder seen by the 00:05 tick is still delivered, keyed to the previous New York day, with the messages computed as of that evening — "due tomorrow" then means the day after the evening the student asked about. A reminder that falls inside the spring-forward gap (like 02:30) counts as one wall-hour later; a fall-back repeat counts as its first pass. Lateness is measured in real minutes since the occurrence instant: more than 3 hours old (the scheduler was down) the day is claimed but nothing is sent.
 
-A candidate is a student with at least one push subscription and the `notifyTonight` or `notifyDueTomorrow` preference on. Before anything is sent the tick claims the night by creating the `NightlyDelivery` row, so delivery is at-most-once even when two ticks overlap — and that one row claims the whole night's bundle, so a crash between the "Tonight" push and the "Due tomorrow" push loses the second message by design. The messages come from the same wording as the today list, ranked by the same engine, with duplicate suppression between the two messages (see the messages under `POST /api/notifications/preferences`), and each push is sent with a 2-hour expiry, so it expires 2 hours after it is sent. A message counts as delivered only when at least one of the student's subscriptions responded; a claimed student whose sends all failed is flagged in the delivery row and never retried tonight. One failed student never stops the rest, and a claimed student is never retried that night.
+A candidate is a student with at least one push subscription and the `notifyTonight` or `notifyDueTomorrow` preference on. Before anything is sent the tick claims the night by creating the `NightlyDelivery` row, so delivery is at-most-once even when two ticks overlap — and that one row claims the whole night's bundle, so a crash between the "Tonight" push and the "Due tomorrow" push loses the second message by design. The messages come from the same wording as the today list, ranked by the same engine, with duplicate suppression between the two messages (see the messages under `GET /api/notifications/preferences`), and each push is sent with a 2-hour expiry, so it expires 2 hours after it is sent. A message counts as delivered only when at least one of the student's subscriptions responded; a claimed student whose sends all failed is flagged in the delivery row and never retried tonight. One failed student never stops the rest, and a claimed student is never retried that night.
 
 This route is protected by the same shared secret as the daily sync. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for scheduling examples.
 
@@ -2112,7 +2112,7 @@ curl -i http://localhost:3000/api/jobs/nightly \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -2168,7 +2168,7 @@ curl -i -X POST http://localhost:3000/api/jobs/nightly \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
