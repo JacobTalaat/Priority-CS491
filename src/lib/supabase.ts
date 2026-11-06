@@ -62,6 +62,26 @@ export async function verifyAccessToken(token: string): Promise<SupabaseIdentity
   }
 }
 
+// Whether Supabase still has an auth account with this id (true), answered
+// that it does not (false, a 404 or user_not_found), or the check itself
+// failed (null, so the caller must fail closed). It uses the secret key on the
+// server only, and callers only run it on the create-row path, so the request
+// for an account that already has its row never pays for the lookup.
+export async function authUserExists(authUserId: string): Promise<boolean | null> {
+  try {
+    const { data, error } = await adminClient().auth.admin.getUserById(authUserId);
+    if (!error && data.user) {
+      return true;
+    }
+    if (error && (error.status === 404 || error.code === "user_not_found")) {
+      return false;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Re-authenticating with the account's password is how a destructive request
 // proves it is really the student. It asks Supabase directly, so no password
 // material is ever stored or checked by this app.

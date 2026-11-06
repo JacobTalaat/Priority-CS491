@@ -77,5 +77,15 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+  try {
+    // A concurrent request holding a stale token can create a row between the
+    // two deletes above, and that row would keep authenticating forever. This
+    // sweep removes any such row. A failure here must not turn the success
+    // into an error: the post-create check in auth.ts still removes a late
+    // row, so the sweep is purely best effort.
+    await prisma.user.deleteMany({ where: { authUserId: row.authUserId } });
+  } catch {
+    // Nothing to do; the response stays a success either way.
+  }
   return NextResponse.json({ deleted: true });
 }
