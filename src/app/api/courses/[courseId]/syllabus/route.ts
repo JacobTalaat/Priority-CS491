@@ -3,12 +3,19 @@ import { getUserFromRequest, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { readSyllabusSuggestions } from "@/lib/syllabus-reader";
 import { SYLLABUS_MAX_BYTES, readSyllabusPdf } from "@/lib/syllabus-text";
+import { readBodyWithLimit } from "@/lib/read-limited-body";
 
 export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ courseId: string }> };
 
 const oversizedMessage = "That PDF is over 10 MB. Try a smaller copy of the syllabus.";
+
+const multipartErrorMessage =
+  'Send the syllabus as multipart/form-data with the PDF in a "file" field.';
+
+// One megabyte on top of the PDF cap for multipart framing (boundaries, headers).
+const MULTIPART_BODY_LIMIT = SYLLABUS_MAX_BYTES + 1024 * 1024;
 
 const failureMessages = {
   "not-pdf": "That isn't a PDF. Download the syllabus from Canvas as a PDF and try again.",
@@ -26,7 +33,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const contentLength = request.headers.get("content-length");
-  if (contentLength && Number(contentLength) > SYLLABUS_MAX_BYTES + 1024 * 1024) {
+  if (contentLength && Number(contentLength) > MULTIPART_BODY_LIMIT) {
     return NextResponse.json(
       { error: oversizedMessage },
       { status: 413 },
@@ -42,14 +49,22 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
+  const body = await readBodyWithLimit(request.body, MULTIPART_BODY_LIMIT);
+  if (!body.ok) {
+    // A stream that dies mid-read gets the same answer as an unparseable body.
+    if (body.reason === "unreadable") {
+      return NextResponse.json({ error: multipartErrorMessage }, { status: 400 });
+    }
+    return NextResponse.json({ error: oversizedMessage }, { status: 413 });
+  }
+
   let form: FormData;
   try {
-    form = await request.formData();
+    form = await new Response(body.bytes, {
+      headers: { "content-type": request.headers.get("content-type") ?? "" },
+    }).formData();
   } catch {
-    return NextResponse.json(
-      { error: 'Send the syllabus as multipart/form-data with the PDF in a "file" field.' },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: multipartErrorMessage }, { status: 400 });
   }
 
   const entry = form.get("file");
