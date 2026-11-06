@@ -368,3 +368,10 @@ export async function checkSession(token: string): Promise<SessionCheck> {
   }
   return { status: "offline" };
 }
+
+// For use after account deletion: the server-side user is already gone, so a
+// global sign out would fail. Local scope only revokes this browser's session
+// and always removes the stored session, even if the user cannot be reached.
+export async function logOutLocally(): Promise<void> {
+  await supabase().auth.signOut({ scope: "local" });
+}

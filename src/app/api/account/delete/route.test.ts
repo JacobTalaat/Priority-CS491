@@ -2,15 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_CONFIRM_ATTEMPTS, resetConfirmLimitForTests } from "@/lib/confirm-password-limit";
 import { POST } from "./route";
 
-const { mockVerifyAccessToken, mockUserFindUnique, mockUserCreate, mockUserDelete, mockVerifyPassword, mockDeleteAuthUser } =
-  vi.hoisted(() => ({
-    mockVerifyAccessToken: vi.fn(),
-    mockUserFindUnique: vi.fn(),
-    mockUserCreate: vi.fn(),
-    mockUserDelete: vi.fn(),
-    mockVerifyPassword: vi.fn(),
-    mockDeleteAuthUser: vi.fn(),
-  }));
+const {
+  mockVerifyAccessToken,
+  mockUserFindUnique,
+  mockUserCreate,
+  mockUserDelete,
+  mockUserDeleteMany,
+  mockVerifyPassword,
+  mockDeleteAuthUser,
+} = vi.hoisted(() => ({
+  mockVerifyAccessToken: vi.fn(),
+  mockUserFindUnique: vi.fn(),
+  mockUserCreate: vi.fn(),
+  mockUserDelete: vi.fn(),
+  mockUserDeleteMany: vi.fn(),
+  mockVerifyPassword: vi.fn(),
+  mockDeleteAuthUser: vi.fn(),
+}));
 
 vi.mock("@/lib/supabase", () => ({
   verifyAccessToken: mockVerifyAccessToken,
@@ -20,7 +28,12 @@ vi.mock("@/lib/supabase", () => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    user: { findUnique: mockUserFindUnique, create: mockUserCreate, delete: mockUserDelete },
+    user: {
+      findUnique: mockUserFindUnique,
+      create: mockUserCreate,
+      delete: mockUserDelete,
+      deleteMany: mockUserDeleteMany,
+    },
   },
 }));
 
@@ -42,6 +55,7 @@ describe("POST /api/account/delete", () => {
     mockUserFindUnique.mockReset();
     mockUserCreate.mockReset();
     mockUserDelete.mockReset();
+    mockUserDeleteMany.mockReset();
     mockVerifyPassword.mockReset();
     mockDeleteAuthUser.mockReset();
     resetConfirmLimitForTests();
@@ -136,6 +150,32 @@ describe("POST /api/account/delete", () => {
     });
     await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
     expect(order).toEqual(["prisma", "supabase"]);
+  });
+
+  it("sweeps any row a concurrent stale token created, after the auth user is deleted", async () => {
+    const order: string[] = [];
+    mockUserDelete.mockImplementation(async () => {
+      order.push("prisma-row-delete");
+    });
+    mockDeleteAuthUser.mockImplementation(async () => {
+      order.push("supabase");
+    });
+    mockUserDeleteMany.mockImplementation(async () => {
+      order.push("sweep");
+    });
+    await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
+    expect(order).toEqual(["prisma-row-delete", "supabase", "sweep"]);
+    expect(mockUserDeleteMany).toHaveBeenCalledExactlyOnceWith({
+      where: { authUserId: "auth-user-1" },
+    });
+  });
+
+  it("still answers deleted: true when the sweep fails", async () => {
+    mockUserDeleteMany.mockRejectedValue(new Error("database hiccup"));
+    const res = await POST(deleteRequest(JSON.stringify({ password: "correct-password" }), "valid-token"));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ deleted: true });
+    expect(mockUserDeleteMany).toHaveBeenCalledTimes(1);
   });
 
   it("returns 500 without deleting anything when the Prisma row cannot be removed", async () => {
