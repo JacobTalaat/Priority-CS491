@@ -4,6 +4,7 @@ const {
   mockUserFindMany,
   mockDeliveryCreate,
   mockDeliveryUpdate,
+  mockDeliveryDeleteMany,
   mockDeliveryFindMany,
   mockLoadOpenWork,
   mockSendToUser,
@@ -13,6 +14,7 @@ const {
   mockUserFindMany: vi.fn(),
   mockDeliveryCreate: vi.fn(),
   mockDeliveryUpdate: vi.fn(),
+  mockDeliveryDeleteMany: vi.fn(),
   mockDeliveryFindMany: vi.fn(),
   mockLoadOpenWork: vi.fn(),
   mockSendToUser: vi.fn(),
@@ -27,6 +29,7 @@ vi.mock("@/lib/prisma", () => ({
       findMany: mockDeliveryFindMany,
       create: mockDeliveryCreate,
       update: mockDeliveryUpdate,
+      deleteMany: mockDeliveryDeleteMany,
     },
     course: { findMany: mockCourseFindMany },
     itemState: { findMany: mockItemStateFindMany },
@@ -115,6 +118,36 @@ function delivery(userId: string, day: string): { userId: string; day: string } 
   return { userId, day };
 }
 
+// The where clause the tick must release a claim with: guarded by the flags
+// read as false, so it can never match a row that already records a delivery.
+function deliveryReleaseWhere(userId: string, day: string) {
+  return { where: { userId, day, tonight: false, dueTomorrow: false } };
+}
+
+// Mirrors a Prisma deleteMany over the in-memory rows: only rows matching
+// every field of the where clause are removed, so a guarded delete leaves a
+// row that records a delivery alone.
+function installDeliveryDeleteMany(rows: DeliveryRow[]) {
+  mockDeliveryDeleteMany.mockReset().mockImplementation(
+    async ({ where }: { where: { userId: string; day: string; tonight: boolean; dueTomorrow: boolean } }) => {
+      let count = 0;
+      for (let i = rows.length - 1; i >= 0; i -= 1) {
+        const row = rows[i];
+        if (
+          row.userId === where.userId &&
+          row.day === where.day &&
+          row.tonight === where.tonight &&
+          row.dueTomorrow === where.dueTomorrow
+        ) {
+          rows.splice(i, 1);
+          count += 1;
+        }
+      }
+      return { count };
+    },
+  );
+}
+
 function makeClock(startMs = TICK_INSTANT.getTime()) {
   let millis = startMs;
   const clock = () => new Date(millis);
@@ -129,6 +162,7 @@ describe("runNightlyTick", () => {
 
   beforeEach(() => {
     deliveries.length = 0;
+    installDeliveryDeleteMany(deliveries);
     mockUserFindMany.mockReset().mockResolvedValue([user()]);
     mockDeliveryFindMany.mockReset().mockResolvedValue([]);
     mockDeliveryCreate.mockReset().mockImplementation(
@@ -161,6 +195,9 @@ describe("runNightlyTick", () => {
     mockLoadOpenWork.mockReset().mockResolvedValue(rankedFixture("2026-10-22", "2026-10-23"));
     mockSendToUser.mockReset().mockResolvedValue({ sent: 1, failed: 0, removed: 0 });
     vi.spyOn(console, "error").mockImplementation(() => {});
+    // The tick shuffles the owed order; this value makes Fisher-Yates a no-op
+    // (j always equals the current index), so tests keep readable id order.
+    vi.spyOn(Math, "random").mockReturnValue(0.999999);
   });
 
   afterEach(() => {
@@ -233,6 +270,8 @@ describe("runNightlyTick", () => {
     expect(deliveries[0]).toMatchObject({ userId: "user-a", day: DAY, tonight: false, dueTomorrow: false });
     expect(mockLoadOpenWork).not.toHaveBeenCalled();
     expect(mockSendToUser).not.toHaveBeenCalled();
+    // Too late to be useful, but still claimed: not retried tonight.
+    expect(mockDeliveryDeleteMany).not.toHaveBeenCalled();
     expect(result).toMatchObject({ skippedLate: 1, sent: 0, remaining: 0 });
   });
 
@@ -327,6 +366,8 @@ describe("runNightlyTick", () => {
     const result = await runNightlyTick(clock);
     expect(mockSendToUser).not.toHaveBeenCalled();
     expect(deliveries[0]).toMatchObject({ tonight: false, dueTomorrow: false });
+    // Nothing to say is still a handled night: no retry later on.
+    expect(mockDeliveryDeleteMany).not.toHaveBeenCalled();
     expect(result).toMatchObject({ sent: 0, nothingToSend: 1 });
   });
 
@@ -342,7 +383,10 @@ describe("runNightlyTick", () => {
     const result = await runNightlyTick(clock);
     expect(mockSendToUser).not.toHaveBeenCalledWith("user-bad", expect.anything(), expect.anything());
     expect(mockSendToUser).toHaveBeenCalledWith("user-good", expect.anything(), expect.anything());
-    expect(result).toMatchObject({ due: 2, sent: 2, remaining: 0 });
+    // Nothing was delivered for user-bad, so their claim went back.
+    expect(deliveries.find((row) => row.userId === "user-bad")).toBeUndefined();
+    expect(mockDeliveryDeleteMany).toHaveBeenCalledWith(deliveryReleaseWhere("user-bad", DAY));
+    expect(result).toMatchObject({ due: 2, sent: 2, failed: 1, remaining: 0 });
     expect(console.error).toHaveBeenCalledWith("nightly: send failed for one user");
   });
 
@@ -379,11 +423,10 @@ describe("runNightlyTick", () => {
       const result = await tickPromise;
       expect(mockSendToUser).not.toHaveBeenCalledWith("user-slow", expect.anything(), expect.anything());
       expect(mockSendToUser).toHaveBeenCalledWith("user-good", expect.anything(), expect.anything());
-      expect(deliveries.find((row) => row.userId === "user-slow")).toMatchObject({
-        tonight: false,
-        dueTomorrow: false,
-      });
-      expect(result).toMatchObject({ due: 2, sent: 2, failed: 0, remaining: 0 });
+      // A hung load delivered nothing, so the claim was released instead of kept.
+      expect(deliveries.find((row) => row.userId === "user-slow")).toBeUndefined();
+      expect(mockDeliveryDeleteMany).toHaveBeenCalledWith(deliveryReleaseWhere("user-slow", DAY));
+      expect(result).toMatchObject({ due: 2, sent: 2, failed: 1, remaining: 0 });
       expect(console.error).toHaveBeenCalledWith("nightly: send failed for one user");
     } finally {
       vi.useRealTimers();
@@ -410,16 +453,209 @@ describe("runNightlyTick", () => {
     expect(result).toMatchObject({ sent: 2, failed: 0 });
   });
 
-  it("flags only delivered messages when every subscription rejects", async () => {
+  it("gives the whole night back when every send fails to deliver", async () => {
     mockSendToUser.mockResolvedValue({ sent: 0, failed: 1, removed: 0 });
     const { clock } = makeClock();
     const result = await runNightlyTick(clock);
-    expect(deliveries[0]).toMatchObject({ tonight: false, dueTomorrow: false });
-    expect(mockDeliveryUpdate).toHaveBeenCalledWith({
-      where: { userId_day: { userId: "user-a", day: DAY } },
-      data: { tonight: false, dueTomorrow: false },
-    });
+    expect(mockDeliveryDeleteMany).toHaveBeenCalledWith(deliveryReleaseWhere("user-a", DAY));
+    expect(mockDeliveryUpdate).not.toHaveBeenCalled();
+    expect(deliveries).toHaveLength(0);
     expect(result).toMatchObject({ sent: 0, failed: 2 });
+  });
+
+  it("gives the claim back when nothing was delivered and retries the whole bundle on a later tick", async () => {
+    const { clock, advance } = makeClock();
+    mockSendToUser
+      .mockResolvedValueOnce({ sent: 0, failed: 1, removed: 0 })
+      .mockResolvedValueOnce({ sent: 0, failed: 1, removed: 0 })
+      .mockResolvedValueOnce({ sent: 1, failed: 0, removed: 0 })
+      .mockResolvedValueOnce({ sent: 1, failed: 0, removed: 0 });
+    const first = await runNightlyTick(clock);
+    expect(first).toMatchObject({ sent: 0, failed: 2 });
+    expect(deliveries).toHaveLength(0);
+    // A retry sees whatever rows survived the first tick.
+    mockDeliveryFindMany.mockImplementation(async () =>
+      deliveries.map((row) => delivery(row.userId, row.day)),
+    );
+    advance(5 * 60_000);
+    const second = await runNightlyTick(clock);
+    expect(second).toMatchObject({ due: 1, sent: 2, failed: 0, remaining: 0 });
+    expect(deliveries[0]).toMatchObject({ userId: "user-a", day: DAY, tonight: true, dueTomorrow: true });
+  });
+
+  it("gives the claim back after a hung load and retries the user on a later tick", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUserFindMany.mockResolvedValue([user({ id: "user-slow" })]);
+      mockLoadOpenWork
+        .mockImplementationOnce(() => new Promise<RankedItem[]>(() => {
+          // Never settles.
+        }))
+        .mockResolvedValue(rankedFixture("2026-10-22", "2026-10-23"));
+      const { clock, advance } = makeClock();
+      const firstPromise = runNightlyTick(clock);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const first = await firstPromise;
+      expect(first).toMatchObject({ failed: 1 });
+      expect(deliveries).toHaveLength(0);
+      mockDeliveryFindMany.mockImplementation(async () =>
+        deliveries.map((row) => delivery(row.userId, row.day)),
+      );
+      advance(5 * 60_000);
+      const second = await runNightlyTick(clock);
+      expect(second).toMatchObject({ failed: 0, sent: 2, remaining: 0 });
+      expect(deliveries[0]).toMatchObject({ userId: "user-slow", day: DAY, tonight: true, dueTomorrow: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a partial delivery's claim so the delivered push is never sent twice", async () => {
+    mockSendToUser.mockImplementation((_userId: string, message: { kind: string }) =>
+      message.kind === "tonight"
+        ? Promise.resolve({ sent: 1, failed: 0, removed: 0 })
+        : Promise.resolve({ sent: 0, failed: 1, removed: 0 }),
+    );
+    const { clock, advance } = makeClock();
+    const first = await runNightlyTick(clock);
+    expect(first).toMatchObject({ sent: 1, failed: 1 });
+    expect(deliveries[0]).toMatchObject({ userId: "user-a", day: DAY, tonight: true, dueTomorrow: false });
+    expect(mockDeliveryDeleteMany).not.toHaveBeenCalled();
+    mockDeliveryFindMany.mockImplementation(async () =>
+      deliveries.map((row) => delivery(row.userId, row.day)),
+    );
+    advance(5 * 60_000);
+    const sendsBefore = mockSendToUser.mock.calls.length;
+    const second = await runNightlyTick(clock);
+    // The kept claim covers the partial night: the Due tomorrow push is
+    // dropped rather than re-sent alongside a duplicate Tonight push.
+    expect(mockSendToUser.mock.calls).toHaveLength(sendsBefore);
+    expect(second).toMatchObject({ due: 0, sent: 0, remaining: 0 });
+  });
+
+  it("never re-sends a night that was fully delivered", async () => {
+    const { clock, advance } = makeClock();
+    const first = await runNightlyTick(clock);
+    expect(first).toMatchObject({ sent: 2 });
+    expect(mockDeliveryDeleteMany).not.toHaveBeenCalled();
+    mockDeliveryFindMany.mockImplementation(async () =>
+      deliveries.map((row) => delivery(row.userId, row.day)),
+    );
+    advance(5 * 60_000);
+    await runNightlyTick(clock);
+    expect(mockSendToUser).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the claim when one send rejects but its sibling was delivered", async () => {
+    mockSendToUser.mockImplementation((_userId: string, message: { kind: string }) =>
+      message.kind === "tonight"
+        ? Promise.reject(new Error("push gateway down"))
+        : Promise.resolve({ sent: 1, failed: 0, removed: 0 }),
+    );
+    const { clock } = makeClock();
+    const result = await runNightlyTick(clock);
+    expect(result).toMatchObject({ sent: 1, failed: 1 });
+    expect(deliveries[0]).toMatchObject({ userId: "user-a", day: DAY, tonight: false, dueTomorrow: true });
+    expect(mockDeliveryDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps going when releasing a failed attempt itself errors", async () => {
+    mockUserFindMany.mockResolvedValue([user({ id: "user-bad" }), user({ id: "user-good" })]);
+    mockSendToUser.mockResolvedValue({ sent: 0, failed: 1, removed: 0 });
+    mockDeliveryDeleteMany.mockRejectedValueOnce(new Error("delete raced a writer"));
+    const { clock } = makeClock();
+    const result = await runNightlyTick(clock);
+    // Worst case is the old behaviour: the failed night stays claimed.
+    expect(deliveries.find((row) => row.userId === "user-bad")).toBeDefined();
+    expect(deliveries.find((row) => row.userId === "user-good")).toBeUndefined();
+    expect(result).toMatchObject({ due: 2, sent: 0, failed: 4, remaining: 0 });
+    expect(console.error).toHaveBeenCalledWith("nightly: could not release claim for one user");
+  });
+
+  it("fails the whole tick when the claim create fails for a reason other than an overlap", async () => {
+    mockDeliveryCreate.mockRejectedValue(
+      Object.assign(new Error("connection reset"), { code: "P1001" }),
+    );
+    const { clock } = makeClock();
+    await expect(runNightlyTick(clock)).rejects.toThrow("connection reset");
+    expect(mockSendToUser).not.toHaveBeenCalled();
+    expect(mockLoadOpenWork).not.toHaveBeenCalled();
+  });
+
+  it("keeps the claim with the flag set when a message reaches two subscriptions", async () => {
+    mockSendToUser.mockResolvedValue({ sent: 2, failed: 0, removed: 0 });
+    const { clock } = makeClock();
+    const result = await runNightlyTick(clock);
+    expect(deliveries[0]).toMatchObject({ userId: "user-a", day: DAY, tonight: true, dueTomorrow: true });
+    expect(mockDeliveryDeleteMany).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ sent: 2, failed: 0 });
+  });
+
+  it("never releases the claim when the post-delivery bookkeeping update fails", async () => {
+    mockDeliveryUpdate.mockRejectedValueOnce(new Error("connection reset"));
+    const { clock } = makeClock();
+    const result = await runNightlyTick(clock);
+    // The pushes went out: the claim must survive the bookkeeping crash, not
+    // be released for a retry that would deliver them again. The flags never
+    // got written, but the row's existence is what holds the night.
+    expect(mockDeliveryDeleteMany).not.toHaveBeenCalled();
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ userId: "user-a", day: DAY });
+    expect(result).toMatchObject({ sent: 2, failed: 0 });
+  });
+
+  it("releases a midnight-carried night under the occurrence's previous day", async () => {
+    // 00:05 on the 23rd in New York, a 23:45 reminder: the reminder is keyed
+    // to the 22nd, so that is the day whose claim gets released.
+    mockUserFindMany.mockResolvedValue([user({ nightlyReminderTime: "23:45" })]);
+    mockSendToUser.mockResolvedValue({ sent: 0, failed: 1, removed: 0 });
+    const { clock } = makeClock(new Date("2026-10-23T04:05:00Z").getTime());
+    const result = await runNightlyTick(clock);
+    expect(result.day).toBe("2026-10-23");
+    expect(mockDeliveryDeleteMany).toHaveBeenCalledWith(deliveryReleaseWhere("user-a", "2026-10-22"));
+    expect(deliveries).toHaveLength(0);
+  });
+
+  it("shuffles the owed order so stuck retries cannot starve healthy students", async () => {
+    vi.useFakeTimers({ now: TICK_INSTANT });
+    try {
+      // Loads hang for a, b and c; only d ever loads. In raw id order the
+      // three hung loads eat the whole 30 s budget, so d never starts.
+      mockUserFindMany.mockResolvedValue([
+        user({ id: "user-a" }),
+        user({ id: "user-b" }),
+        user({ id: "user-c" }),
+        user({ id: "user-d" }),
+      ]);
+      mockLoadOpenWork.mockImplementation((userId: string) =>
+        userId === "user-d"
+          ? Promise.resolve(rankedFixture("2026-10-22", "2026-10-23"))
+          : new Promise<RankedItem[]>(() => {
+              // Never settles.
+            }),
+      );
+      const firstPromise = runNightlyTick();
+      await vi.advanceTimersByTimeAsync(40_000);
+      const first = await firstPromise;
+      expect(first).toMatchObject({ due: 4, sent: 0, failed: 3, remaining: 1 });
+      expect(mockSendToUser).not.toHaveBeenCalled();
+      expect(deliveries).toHaveLength(0);
+      // A retry sees whatever rows survived the first tick.
+      mockDeliveryFindMany.mockImplementation(async () =>
+        deliveries.map((row) => delivery(row.userId, row.day)),
+      );
+      // A zero makes Fisher-Yates give every slot index 0, moving d early
+      // enough to reach the budget this tick.
+      vi.spyOn(Math, "random").mockReturnValue(0);
+      await vi.advanceTimersByTime(5 * 60_000);
+      const secondPromise = runNightlyTick();
+      await vi.advanceTimersByTimeAsync(40_000);
+      const second = await secondPromise;
+      expect(mockSendToUser).toHaveBeenCalledWith("user-d", expect.anything(), expect.anything());
+      expect(second).toMatchObject({ sent: 2, failed: 3, remaining: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -428,6 +664,7 @@ describe("runNightlyTick against the real loadOpenWork", () => {
 
   beforeEach(() => {
     deliveries.length = 0;
+    installDeliveryDeleteMany(deliveries);
     // Reset to unconfigured: falls through the mock to the real loader.
     mockLoadOpenWork.mockReset();
     mockUserFindMany.mockReset();
@@ -442,6 +679,8 @@ describe("runNightlyTick against the real loadOpenWork", () => {
     mockDeliveryUpdate.mockReset().mockResolvedValue({});
     mockSendToUser.mockReset().mockResolvedValue({ sent: 1, failed: 0, removed: 0 });
     vi.spyOn(console, "error").mockImplementation(() => {});
+    // Same no-op shuffle value as the other suite, for the same reason.
+    vi.spyOn(Math, "random").mockReturnValue(0.999999);
   });
 
   afterEach(() => {
