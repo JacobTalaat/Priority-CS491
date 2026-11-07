@@ -25,7 +25,7 @@ export function ConfirmScreen({
   if (outcome.status === "confirmed") {
     return (
       <p className="eyebrow" role="status">
-        Signed in! Taking you to your classes…
+        Signed in! Taking you to your setup…
       </p>
     );
   }
@@ -82,7 +82,7 @@ export async function finishConfirmation(navigate: (path: string) => void): Prom
   const result = await readConfirmationResult();
   if (result.status === "confirmed") {
     setToken(result.token);
-    navigate("/classes");
+    navigate("/onboarding");
   }
   return result;
 }

@@ -47,7 +47,7 @@ export function SignUpForm() {
       return;
     }
     setToken(result.token);
-    router.replace("/classes");
+    router.replace("/onboarding");
   }
 
   if (emailSentTo) {
