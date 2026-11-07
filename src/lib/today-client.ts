@@ -26,6 +26,7 @@ export type TodayResponse = {
   hoursFilter: { hours: number; plannedHours: number; unestimatedCount: number; skippedCount: number } | null;
 };
 
-export function getToday() {
-  return apiRequest<TodayResponse>("/api/today", { token: getToken() });
+export function getToday(hours?: number | null) {
+  const query = hours === undefined || hours === null ? "" : `?hours=${encodeURIComponent(String(hours))}`;
+  return apiRequest<TodayResponse>(`/api/today${query}`, { token: getToken() });
 }

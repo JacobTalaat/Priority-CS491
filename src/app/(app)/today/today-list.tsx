@@ -1,45 +1,99 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, ButtonLink, Notice, PageHeader } from "@/components/ui";
+import { Input } from "@/components/ui/input";
 import { getToday } from "@/lib/today-client";
-import type { TodayItem } from "@/lib/today-client";
+import type { TodayItem, TodayResponse } from "@/lib/today-client";
+import { isValidTodayHours, readTodayHours, saveTodayHours } from "@/lib/today-hours";
 import { boundaryTag, dueLabel, shareLabel } from "@/lib/today-list";
 import styles from "./today.module.css";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; items: TodayItem[] };
+  | { status: "ready"; data: TodayResponse };
 
-async function loadToday(): Promise<LoadState> {
-  const result = await getToday();
-  return result.ok ? { status: "ready", items: result.data.items } : { status: "error", message: result.error };
+async function loadToday(hours: number | null): Promise<LoadState> {
+  const result = await getToday(hours);
+  return result.ok ? { status: "ready", data: result.data } : { status: "error", message: result.error };
 }
 
 export function TodayList() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [hoursValue, setHoursValue] = useState("");
+  const [hoursError, setHoursError] = useState<string | null>(null);
+  const [hoursMessage, setHoursMessage] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const requestId = useRef(0);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (hours: number | null) => {
+    const currentRequest = ++requestId.current;
     setState({ status: "loading" });
-    setState(await loadToday());
+    const next = await loadToday(hours);
+    if (currentRequest === requestId.current) {
+      setState(next);
+    }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    loadToday().then((next) => {
-      if (!cancelled) {
-        setState(next);
-      }
-    });
+    const saved = readTodayHours();
+    if (saved.ok) {
+      setHoursValue(saved.hours === null ? "" : String(saved.hours));
+      setHoursMessage(saved.hours === null ? null : "Saved for this evening.");
+      void reload(saved.hours);
+    } else {
+      setStorageError("Could not read your saved hours. You can still set a budget for tonight.");
+      void reload(null);
+    }
     return () => {
-      cancelled = true;
+      requestId.current += 1;
     };
-  }, []);
+  }, [reload]);
+
+  function applyHours(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = hoursValue.trim();
+    const hours = value === "" ? null : Number(value);
+    if (hours !== null && !isValidTodayHours(hours)) {
+      setHoursError("Enter a number from 0.5 to 12 hours.");
+      setHoursMessage(null);
+      return;
+    }
+
+    setHoursError(null);
+    const saved = saveTodayHours(hours);
+    setStorageError(
+      saved ? null : "Could not save your hours for this evening. The list will still use this budget.",
+    );
+    setHoursMessage(saved && hours !== null ? "Saved for this evening." : null);
+    void reload(hours);
+  }
 
   return (
     <>
       <PageHeader eyebrow="Do this first" title="Today" description="Your open work, most important first." />
+      <form className={styles.hoursForm} onSubmit={applyHours}>
+        <Input
+          label="Hours available tonight"
+          hint="Enter 0.5 to 12 hours. Leave blank to show all work."
+          error={hoursError}
+          type="number"
+          min="0.5"
+          max="12"
+          step="any"
+          value={hoursValue}
+          onChange={(event) => {
+            setHoursValue(event.target.value);
+            setHoursError(null);
+          }}
+        />
+        <Button type="submit" loading={state.status === "loading"}>
+          Show what fits
+        </Button>
+      </form>
+      {hoursMessage ? <p className={styles.hoursMessage} role="status">{hoursMessage}</p> : null}
+      {storageError ? <Notice tone="warning">{storageError}</Notice> : null}
       {state.status === "loading" ? (
         <p className={styles.status} role="status">
           Loading your list…
@@ -48,12 +102,24 @@ export function TodayList() {
       {state.status === "error" ? (
         <div className={styles.errorState}>
           <Notice tone="error">{state.message}</Notice>
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={() => reload(readTodayHours().hours)}>
             Try again
           </Button>
         </div>
       ) : null}
-      {state.status === "ready" ? <TodayItems items={state.items} /> : null}
+      {state.status === "ready" ? (
+        <>
+          {state.data.hoursFilter ? (
+            <p className={styles.planSummary} role="status">
+              Showing work that fits in {state.data.hoursFilter.hours} hours tonight
+              {state.data.hoursFilter.skippedCount > 0
+                ? `; ${state.data.hoursFilter.skippedCount} ${state.data.hoursFilter.skippedCount === 1 ? "item" : "items"} left off the list.`
+                : "."}
+            </p>
+          ) : null}
+          <TodayItems items={state.data.items} />
+        </>
+      ) : null}
     </>
   );
 }
