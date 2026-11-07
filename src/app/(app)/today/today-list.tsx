@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, ButtonLink, Notice, PageHeader } from "@/components/ui";
-import { Input } from "@/components/ui/input";
+import type { FormEvent } from "react";
+import { Button, ButtonLink, Input, Notice, PageHeader } from "@/components/ui";
 import { getToday } from "@/lib/today-client";
 import type { TodayItem, TodayResponse } from "@/lib/today-client";
 import { isValidTodayHours, readTodayHours, saveTodayHours } from "@/lib/today-hours";
@@ -26,9 +26,11 @@ export function TodayList() {
   const [hoursMessage, setHoursMessage] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
   const requestId = useRef(0);
+  const lastRequestedHours = useRef<number | null>(null);
 
   const reload = useCallback(async (hours: number | null) => {
     const currentRequest = ++requestId.current;
+    lastRequestedHours.current = hours;
     setState({ status: "loading" });
     const next = await loadToday(hours);
     if (currentRequest === requestId.current) {
@@ -38,20 +40,27 @@ export function TodayList() {
 
   useEffect(() => {
     const saved = readTodayHours();
-    if (saved.ok) {
-      setHoursValue(saved.hours === null ? "" : String(saved.hours));
-      setHoursMessage(saved.hours === null ? null : "Saved for this evening.");
-      void reload(saved.hours);
-    } else {
-      setStorageError("Could not read your saved hours. You can still set a budget for tonight.");
-      void reload(null);
-    }
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) {
+        return;
+      }
+      if (saved.ok) {
+        setHoursValue(saved.hours === null ? "" : String(saved.hours));
+        setHoursMessage(saved.hours === null ? null : "Saved for this evening.");
+        void reload(saved.hours);
+      } else {
+        setStorageError("Could not read your saved hours. You can still set a budget for tonight.");
+        void reload(null);
+      }
+    });
     return () => {
+      cancelled = true;
       requestId.current += 1;
     };
   }, [reload]);
 
-  function applyHours(event: React.FormEvent<HTMLFormElement>) {
+  function applyHours(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = hoursValue.trim();
     const hours = value === "" ? null : Number(value);
@@ -102,7 +111,7 @@ export function TodayList() {
       {state.status === "error" ? (
         <div className={styles.errorState}>
           <Notice tone="error">{state.message}</Notice>
-          <Button variant="secondary" onClick={() => reload(readTodayHours().hours)}>
+          <Button variant="secondary" onClick={() => reload(lastRequestedHours.current)}>
             Try again
           </Button>
         </div>
