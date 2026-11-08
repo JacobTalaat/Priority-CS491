@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { TodayItem } from "@/lib/today-client";
-import { TodayItems } from "./today-list";
+import { TodayItems, TodayList } from "./today-list";
 
 function item(overrides: Partial<TodayItem>): TodayItem {
   return {
@@ -66,5 +66,17 @@ describe("TodayItems", () => {
 
   it("says so when there is nothing on the list", () => {
     expect(renderToStaticMarkup(<TodayItems items={[]} />)).toContain("Nothing on your list right now.");
+  });
+});
+
+describe("TodayList", () => {
+  it("offers an hours input and save action before loading the list", () => {
+    const html = renderToStaticMarkup(<TodayList />);
+
+    expect(html).toContain('type="number"');
+    expect(html).toContain('min="0.5"');
+    expect(html).toContain('max="12"');
+    expect(html).toContain("Hours available tonight");
+    expect(html).toContain("Show what fits");
   });
 });
