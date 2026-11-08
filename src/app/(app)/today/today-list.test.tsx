@@ -10,6 +10,7 @@ function item(overrides: Partial<TodayItem>): TodayItem {
     courseId: "c1",
     courseName: "Algorithms",
     title: "Problem Set 4",
+    htmlUrl: null,
     dueAt: "2026-10-31T03:59:00.000Z",
     dueDay: "2026-10-30",
     overdue: false,
@@ -40,7 +41,23 @@ describe("TodayItems", () => {
     expect(html).toContain("Due tomorrow, 15 percent of your grade");
     expect(html).toContain(">15%<");
     expect(html).toContain(">4%<");
+    expect(html).toContain("Weight share");
     expect(html).toContain("of grade");
+  });
+
+  it("shows a safe Open in Canvas link in the item details", () => {
+    const html = renderToStaticMarkup(
+      <TodayItems
+        items={[
+          item({ htmlUrl: "https://canvas.example.edu/courses/1/assignments/1" }),
+          item({ assignmentId: "a2", htmlUrl: "javascript:alert(1)" }),
+        ]}
+      />,
+    );
+    expect(html).toContain('href="https://canvas.example.edu/courses/1/assignments/1"');
+    expect(html).toContain(">Open in Canvas</a>");
+    expect(html).toContain('rel="noopener noreferrer"');
+    expect(html).not.toContain("javascript:");
   });
 
   it("shows the boundary flag as a tag", () => {
