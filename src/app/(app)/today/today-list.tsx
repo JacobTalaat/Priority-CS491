@@ -20,11 +20,51 @@ type LoadState =
 // The item just marked done, so Undo can reverse it while the bar is up.
 type UndoState = { item: TodayItem };
 
-// A reload must not resurrect a row whose done request is still in flight: the
-// server reports it open until the POST lands. Ids land in the in-flight set at
-// click time and leave it the moment their request settles.
-function withoutInFlightDone(data: TodayResponse, inFlight: ReadonlySet<string>): TodayResponse {
-  return { ...data, items: data.items.filter((entry) => !inFlight.has(entry.assignmentId)) };
+// An action failure shown above the list. A failed reconcile also offers the
+// loud "Reload list" as the way back to server truth.
+type ActionError = { message: string; needsReload: boolean };
+
+// The reconciliation model. Marking done removes a row optimistically, before
+// the server agrees, so every GET response is checked against the done records
+// before it may touch the screen:
+//
+//   "pending"                  — the POST has not settled: the GET may have
+//                                read the item as open, so the row is dropped.
+//   { savedAt: <request seq> } — the POST succeeded at request sequence
+//                                savedAt. A GET that started before that may
+//                                have read the item open: dropped. A GET that
+//                                started after it reflects the save: kept (the
+//                                server will not report a saved item anyway),
+//                                and the record is spent.
+//
+// Records are deleted outright when a done fails or an undo succeeds, so the
+// next GET shows the item again.
+type DoneRecord = { status: "pending" } | { status: "saved"; savedAt: number };
+
+// Applies the rules above to a fresh GET response and reports whether the
+// response reflects every local change — only then may the empty states speak
+// for the server plan again.
+function reconcileGetResponse(
+  data: TodayResponse,
+  startedAt: number,
+  records: Map<string, DoneRecord>,
+  lastSavedDoneSeq: number,
+): { data: TodayResponse; planCurrent: boolean } {
+  // A GET that started after a save makes that save visible on screen; its
+  // record has done its job guarding older GETs.
+  for (const [id, record] of records) {
+    if (record.status === "saved" && record.savedAt < startedAt) {
+      records.delete(id);
+    }
+  }
+  const items = data.items.filter((entry) => {
+    const record = records.get(entry.assignmentId);
+    return !record || (record.status === "saved" && startedAt > record.savedAt);
+  });
+  const planCurrent =
+    startedAt > lastSavedDoneSeq &&
+    ![...records.values()].some((record) => record.status === "pending");
+  return { data: { ...data, items }, planCurrent };
 }
 
 async function loadToday(hours: number | null): Promise<LoadState> {
@@ -51,54 +91,99 @@ function safeCanvasUrl(htmlUrl: string | null): string | null {
 export function TodayList() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [undo, setUndo] = useState<UndoState | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<ActionError | null>(null);
   const [hoursValue, setHoursValue] = useState("");
   const [hoursError, setHoursError] = useState<string | null>(null);
   const [hoursMessage, setHoursMessage] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
+  // True while a done removed a row under a budget and no GET has yet applied a
+  // plan that reflects it: the empty states would be guesses, not server truth.
+  const [planStale, setPlanStale] = useState(false);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestId = useRef(0);
   const activeHours = useRef<number | null>(null);
   // Each done request, so Undo can wait for it: an undo that reached the server first would
   // leave the item done.
   const pendingDone = useRef(new Map<string, Promise<boolean>>());
-  // Assignment ids whose done request has not settled yet, so a reload never
-  // brings their rows back while the server still reports them open.
-  const inFlightDone = useRef(new Set<string>());
+  const doneRecords = useRef(new Map<string, DoneRecord>());
+  const lastSavedDoneSeq = useRef(0);
+  // The loud/quiet split: a loud reload owns the visible loading state, so a
+  // quiet one never invalidates it — it is skipped while a loud one is in
+  // flight and re-run once the loud response has been applied.
+  const loudRequestId = useRef(0);
+  const loudInFlight = useRef(0);
+  const reconcileOwed = useRef(false);
 
-  const reload = useCallback(async (hours = activeHours.current) => {
-    const currentRequest = ++requestId.current;
-    activeHours.current = hours;
-    setState({ status: "loading" });
-    const next = await loadToday(hours);
-    if (currentRequest === requestId.current) {
-      setState(
-        next.status === "ready"
-          ? { status: "ready", data: withoutInFlightDone(next.data, inFlightDone.current) }
-          : next,
-      );
-    }
-  }, []);
-
-  // Actions reconcile with a quiet reload: it fetches without the loading
-  // state and swaps the fresh data into the ready list in place, so rows keep
-  // their keys and any open details and keyboard focus survive. A failure
-  // keeps the list on screen and reports through the action error instead of
-  // replacing the page with the error state.
   const quietReload = useCallback(async () => {
-    const currentRequest = ++requestId.current;
+    if (loudInFlight.current > 0) {
+      reconcileOwed.current = true;
+      return;
+    }
+    const startedAt = ++requestId.current;
     const next = await loadToday(activeHours.current);
-    if (currentRequest !== requestId.current) {
+    // A quiet response stands only when no newer reload of either kind started.
+    if (startedAt !== requestId.current) {
       return;
     }
     if (next.status === "error") {
-      setActionError(next.message);
+      // Keep the list on screen and report through the action error instead of
+      // replacing the page with the error state.
+      setActionError({ message: "Couldn't refresh your list.", needsReload: true });
       return;
     }
     if (next.status === "ready") {
-      setState({ status: "ready", data: withoutInFlightDone(next.data, inFlightDone.current) });
+      const { data, planCurrent } = reconcileGetResponse(
+        next.data,
+        startedAt,
+        doneRecords.current,
+        lastSavedDoneSeq.current,
+      );
+      setState({ status: "ready", data });
+      if (planCurrent) {
+        setPlanStale(false);
+      }
     }
   }, []);
+
+  const reload = useCallback(
+    async (hours = activeHours.current) => {
+      const startedAt = ++requestId.current;
+      loudRequestId.current = startedAt;
+      loudInFlight.current += 1;
+      activeHours.current = hours;
+      setState({ status: "loading" });
+      const next = await loadToday(hours);
+      loudInFlight.current -= 1;
+      // A loud response stands unless a newer LOUD reload started; quiet
+      // reloads never invalidate it.
+      if (startedAt !== loudRequestId.current) {
+        return;
+      }
+      if (next.status !== "ready") {
+        reconcileOwed.current = false;
+        setState(next);
+        return;
+      }
+      const { data, planCurrent } = reconcileGetResponse(
+        next.data,
+        startedAt,
+        doneRecords.current,
+        lastSavedDoneSeq.current,
+      );
+      setState({ status: "ready", data });
+      setActionError(null);
+      if (planCurrent) {
+        setPlanStale(false);
+      }
+      // A quiet reload skipped while this loud one was in flight is re-run
+      // here: the loud GET may have started before the latest save.
+      if (reconcileOwed.current) {
+        reconcileOwed.current = false;
+        void quietReload();
+      }
+    },
+    [quietReload],
+  );
 
   useEffect(() => {
     const saved = readTodayHours();
@@ -153,26 +238,38 @@ export function TodayList() {
       ...state,
       data: { ...state.data, items: state.data.items.filter((entry) => entry.assignmentId !== item.assignmentId) },
     });
-    // Under a budget the done may open room for the next item, so the plan is
-    // rebuilt from the server; without one the optimistic removal is exact.
-    const planned = state.data.hoursFilter !== null;
-    inFlightDone.current.add(item.assignmentId);
+    // Removing a row under a budget invalidates the plan the server last sent;
+    // the reconcile after the POST rebuilds it.
+    if (state.data.hoursFilter !== null) {
+      setPlanStale(true);
+    }
+    doneRecords.current.set(item.assignmentId, { status: "pending" });
     const request = markDone(
       item.assignmentId,
       { rank: index + 1, listGeneratedAt: state.data.generatedAt },
       newRequestId(),
     ).then(
       (result) => {
-        // Off the in-flight set before the reconcile: a failed done has to come
-        // back with the fresh list.
-        inFlightDone.current.delete(item.assignmentId);
         if (!result.ok) {
-          // The server kept the item open, so the list is quietly rebuilt from
-          // it instead of guessing where the row belonged.
+          // The server kept the item open: forget the record so the reconcile
+          // shows the row again.
+          doneRecords.current.delete(item.assignmentId);
           void quietReload();
           setUndo((current) => (current?.item.assignmentId === item.assignmentId ? null : current));
-          setActionError(`Couldn't mark “${item.title}” done. ${result.error}`);
-        } else if (planned) {
+          setActionError({
+            message: `Couldn't mark “${item.title}” done. ${result.error}`,
+            needsReload: false,
+          });
+          return result.ok;
+        }
+        // The save is server truth from sequence savedAt on; a GET that started
+        // before it may still have read the item open.
+        const savedAt = requestId.current;
+        doneRecords.current.set(item.assignmentId, { status: "saved", savedAt });
+        lastSavedDoneSeq.current = savedAt;
+        // Under a budget the done may open room for the next item, so the plan
+        // is rebuilt from the server; without one the optimistic removal is exact.
+        if (state.data.hoursFilter !== null) {
           void quietReload();
         }
         return result.ok;
@@ -200,13 +297,18 @@ export function TodayList() {
     pendingDone.current.delete(item.assignmentId);
     if (!saved) {
       // The done never saved, so there is nothing to undo; the reload shows
-      // what the server actually has.
+      // what the server actually has. Its failure already forgot the record.
       await quietReload();
       return;
     }
     const result = await undoItem(item.assignmentId, newRequestId());
     if (!result.ok) {
-      setActionError(`Couldn't undo “${item.title}”. ${result.error}`);
+      // The item stays done on the server, so its record keeps guarding older
+      // GETs.
+      setActionError({ message: `Couldn't undo “${item.title}”. ${result.error}`, needsReload: false });
+    } else {
+      // The row is open again; the next GET may show it.
+      doneRecords.current.delete(item.assignmentId);
     }
     // Reload on success and on failure: the item only comes back when the list
     // reflects the server, so a slow undo keeps it off screen until this lands.
@@ -271,7 +373,16 @@ export function TodayList() {
           </Button>
         </div>
       ) : null}
-      {actionError ? <Notice tone="error">{actionError}</Notice> : null}
+      {actionError ? (
+        <Notice tone="error">
+          {actionError.message}{" "}
+          {actionError.needsReload ? (
+            <Button variant="secondary" onClick={() => void reload()}>
+              Reload list
+            </Button>
+          ) : null}
+        </Notice>
+      ) : null}
       {state.status === "ready" ? (
         <>
           {state.data.hoursFilter ? (
@@ -285,9 +396,17 @@ export function TodayList() {
                 : ""}
             </p>
           ) : null}
-          {state.data.items.length === 0 &&
-          state.data.hoursFilter !== null &&
-          state.data.hoursFilter.skippedCount > 0 ? (
+          {state.data.items.length === 0 && planStale && !actionError?.needsReload ? (
+            // The plan on screen is older than the last done: neither empty
+            // state may speak for the server until the reconcile has applied.
+            // A failed reconcile shows its error notice instead.
+            <p className={styles.status} role="status">
+              Updating your plan…
+            </p>
+          ) : state.data.items.length === 0 &&
+            !planStale &&
+            state.data.hoursFilter !== null &&
+            state.data.hoursFilter.skippedCount > 0 ? (
             <section className={styles.emptyState} aria-labelledby="today-nothing-fits-title">
               <div className={styles.emptyMessage}>
                 <h2 id="today-nothing-fits-title">
@@ -300,7 +419,7 @@ export function TodayList() {
                 Show all work
               </Button>
             </section>
-          ) : (
+          ) : state.data.items.length === 0 && planStale ? null : (
             <TodayItems items={state.data.items} onDone={handleDone} />
           )}
         </>
