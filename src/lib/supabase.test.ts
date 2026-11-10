@@ -5,6 +5,7 @@ const {
   mockGetClaims,
   mockSignInWithPassword,
   mockAdminDeleteUser,
+  mockAdminGetUserById,
   mockAdminListFactors,
   mockAdminDeleteFactor,
   mockStudentListFactors,
@@ -18,6 +19,7 @@ const {
     mockGetClaims: vi.fn(),
     mockSignInWithPassword: vi.fn(),
     mockAdminDeleteUser: vi.fn(),
+    mockAdminGetUserById: vi.fn(),
     mockAdminListFactors: vi.fn(),
     mockAdminDeleteFactor: vi.fn(),
     mockStudentListFactors: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 import {
+  authUserExists,
   deleteAllTotpFactors,
   deleteAuthUser,
   emailConfirmationRequired,
@@ -46,6 +49,7 @@ function clientStub() {
       signInWithPassword: mockSignInWithPassword,
       admin: {
         deleteUser: mockAdminDeleteUser,
+        getUserById: mockAdminGetUserById,
         mfa: { listFactors: mockAdminListFactors, deleteFactor: mockAdminDeleteFactor },
       },
       mfa: {
@@ -265,6 +269,59 @@ describe("deleteAuthUser", () => {
     mockAdminDeleteUser.mockResolvedValue({ data: null, error: { message: "nope" } });
     await expect(deleteAuthUser(IDENTITY.authUserId)).rejects.toThrow("Supabase refused");
     expect(mockAdminDeleteUser).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("authUserExists", () => {
+  beforeEach(() => {
+    mockCreateClient.mockReset().mockImplementation(clientStub);
+    mockAdminGetUserById.mockReset();
+  });
+
+  it("answers true when Supabase still has the auth user", async () => {
+    mockAdminGetUserById.mockResolvedValue({ data: { user: { id: IDENTITY.authUserId } }, error: null });
+    await expect(authUserExists(IDENTITY.authUserId)).resolves.toBe(true);
+    expect(mockAdminGetUserById).toHaveBeenCalledWith(IDENTITY.authUserId);
+    // Only the admin client can look a user up by id with the secret key.
+    expect(mockCreateClient).toHaveBeenLastCalledWith(
+      "https://test.supabase.co",
+      "test-secret-key",
+      expect.anything()
+    );
+  });
+
+  it("answers false when Supabase says the user is gone with a 404", async () => {
+    mockAdminGetUserById.mockResolvedValue({
+      data: { user: null },
+      error: { message: "User not found", status: 404 },
+    });
+    await expect(authUserExists("deleted-auth-user")).resolves.toBe(false);
+  });
+
+  it("answers false on the user_not_found error code whatever the status says", async () => {
+    mockAdminGetUserById.mockResolvedValue({
+      data: { user: null },
+      error: { message: "User not found", code: "user_not_found" },
+    });
+    await expect(authUserExists("deleted-auth-user")).resolves.toBe(false);
+  });
+
+  it("answers null on any other Supabase error so the caller fails closed", async () => {
+    mockAdminGetUserById.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Unauthorized", status: 401 },
+    });
+    await expect(authUserExists(IDENTITY.authUserId)).resolves.toBeNull();
+  });
+
+  it("answers null without a user in the data either", async () => {
+    mockAdminGetUserById.mockResolvedValue({ data: { user: null }, error: null });
+    await expect(authUserExists(IDENTITY.authUserId)).resolves.toBeNull();
+  });
+
+  it("answers null when the lookup throws instead of leaking the failure", async () => {
+    mockAdminGetUserById.mockRejectedValue(new Error("network down"));
+    await expect(authUserExists(IDENTITY.authUserId)).resolves.toBeNull();
   });
 });
 
