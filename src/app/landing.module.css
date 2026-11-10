@@ -148,7 +148,9 @@ html[data-theme="light"] .page {
 .display {
   display: flex;
   flex-direction: column;
+  align-items: center;
   margin: 40px 0 0;
+  text-align: center;
   font-size: 152px;
   font-weight: 800;
   line-height: 0.88;
@@ -157,7 +159,6 @@ html[data-theme="light"] .page {
 }
 
 .displayTwo {
-  margin-left: 220px;
   color: var(--accent);
 }
 
@@ -518,10 +519,6 @@ html[data-theme="light"] .page {
     font-size: 104px;
   }
 
-  .displayTwo {
-    margin-left: 120px;
-  }
-
   .heroLead,
   .heroBody {
     grid-column: span 6;
@@ -578,10 +575,6 @@ html[data-theme="light"] .page {
 
   .display {
     font-size: 64px;
-  }
-
-  .displayTwo {
-    margin-left: 0;
   }
 
   .hero,
