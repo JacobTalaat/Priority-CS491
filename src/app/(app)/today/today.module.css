@@ -44,11 +44,19 @@
 
 .hoursForm {
   display: grid;
-  grid-template-columns: minmax(0, 240px) auto;
-  align-items: end;
+  grid-template-columns: minmax(0, 340px) auto;
+  align-items: start;
   justify-content: start;
-  gap: 12px;
-  margin-bottom: 8px;
+  column-gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* Lines the button up with the input box rather than with the hint under it: the
+   label above the box is one 13px line (line-height 1.5) plus the field's 8px gap,
+   and the box itself is 46px tall. */
+.hoursSubmit {
+  min-height: 46px;
+  margin-top: calc(13px * 1.5 + 8px);
 }
 
 .hoursMessage,
@@ -69,7 +77,6 @@
 }
 
 .list {
-  max-width: 760px;
   border-top: 1px solid var(--divider);
   list-style: none;
 }
@@ -78,13 +85,14 @@
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: start;
-  gap: 12px;
-  padding: 16px 4px;
+  column-gap: 16px;
+  padding: 12px 4px;
   border-bottom: 1px solid var(--divider);
 }
 
 .rank {
-  padding-top: 1px;
+  /* Centres the rank and title on the 32px Done button beside them. */
+  padding-top: 5px;
   color: var(--muted);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
@@ -95,6 +103,7 @@
   min-width: 0;
   justify-items: start;
   gap: 4px;
+  padding-top: 4px;
 }
 
 .title {
@@ -159,13 +168,14 @@
 }
 
 .share {
-  display: grid;
-  justify-items: end;
-  text-align: right;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .shareValue {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -203,9 +213,10 @@
 }
 
 .side {
-  display: grid;
-  justify-items: end;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
 }
 
 .doneButton {
@@ -273,5 +284,23 @@
 @media (max-width: 480px) {
   .hoursForm {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Stacked under the field, the button only needs a little room after the hint. */
+  .hoursSubmit {
+    margin-top: 12px;
+  }
+
+  /* On a phone the share sits above Done, so long titles keep most of the row. */
+  .side {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .share {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0;
   }
 }

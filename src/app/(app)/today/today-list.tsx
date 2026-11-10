@@ -192,7 +192,7 @@ export function TodayList() {
             setHoursError(null);
           }}
         />
-        <Button type="submit" loading={state.status === "loading"}>
+        <Button type="submit" className={styles.hoursSubmit} loading={state.status === "loading"}>
           Show what fits
         </Button>
       </form>
