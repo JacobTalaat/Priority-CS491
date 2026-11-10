@@ -112,6 +112,29 @@ describe("TwoFactor", () => {
     expect(mocks.enableTwoFactor).not.toHaveBeenCalled();
   });
 
+  it("renders the enrollment QR from a raw unencoded SVG data URI without crashing", async () => {
+    // Supabase hands back exactly this shape: raw markup with a trailing
+    // newline, which next/image refuses unless it is rebuilt first.
+    const rawUri = `data:image/svg+xml;utf-8,<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg">QR</svg>\n`;
+    mocks.enrollAuthenticator.mockResolvedValue({
+      factorId: "factor-1",
+      qrCode: rawUri,
+      secret: "SECRET",
+    });
+    await act(async () => {
+      root.render(<TwoFactor />);
+    });
+    await act(async () => {
+      findButton("Turn two factor on")?.click();
+    });
+    const img = container.querySelector("img");
+    const src = img?.getAttribute("src") ?? "";
+    expect(src.startsWith("data:image/svg+xml;charset=utf-8,")).toBe(true);
+    expect(src).not.toMatch(/[\n<]/);
+    // The manual secret stays either way.
+    expect(container.textContent).toContain("SECRET");
+  });
+
   it("verifies the code, calls enable with the fresh token, and shows the codes once", async () => {
     mocks.enrollAuthenticator.mockResolvedValue({
       factorId: "factor-1",
