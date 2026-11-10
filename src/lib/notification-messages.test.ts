@@ -285,6 +285,26 @@ describe("gradePostedMessage", () => {
     ).toBe("Grade posted: Problem Set 4 (CS 341) — 18.");
   });
 
+  it("still prints the score clause for a finite score", () => {
+    expect(
+      gradePostedMessage({ assignmentTitle: "Lab", courseName: "CS 101", score: 9, pointsPossible: 10 }).body,
+    ).toBe("Grade posted: Lab (CS 101) — 9/10.");
+  });
+
+  it("leaves the score clause out entirely when the score is not finite", () => {
+    for (const score of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const body = gradePostedMessage({
+        assignmentTitle: "Lab",
+        courseName: "CS 101",
+        score,
+        pointsPossible: 10,
+      }).body;
+      expect(body).toBe("Grade posted: Lab (CS 101).");
+      expect(body).not.toContain("NaN");
+      expect(body).not.toContain("Infinity");
+    }
+  });
+
   it("truncates a very long assignment title with an ellipsis", () => {
     const message = gradePostedMessage({
       assignmentTitle:

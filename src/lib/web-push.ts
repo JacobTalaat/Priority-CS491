@@ -85,10 +85,18 @@ export async function sendPush(
       }
       return await handleSendFailure(target, error);
     }
-    await prisma.pushSubscription.updateMany({
-      where: { id: target.id, endpoint: target.endpoint },
-      data: { failureCount: 0, lastSuccessAt: new Date() },
-    });
+    // The push is already out to the student's device: bookkeeping trouble
+    // after it must not turn into a "failed" outcome, which would let the
+    // nightly job release the claim and deliver this push a second time. The
+    // log stays a fixed line: web-push failures can echo request details.
+    try {
+      await prisma.pushSubscription.updateMany({
+        where: { id: target.id, endpoint: target.endpoint },
+        data: { failureCount: 0, lastSuccessAt: new Date() },
+      });
+    } catch {
+      console.error("Web push bookkeeping failed.");
+    }
     return "sent";
   } catch (error) {
     // Database trouble must not escalate past this helper: the caller counts
