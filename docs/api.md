@@ -83,6 +83,15 @@ curl -i http://localhost:3000/api/auth/me \
 }
 ```
 
+`401` — a student who has turned two factor on sent a password-only token (they have not answered the code yet). Every protected route answers this with the plain body above and passes no data; this route is the one that also says what is missing, so the website and the iOS app can show the code screen instead of a dead session:
+
+```json
+{
+  "error": "Two factor code required",
+  "code": "mfa_required"
+}
+```
+
 ### `POST /api/ask`
 
 Answers a question about the student's classes using only the passages Priority retrieves from the student's saved syllabi, Canvas assignments (including their scores), and grade setup class details. For each question, the question and up to 8 retrieved passages from the student's own data are sent to the AI provider. When the AI can support an answer from those passages, each source it cites is built server-side from the matched passage: the source identifies the passage, and the `quote` is an excerpt the AI copied from it, verified to appear in the passage before being returned. A `found: false` response is a best effort: it means the AI could not support an answer from the matched data, not a guarantee that the data lacks it.
@@ -254,6 +263,217 @@ or the row was removed but the Supabase auth account could not be deleted, so th
 ```json
 {
   "error": "Your data was deleted, but your account is still there. Try again."
+}
+```
+
+### `GET /api/account/two-factor/status`
+
+Reports whether the student has two factor sign in on and how many unused recovery codes remain. Two factor is optional: every student who never turned it on is verified with the password alone and is unaffected by the gate this feature adds.
+
+- **Method**: `GET`
+- **Path**: `/api/account/two-factor/status`
+
+**Request**
+
+No body. Send an `Authorization` header with the Priority bearer token.
+
+```bash
+curl -i http://localhost:3000/api/account/two-factor/status \
+  -H "Authorization: Bearer supabase-access-token"
+```
+
+**Response**
+
+`200` — current two factor state. `recoveryCodesLeft` counts the codes that have not been used yet, and is `0` whenever two factor is off:
+
+```json
+{
+  "enabled": true,
+  "recoveryCodesLeft": 8
+}
+```
+
+`401` — token missing, invalid, or expired, or a two factor student with a password-only token (see the note under `GET /api/auth/me`):
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### `POST /api/account/two-factor/enable`
+
+Turns two factor sign in on after the student scanned the QR code and verified a six digit code from their authenticator app. Requires an `aal2` token — the session that verified the factor at Supabase — and confirms a verified TOTP factor exists there before switching the flag on. Answers with the ten recovery codes exactly once in plaintext; only SHA-256 hashes of the normalized codes are stored, and nothing is logged.
+
+- **Method**: `POST`
+- **Path**: `/api/account/two-factor/enable`
+
+**Request**
+
+No body. Send an `Authorization` header with the `aal2` token the browser held after the code check.
+
+```bash
+curl -i -X POST http://localhost:3000/api/account/two-factor/enable \
+  -H "Authorization: Bearer supabase-aal2-access-token"
+```
+
+**Response**
+
+`200` — two factor is on. The ten codes are shown once; each works a single time as a sign-in path when the authenticator app is lost:
+
+```json
+{
+  "recoveryCodes": [
+    "m7vj-m4l2-q5",
+    "3xlw-bhnp-6k",
+    "…9 more…"
+  ]
+}
+```
+
+`401` — no valid session, or the token has not been through the second factor:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`400` — no verified TOTP factor exists at Supabase:
+
+```json
+{
+  "error": "No verified authenticator app was found. Scan the QR code and verify it first."
+}
+```
+
+`409` — two factor is already on:
+
+```json
+{
+  "error": "Two factor sign in is already on."
+}
+```
+
+### `POST /api/account/two-factor/recover`
+
+The one route a student may call with a password-only token: it accepts one of the recovery codes instead of the authenticator code, for when the app is lost. Acceptance turns two factor off for the whole account. The code is normalized (lowercase, spaces and dashes ignored) and claimed atomically under a per-user lock, and the account must still have two factor on at the moment of the claim, so codes left over from an earlier setup can never act. A used code answers `400` forever. On success the TOTP factors are deleted at Supabase, the two factor flag is cleared, and the remaining codes are discarded, so the student continues the log in without the second factor and can set it up again later. Five wrong codes in 15 minutes per account rate-limit the route.
+
+- **Method**: `POST`
+- **Path**: `/api/account/two-factor/recover`
+
+**Request**
+
+JSON body with one recovery code exactly as a student could type it:
+
+- `code` (string) — e.g. `m7vj-m4l2-q5`
+
+```bash
+curl -i -X POST http://localhost:3000/api/account/two-factor/recover \
+  -H "Authorization: Bearer supabase-password-only-access-token" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"m7vj-m4l2-q5"}'
+```
+
+**Response**
+
+`200` — the code was accepted and two factor is now off entirely:
+
+```json
+{
+  "recovered": true
+}
+```
+
+`400` — the code is wrong, already used, from an earlier setup, belongs to another account, was not part of the body, or the body is not valid JSON:
+
+```json
+{
+  "error": "That recovery code is not right."
+}
+```
+
+`401` — no valid token (the Supabase token is still required even here):
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`429` — more than five wrong codes in 15 minutes; the `Retry-After` header carries the seconds remaining:
+
+```json
+{
+  "error": "Too many recovery code attempts. Try again later."
+}
+```
+
+`500` — the factors could not be deleted at Supabase; nothing was consumed, so the same code still works for a retry:
+
+```json
+{
+  "error": "Two factor could not be turned off right now. Try again shortly."
+}
+```
+
+### `POST /api/account/two-factor/disable`
+
+Turns two factor sign in off from Settings. Requires an `aal2` token and a current six digit code: Supabase is asked once more, acting as the student with their own token, whether the code passes, so only the person who can still answer the authenticator turns it off. Only then are the TOTP factors deleted at Supabase through the admin API, the two factor flag cleared, and any remaining recovery codes removed — all of it serialized per account under one lock.
+
+- **Method**: `POST`
+- **Path**: `/api/account/two-factor/disable`
+
+**Request**
+
+Send an `Authorization` header with the `aal2` token the browser already holds (it was issued after the last code check) and one current code in the JSON body:
+
+- `code` (string) — exactly six digits, from the authenticator app
+
+```bash
+curl -i -X POST http://localhost:3000/api/account/two-factor/disable \
+  -H "Authorization: Bearer supabase-aal2-access-token" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"123456"}'
+```
+
+**Response**
+
+`200` — two factor is off:
+
+```json
+{
+  "disabled": true
+}
+```
+
+`400` — the code is missing, not six digits, or wrong (nothing was changed):
+
+```json
+{
+  "error": "That code is not right. Try again."
+}
+```
+
+`401` — no valid session, or the token has not been through the second factor:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`500` — the code could not be checked with Supabase, or Supabase refused to delete the factors; nothing was changed:
+
+```json
+{
+  "error": "Could not check the code with the authenticator service. Try again."
+}
+```
+
+```json
+{
+  "error": "Could not turn two factor off. Try again."
 }
 ```
 
@@ -1939,7 +2159,7 @@ curl -i http://localhost:3000/api/jobs/daily-sync \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -1997,7 +2217,7 @@ curl -i -X POST http://localhost:3000/api/jobs/daily-sync \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -2050,7 +2270,7 @@ curl -i http://localhost:3000/api/jobs/daily-sync/runs \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -2060,7 +2280,7 @@ Runs one tick of the nightly reminders job: the "Tonight" and "Due tomorrow" pus
 
 Each reminder is tied to a scheduled occurrence: the instant in America/New_York when wall clock `HH:MM` struck (today's if it is past, otherwise yesterday's), so a 23:45 reminder seen by the 00:05 tick is still delivered, keyed to the previous New York day, with the messages computed as of that evening — "due tomorrow" then means the day after the evening the student asked about. A reminder that falls inside the spring-forward gap (like 02:30) counts as one wall-hour later; a fall-back repeat counts as its first pass. Lateness is measured in real minutes since the occurrence instant: more than 3 hours old (the scheduler was down) the day is claimed but nothing is sent.
 
-A candidate is a student with at least one push subscription and the `notifyTonight` or `notifyDueTomorrow` preference on. Before anything is sent the tick claims the night by creating the `NightlyDelivery` row, so delivery is at-most-once even when two ticks overlap — and that one row claims the whole night's bundle, so a crash between the "Tonight" push and the "Due tomorrow" push loses the second message by design. The messages come from the same wording as the today list, ranked by the same engine, with duplicate suppression between the two messages (see the messages under `POST /api/notifications/preferences`), and each push is sent with a 2-hour expiry, so it expires 2 hours after it is sent. A message counts as delivered only when at least one of the student's subscriptions responded. An attempt that delivered nothing — every send failed, or the student's ranked list could not be loaded — gives the claim back, and later ticks that night retry the whole bundle until the 3-hour late limit closes the night; `failed` counts those students as well as the failed messages. Once anything was delivered, or there was nothing to send, or the occurrence was too late, the night stays claimed and is never re-sent; a partially delivered bundle keeps its claim, so the one undelivered message of the pair is dropped rather than repeated. One failed student never stops the rest, and each tick visits the owed students in a random order, so students whose sends keep failing cannot eat the whole tick budget and starve the others.
+A candidate is a student with at least one push subscription and the `notifyTonight` or `notifyDueTomorrow` preference on. Before anything is sent the tick claims the night by creating the `NightlyDelivery` row, so delivery is at-most-once even when two ticks overlap — and that one row claims the whole night's bundle, so a crash between the "Tonight" push and the "Due tomorrow" push loses the second message by design. The messages come from the same wording as the today list, ranked by the same engine, with duplicate suppression between the two messages (see the messages under `GET /api/notifications/preferences`), and each push is sent with a 2-hour expiry, so it expires 2 hours after it is sent. A message counts as delivered only when at least one of the student's subscriptions responded. An attempt that delivered nothing — every send failed, or the student's ranked list could not be loaded — gives the claim back, and later ticks that night retry the whole bundle until the 3-hour late limit closes the night; `failed` counts those students as well as the failed messages. Once anything was delivered, or there was nothing to send, or the occurrence was too late, the night stays claimed and is never re-sent; a partially delivered bundle keeps its claim, so the one undelivered message of the pair is dropped rather than repeated. One failed student never stops the rest, and each tick visits the owed students in a random order, so students whose sends keep failing cannot eat the whole tick budget and starve the others.
 
 This route is protected by the same shared secret as the daily sync. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for scheduling examples.
 
@@ -2112,7 +2332,7 @@ curl -i http://localhost:3000/api/jobs/nightly \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 
@@ -2168,7 +2388,7 @@ curl -i -X POST http://localhost:3000/api/jobs/nightly \
 
 ```json
 {
-  "error": "Daily sync is not configured. Set CRON_SECRET to at least 32 characters."
+  "error": "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters."
 }
 ```
 

@@ -34,6 +34,7 @@ model User {
   notifyGradePosted  Boolean @default(true)
   notifyDueTomorrow  Boolean @default(true)
   nightlyReminderTime String @default("20:00")
+  twoFactorEnabled  Boolean @default(false)
   courses           Course[]
   pushSubscriptions PushSubscription[]
   itemStates        ItemState[]
@@ -45,6 +46,7 @@ model User {
   syncAttempts      SyncAttempt[]
   syncFailures      SyncFailure[]
   nightlyDeliveries NightlyDelivery[]
+  recoveryCodes     RecoveryCode[]
 }
 
 model Course {
@@ -375,4 +377,18 @@ model NightlyDelivery {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, day])
+}
+
+// One single-use code per row, shown once at setup so the student can still
+// sign in without their authenticator app. Only sha256 hashes are stored.
+model RecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

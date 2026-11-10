@@ -52,19 +52,23 @@ function pdfBytes(size = 100): Uint8Array<ArrayBuffer> {
 
 const STORAGE_FILE_SIZE = 100;
 
-function fileOfSize(size: number): File {
-  const file = new File([pdfBytes()], "syllabus.pdf", { type: "application/pdf" });
-  Object.defineProperty(file, "size", { value: size });
-  return file;
-}
-
-function stubbedFormRequest(entry: File): Request {
-  const form = new FormData();
-  form.set("file", entry);
-  return {
-    headers: new Headers({ Authorization: "Bearer session-token" }),
-    formData: () => Promise.resolve(form),
-  } as unknown as Request;
+// Builds the multipart body by hand because FormData.set drops an empty
+// filename when serialising, and these tests need filename="" to survive.
+function rawMultipartRequest(
+  options: { fileName?: string; fileBytes?: Uint8Array<ArrayBuffer>; withSession?: boolean } = {},
+): Request {
+  const boundary = "----vitestsyllabus";
+  const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${options.fileName ?? "syllabus.pdf"}"\r\nContent-Type: application/pdf\r\n\r\n`;
+  const tail = `\r\n--${boundary}--\r\n`;
+  const headers = new Headers({ "Content-Type": `multipart/form-data; boundary=${boundary}` });
+  if (options.withSession !== false) {
+    headers.set("Authorization", "Bearer session-token");
+  }
+  return new Request("http://localhost/api/courses/course-1/syllabus", {
+    method: "POST",
+    headers,
+    body: new Blob([head, options.fileBytes ?? pdfBytes(), tail]),
+  });
 }
 
 function multipartRequest(
@@ -242,7 +246,7 @@ describe("POST /api/courses/[courseId]/syllabus", () => {
   });
 
   it("uses syllabus.pdf when the uploaded file has an empty name", async () => {
-    const response = await POST(stubbedFormRequest(new File([pdfBytes()], "", { type: "application/pdf" })), context);
+    const response = await POST(rawMultipartRequest({ fileName: "" }), context);
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(mockSyllabusUpsert).toHaveBeenCalledWith(
@@ -303,14 +307,12 @@ describe("POST /api/courses/[courseId]/syllabus", () => {
   });
 
   it("rejects a file over 10 MB before reading it", async () => {
-    const form = new FormData();
-    form.set("file", fileOfSize(10 * 1024 * 1024 + 1));
-    const headers = new Headers({ Authorization: "Bearer session-token" });
-    const request = {
-      headers,
-      formData: () => Promise.resolve(form),
-    } as unknown as Request;
-    const response = await POST(request, context);
+    // Real multipart, so the body itself stays under the multipart allowance and
+    // only the parsed file size trips the entry.size check.
+    const response = await POST(
+      rawMultipartRequest({ fileBytes: new Uint8Array(10 * 1024 * 1024 + 1) }),
+      context,
+    );
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toEqual({
       error: "That PDF is over 10 MB. Try a smaller copy of the syllabus.",
@@ -332,8 +334,85 @@ describe("POST /api/courses/[courseId]/syllabus", () => {
     expect(mockReadSyllabusPdf).not.toHaveBeenCalled();
   });
 
+  it("rejects a chunked body with no Content-Length as soon as it passes the limit", async () => {
+    const megabyte = 1024 * 1024;
+    let pulls = 0;
+    let emitted = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        if (emitted >= 30) {
+          controller.close();
+          return;
+        }
+        // First chunk carries multipart framing; the rest is filler the route
+        // must refuse to keep reading.
+        controller.enqueue(new Uint8Array(megabyte).fill(emitted === 0 ? 0x2d : 0x41));
+        emitted += 1;
+      },
+    });
+    const request = new Request("http://localhost/api/courses/course-1/syllabus", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer session-token",
+        "Content-Type": "multipart/form-data; boundary=----vitestboundary",
+      },
+      body: stream,
+      // The DOM RequestInit type has no duplex, but Node's Request needs it for a stream body.
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const response = await POST(request, context);
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "That PDF is over 10 MB. Try a smaller copy of the syllabus.",
+    });
+    // 30 MB cannot fit the 11 MB allowance; a prefetched chunk plus the
+    // over-limit one is the most the route may ever pull.
+    expect(pulls).toBeLessThanOrEqual(13);
+    expect(mockReadSyllabusPdf).not.toHaveBeenCalled();
+    expect(mockSyllabusUpsert).not.toHaveBeenCalled();
+  });
+
+  it("returns the multipart error when the body stream errors mid-read", async () => {
+    let pulled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!pulled) {
+          pulled = true;
+          controller.enqueue(new Uint8Array(10));
+          return;
+        }
+        controller.error(new Error("client aborted"));
+      },
+    });
+    const request = new Request("http://localhost/api/courses/course-1/syllabus", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer session-token",
+        "Content-Type": "multipart/form-data; boundary=----vitestboundary",
+      },
+      body: stream,
+      // The DOM RequestInit type has no duplex, but Node's Request needs it for a stream body.
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const response = await POST(request, context);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Send the syllabus as multipart/form-data with the PDF in a "file" field.',
+    });
+    expect(mockReadSyllabusPdf).not.toHaveBeenCalled();
+    expect(mockSyllabusUpsert).not.toHaveBeenCalled();
+  });
+
   it("accepts a file of exactly 10 MB", async () => {
-    const response = await POST(stubbedFormRequest(fileOfSize(10 * 1024 * 1024)), context);
+    const response = await POST(
+      rawMultipartRequest({ fileBytes: new Uint8Array(10 * 1024 * 1024) }),
+      context,
+    );
     expect(response.status).toBe(200);
     expect(mockReadSyllabusPdf).toHaveBeenCalledTimes(1);
     expect(mockSyllabusUpsert).toHaveBeenCalledTimes(1);

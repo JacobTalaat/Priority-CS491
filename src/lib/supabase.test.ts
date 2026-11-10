@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCreateClient, mockGetClaims, mockSignInWithPassword, mockAdminDeleteUser } = vi.hoisted(() => {
+const {
+  mockCreateClient,
+  mockGetClaims,
+  mockSignInWithPassword,
+  mockAdminDeleteUser,
+  mockAdminListFactors,
+  mockAdminDeleteFactor,
+  mockStudentListFactors,
+  mockStudentChallengeAndVerify,
+} = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "test-publishable-key";
   process.env.SUPABASE_SECRET_KEY ??= "test-secret-key";
@@ -9,6 +18,10 @@ const { mockCreateClient, mockGetClaims, mockSignInWithPassword, mockAdminDelete
     mockGetClaims: vi.fn(),
     mockSignInWithPassword: vi.fn(),
     mockAdminDeleteUser: vi.fn(),
+    mockAdminListFactors: vi.fn(),
+    mockAdminDeleteFactor: vi.fn(),
+    mockStudentListFactors: vi.fn(),
+    mockStudentChallengeAndVerify: vi.fn(),
   };
 });
 
@@ -16,19 +29,34 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: mockCreateClient,
 }));
 
-import { deleteAuthUser, emailConfirmationRequired, verifyAccessToken, verifyPassword } from "./supabase";
+import {
+  deleteAllTotpFactors,
+  deleteAuthUser,
+  emailConfirmationRequired,
+  listVerifiedTotpFactors,
+  verifyAccessToken,
+  verifyPassword,
+  verifyStudentTotpCode,
+} from "./supabase";
 
 function clientStub() {
   return {
     auth: {
       getClaims: mockGetClaims,
       signInWithPassword: mockSignInWithPassword,
-      admin: { deleteUser: mockAdminDeleteUser },
+      admin: {
+        deleteUser: mockAdminDeleteUser,
+        mfa: { listFactors: mockAdminListFactors, deleteFactor: mockAdminDeleteFactor },
+      },
+      mfa: {
+        listFactors: mockStudentListFactors,
+        challengeAndVerify: mockStudentChallengeAndVerify,
+      },
     },
   };
 }
 
-const IDENTITY = { authUserId: "auth-user-1", email: "student@example.com" };
+const IDENTITY = { authUserId: "auth-user-1", email: "student@example.com", aal: "aal1" };
 
 describe("verifyAccessToken", () => {
   beforeEach(() => {
@@ -42,7 +70,7 @@ describe("verifyAccessToken", () => {
 
   it("verifies the token locally with getClaims and returns the account it belongs to", async () => {
     mockGetClaims.mockResolvedValue({
-      data: { claims: { sub: IDENTITY.authUserId, email: IDENTITY.email } },
+      data: { claims: { sub: IDENTITY.authUserId, email: IDENTITY.email, aal: "aal1" } },
       error: null,
     });
     const fetchMock = vi.fn();
@@ -51,6 +79,27 @@ describe("verifyAccessToken", () => {
     expect(mockGetClaims).toHaveBeenCalledWith("valid-token");
     // No network call for the happy path: verification never leaves the server.
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the assurance level from the verified claims", async () => {
+    mockGetClaims.mockResolvedValue({
+      data: { claims: { sub: IDENTITY.authUserId, email: IDENTITY.email, aal: "aal2" } },
+      error: null,
+    });
+    await expect(verifyAccessToken("aal2-token")).resolves.toEqual({ ...IDENTITY, aal: "aal2" });
+  });
+
+  it("counts a missing or unknown aal as the lower level", async () => {
+    mockGetClaims.mockResolvedValue({
+      data: { claims: { sub: IDENTITY.authUserId, email: IDENTITY.email, aal: "aal99" } },
+      error: null,
+    });
+    await expect(verifyAccessToken("odd-aal-token")).resolves.toEqual(IDENTITY);
+    mockGetClaims.mockResolvedValue({
+      data: { claims: { sub: IDENTITY.authUserId, email: IDENTITY.email } },
+      error: null,
+    });
+    await expect(verifyAccessToken("no-aal-token")).resolves.toEqual(IDENTITY);
   });
 
   it("answers null for a missing, malformed, expired, or wrongly signed token", async () => {
@@ -83,6 +132,23 @@ describe("verifyAccessToken", () => {
         apikey: "test-publishable-key",
       },
     });
+  });
+
+  it("reads the assurance level from the fallback token's own payload", async () => {
+    // The fallback lookup proves Supabase accepted the token, so its payload
+    // is trusted for the aal without another verification pass.
+    const aal2Payload = Buffer.from(
+      JSON.stringify({ sub: IDENTITY.authUserId, aal: "aal2" })
+    ).toString("base64url");
+    const hs256Aal2Token = `header.${aal2Payload}.signature`;
+    mockGetClaims.mockResolvedValue({ data: null, error: new Error("HS256 is not supported") });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({ id: IDENTITY.authUserId, email: IDENTITY.email }, { status: 200 })
+      )
+    );
+    await expect(verifyAccessToken(hs256Aal2Token)).resolves.toEqual({ ...IDENTITY, aal: "aal2" });
   });
 
   it("answers null when both verification paths fail", async () => {
@@ -199,5 +265,110 @@ describe("deleteAuthUser", () => {
     mockAdminDeleteUser.mockResolvedValue({ data: null, error: { message: "nope" } });
     await expect(deleteAuthUser(IDENTITY.authUserId)).rejects.toThrow("Supabase refused");
     expect(mockAdminDeleteUser).toHaveBeenCalledTimes(1);
+  });
+});
+
+const TOTP_FACTOR = { id: "factor-1", factor_type: "totp", status: "verified" };
+const UNVERIFIED_TOTP = { id: "factor-2", factor_type: "totp", status: "unverified" };
+const PHONE_FACTOR = { id: "factor-3", factor_type: "phone", status: "verified" };
+
+describe("listVerifiedTotpFactors", () => {
+  beforeEach(() => {
+    mockCreateClient.mockReset().mockImplementation(clientStub);
+    mockAdminListFactors.mockReset();
+    mockAdminDeleteFactor.mockReset();
+  });
+
+  it("lists the verified TOTP factors and nothing else via the admin API", async () => {
+    mockAdminListFactors.mockResolvedValue({
+      data: { factors: [TOTP_FACTOR, UNVERIFIED_TOTP, PHONE_FACTOR] },
+      error: null,
+    });
+    await expect(listVerifiedTotpFactors(IDENTITY.authUserId)).resolves.toEqual([TOTP_FACTOR]);
+    expect(mockAdminListFactors).toHaveBeenCalledWith({ userId: IDENTITY.authUserId });
+  });
+
+  it("throws when Supabase refuses the listing", async () => {
+    mockAdminListFactors.mockResolvedValue({ data: null, error: { message: "nope" } });
+    await expect(listVerifiedTotpFactors(IDENTITY.authUserId)).rejects.toThrow("Supabase refused");
+  });
+});
+
+describe("deleteAllTotpFactors", () => {
+  beforeEach(() => {
+    mockCreateClient.mockReset().mockImplementation(clientStub);
+    mockAdminListFactors.mockReset();
+    mockAdminDeleteFactor.mockReset();
+  });
+
+  it("deletes every TOTP factor, including an unverified one, through the admin API", async () => {
+    mockAdminListFactors.mockResolvedValue({
+      data: { factors: [TOTP_FACTOR, UNVERIFIED_TOTP, PHONE_FACTOR] },
+      error: null,
+    });
+    mockAdminDeleteFactor.mockResolvedValue({ data: { id: "factor" }, error: null });
+    await deleteAllTotpFactors(IDENTITY.authUserId);
+    expect(mockAdminDeleteFactor).toHaveBeenCalledTimes(2);
+    expect(mockAdminDeleteFactor).toHaveBeenCalledWith({ userId: IDENTITY.authUserId, id: "factor-1" });
+    expect(mockAdminDeleteFactor).toHaveBeenCalledWith({ userId: IDENTITY.authUserId, id: "factor-2" });
+  });
+
+  it("throws when the listing or one of the deletions fails", async () => {
+    mockAdminListFactors.mockResolvedValue({ data: null, error: { message: "nope" } });
+    await expect(deleteAllTotpFactors(IDENTITY.authUserId)).rejects.toThrow("Supabase refused");
+
+    mockAdminListFactors.mockResolvedValue({
+      data: { factors: [TOTP_FACTOR] },
+      error: null,
+    });
+    mockAdminDeleteFactor.mockResolvedValue({ data: null, error: { message: "refused" } });
+    await expect(deleteAllTotpFactors(IDENTITY.authUserId)).rejects.toThrow("Supabase refused");
+  });
+});
+
+describe("verifyStudentTotpCode", () => {
+  beforeEach(() => {
+    mockCreateClient.mockReset().mockImplementation(clientStub);
+    mockStudentListFactors.mockReset();
+    mockStudentChallengeAndVerify.mockReset();
+  });
+
+  it("lists and challenges with the student's own token in the headers, never the secret key", async () => {
+    mockStudentListFactors.mockResolvedValue({
+      data: { all: [{ id: "factor-1", factor_type: "totp", status: "verified" }] },
+      error: null,
+    });
+    mockStudentChallengeAndVerify.mockResolvedValue({ data: {}, error: null });
+    await expect(verifyStudentTotpCode("student-token", "123456")).resolves.toBe("verified");
+    expect(mockStudentListFactors).toHaveBeenCalledTimes(1);
+    expect(mockStudentChallengeAndVerify).toHaveBeenCalledWith({ factorId: "factor-1", code: "123456" });
+    const options = mockCreateClient.mock.calls[0][2];
+    expect(options.global.headers.Authorization).toBe("Bearer student-token");
+    for (const call of mockCreateClient.mock.calls) {
+      expect(call[1]).not.toBe("test-secret-key");
+    }
+  });
+
+  it("answers rejected for a wrong code and ignores unverified factors", async () => {
+    mockStudentListFactors.mockResolvedValue({
+      data: { all: [{ id: "factor-2", factor_type: "totp", status: "unverified" }] },
+      error: null,
+    });
+    await expect(verifyStudentTotpCode("student-token", "111111")).resolves.toBe("rejected");
+    expect(mockStudentChallengeAndVerify).not.toHaveBeenCalled();
+
+    mockStudentListFactors.mockResolvedValue({
+      data: { all: [{ id: "factor-1", factor_type: "totp", status: "verified" }] },
+      error: null,
+    });
+    mockStudentChallengeAndVerify.mockResolvedValue({ data: null, error: { message: "wrong code" } });
+    await expect(verifyStudentTotpCode("student-token", "111111")).resolves.toBe("rejected");
+  });
+
+  it("answers unreachable when the listing or the verification cannot be read", async () => {
+    mockStudentListFactors.mockResolvedValue({ data: null, error: { message: "down" } });
+    await expect(verifyStudentTotpCode("student-token", "123456")).resolves.toBe("unreachable");
+    mockStudentListFactors.mockRejectedValue(new Error("network down"));
+    await expect(verifyStudentTotpCode("student-token", "123456")).resolves.toBe("unreachable");
   });
 });

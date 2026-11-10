@@ -57,4 +57,23 @@ describe("GET /api/auth/me", () => {
     await expect(res.json()).resolves.toEqual({ id: "user-1", email: "student@example.com" });
     expect(mockUserFindUnique).toHaveBeenCalledWith({ where: { authUserId: "auth-user-1" } });
   });
+
+  it("answers the distinct two factor body for a password-only token of a two factor student", async () => {
+    mockVerifyAccessToken.mockResolvedValue({
+      authUserId: "auth-user-1",
+      email: "student@example.com",
+      aal: "aal1",
+    });
+    mockUserFindUnique.mockResolvedValue({
+      id: "user-1",
+      email: "student@example.com",
+      twoFactorEnabled: true,
+    });
+    const res = await GET(meRequest("password-token"));
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({
+      error: "Two factor code required",
+      code: "mfa_required",
+    });
+  });
 });

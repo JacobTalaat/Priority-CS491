@@ -1,5 +1,6 @@
 import "server-only";
 import { AiError, completeChat, type AiMessage } from "@/lib/ai";
+import { neutralizeDelimiters } from "@/lib/ai-prompt-text";
 import {
   retrieveClassContext,
   type RetrievalItem,
@@ -29,12 +30,6 @@ export const QUOTE_MAX_CHARS = 300;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// "<" and ">" are swapped for guillemets so passage text can never close its
-// own <passage> delimiter and inject instructions.
-function neutralizeDelimiters(text: string): string {
-  return text.replaceAll("<", "‹").replaceAll(">", "›");
 }
 
 export function buildAskMessages(question: string, passages: RetrievalItem[]): AiMessage[] {
