@@ -104,6 +104,8 @@ One account works for both the website and the iPhone app. Accounts are owned by
 
 Forgotten passwords use Supabase's emailed reset link. The link must land back on the app, so `/reset-password` (the app builds it on whatever origin it is served from, for example `https://your-deployment.example` and `http://localhost:3000`) has to be on the **Redirect URLs** allow list in the Supabase dashboard, under Authentication -> URL Configuration. Without it Supabase refuses to send the email.
 
+Confirmation and reset links point at the address the browser is on unless `NEXT_PUBLIC_SITE_URL` is set, in which case they point there. Set it to the deployed site's address so a link opened on a phone works even when someone signed up from a laptop running Priority on `localhost`, which no other device can reach. That address's `/auth/confirm` and `/reset-password` must be on the same **Redirect URLs** list.
+
 No password material is stored by the app itself; the Prisma `User` row is linked to the Supabase Auth account through its `authUserId` column and holds the encrypted Canvas token and calendar feed.
 
 Two Supabase dashboard settings are required before real accounts exist. **Confirm email must be enabled** on the email provider (Authentication section): with it off, anyone can sign up with somebody else's address and receive a session without proving they can read that mailbox. And the project should keep **asymmetric JWT signing keys**, so tokens are verified locally instead of by a call per request.

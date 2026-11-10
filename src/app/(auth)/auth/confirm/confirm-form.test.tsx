@@ -93,15 +93,28 @@ describe("finishConfirmation", () => {
 });
 
 describe("ConfirmScreen", () => {
-  it("clearly reports an expired or already used link and offers a fresh one", () => {
+  it("leads with Log in for a used link, since it may already have confirmed the email", () => {
     const outcome: ConfirmationOutcome = { status: "expired" };
     const html = renderToStaticMarkup(
       <ConfirmScreen outcome={outcome} typedEmail="" onTypedEmail={noop} />,
     );
-    expect(html).toContain("This confirmation link has expired or was already used.");
+    expect(html).toContain("This link was already used or has expired");
+    expect(html).toContain("If you already clicked it, even on another device, your email is confirmed.");
+    const logIn = html.indexOf('href="/login"');
+    const resend = html.indexOf("Send a new link");
+    expect(logIn).toBeGreaterThan(-1);
+    expect(resend).toBeGreaterThan(logIn);
+    expect(html).not.toContain("not valid");
+  });
+
+  it("still offers a fresh link for an email that isn't confirmed yet", () => {
+    const outcome: ConfirmationOutcome = { status: "expired" };
+    const html = renderToStaticMarkup(
+      <ConfirmScreen outcome={outcome} typedEmail="" onTypedEmail={noop} />,
+    );
+    expect(html).toContain("Not confirmed yet?");
     expect(html).toContain('type="email"');
     expect(html).toContain("Send a new link");
-    expect(html).not.toContain("not valid");
   });
 
   it("tells the student a link without anything to confirm is not valid", () => {

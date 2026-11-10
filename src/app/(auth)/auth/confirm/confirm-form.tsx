@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ButtonLink, Input, Notice } from "@/components/ui";
+import { ButtonLink, Input } from "@/components/ui";
 import { readConfirmationResult } from "@/lib/auth-client";
 import type { ConfirmationOutcome } from "@/lib/auth-client";
 import { setToken } from "@/lib/session";
@@ -47,17 +47,26 @@ export function ConfirmScreen({
     );
   }
 
+  // Supabase answers a used link exactly like an expired one. The common case is a link
+  // already clicked once, often on another device, which confirmed the email even if the
+  // page it opened failed to load, so logging in comes first and a fresh link second.
   return (
     <>
       <div className={styles.heading}>
-        <p className="eyebrow">Almost there</p>
-        <h1 className={styles.title}>Confirm your email</h1>
-        <Notice tone="error">This confirmation link has expired or was already used.</Notice>
+        <p className="eyebrow">Confirm your email</p>
+        <h1 className={styles.title}>This link was already used or has expired</h1>
         <p className={styles.subtitle}>
-          Type the email you signed up with and we&apos;ll send a fresh link.
+          If you already clicked it, even on another device, your email is confirmed. Log in to
+          continue.
         </p>
       </div>
       <div className={styles.form}>
+        <ButtonLink href="/login" fullWidth>
+          Log in
+        </ButtonLink>
+        <p className={styles.subtitle}>
+          Not confirmed yet? Type the email you signed up with and we&apos;ll send a new link.
+        </p>
         <Input
           label="Email"
           name="email"
@@ -67,7 +76,7 @@ export function ConfirmScreen({
           value={typedEmail}
           onChange={onTypedEmail}
         />
-        <ResendConfirmation email={typedEmail.trim() || null} label="Send a new link" />
+        <ResendConfirmation email={typedEmail.trim() || null} label="Send a new link" variant="secondary" />
       </div>
     </>
   );
