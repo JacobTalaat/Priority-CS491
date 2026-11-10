@@ -111,16 +111,6 @@ describe("marking an item done on Today", () => {
   });
 
   it("brings the item back only after the undo saves and the list reloads", async () => {
-    await click(button("Mark Lab 3 done"));
-    await click(button("Undo"));
-    expect(titles()).toEqual(["Problem Set 4", "Lab 3", "Essay"]);
-    expect(mockUndoItem).toHaveBeenCalledWith("a2", expect.any(String));
-    expect(mockMarkDone.mock.invocationCallOrder[0]).toBeLessThan(mockUndoItem.mock.invocationCallOrder[0]);
-    expect(mockGetToday).toHaveBeenCalledTimes(2);
-    expect(container.textContent).not.toContain("Marked “Lab 3” done.");
-  });
-
-  it("keeps a slow undo off the list until it finishes and the list reloads", async () => {
     let resolveUndo: (value: unknown) => void = () => {};
     mockUndoItem.mockImplementation(
       () =>
@@ -130,14 +120,17 @@ describe("marking an item done on Today", () => {
     );
     await click(button("Mark Lab 3 done"));
     await click(button("Undo"));
-    // While the undo request is in flight nothing has been put back yet.
+    // While the DELETE is still in flight the row must not be back on screen.
     expect(titles()).toEqual(["Problem Set 4", "Essay"]);
     await act(async () => {
       resolveUndo({ ok: true, status: 200, data: { assignmentId: "a2", undone: true } });
     });
-    // The reload after the undo is what brings the item back.
+    // The quiet reload after the undo is what brings the item back.
     expect(titles()).toEqual(["Problem Set 4", "Lab 3", "Essay"]);
+    expect(mockUndoItem).toHaveBeenCalledWith("a2", expect.any(String));
+    expect(mockMarkDone.mock.invocationCallOrder[0]).toBeLessThan(mockUndoItem.mock.invocationCallOrder[0]);
     expect(mockGetToday).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain("Marked “Lab 3” done.");
   });
 
   it("Undo goes away after a few seconds and the item stays done", async () => {
@@ -166,5 +159,137 @@ describe("marking an item done on Today", () => {
     await click(button("Undo"));
     expect(container.textContent).toContain("Couldn't undo “Lab 3”.");
     expect(mockGetToday).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not resurrect a row whose done is still in flight when another done fails", async () => {
+    let failA: () => void = () => {};
+    let resolveB: (value: unknown) => void = () => {};
+    mockMarkDone.mockImplementation((assignmentId: string) => {
+      if (assignmentId === "a1") {
+        return new Promise((resolve) => {
+          failA = () => resolve({ ok: false, status: 500, error: "Something went wrong (500). Try again." });
+        });
+      }
+      return new Promise((resolve) => {
+        resolveB = resolve;
+      });
+    });
+    await click(button("Mark Problem Set 4 done"));
+    await click(button("Mark Lab 3 done"));
+    expect(titles()).toEqual(["Essay"]);
+    // A's POST fails while B's is still pending: the reconcile reload brings A
+    // back, but the GET still reports B open, so B stays off the list.
+    await act(async () => {
+      failA();
+    });
+    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
+    await act(async () => {
+      resolveB({ ok: true, status: 200, data: { assignmentId: "a2", status: "done" } });
+    });
+    // B's done succeeded, so it never comes back.
+    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
+  });
+
+  it("does not resurrect a pending done when the undo of another row reloads", async () => {
+    let resolveB: (value: unknown) => void = () => {};
+    mockMarkDone.mockImplementation((assignmentId: string) =>
+      assignmentId === "a2"
+        ? new Promise((resolve) => {
+            resolveB = resolve;
+          })
+        : Promise.resolve({ ok: true, status: 200, data: { assignmentId: "a1", status: "done" } }),
+    );
+    await click(button("Mark Lab 3 done"));
+    await click(button("Mark Problem Set 4 done"));
+    await click(button("Undo"));
+    // The undo's reload finds Lab 3 still open on the server, but its done is
+    // in flight, so the row stays off the list.
+    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
+    await act(async () => {
+      resolveB({ ok: true, status: 200, data: { assignmentId: "a2", status: "done" } });
+    });
+    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
+  });
+
+  it("keeps the list on screen during an undo, open details and all", async () => {
+    let resolveUndo: (value: unknown) => void = () => {};
+    mockUndoItem.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUndo = resolve;
+        }),
+    );
+    await click(button("Mark Lab 3 done"));
+    const details = container.querySelector("details") as HTMLDetailsElement;
+    details.setAttribute("open", "");
+    await click(button("Undo"));
+    // The quiet reload never flips to the loading state, so the row and its
+    // open details stay exactly where they were.
+    expect(container.textContent).not.toContain("Loading your list…");
+    expect(details.hasAttribute("open")).toBe(true);
+    await act(async () => {
+      resolveUndo({ ok: true, status: 200, data: { assignmentId: "a2", undone: true } });
+    });
+    expect(titles()).toEqual(["Problem Set 4", "Lab 3", "Essay"]);
+    expect(container.textContent).not.toContain("Loading your list…");
+    expect(details.hasAttribute("open")).toBe(true);
+  });
+
+  it("keeps the rows and shows the error when the undo's reload fails", async () => {
+    mockGetToday.mockResolvedValueOnce({ ok: false, status: 500, error: "Something went wrong (500). Try again." });
+    await click(button("Mark Lab 3 done"));
+    await click(button("Undo"));
+    // The quiet reload failed, so the list stays as it was and the notice speaks.
+    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
+    expect(container.textContent).toContain("Something went wrong (500). Try again.");
+    expect(container.textContent).not.toContain("Loading your list…");
+  });
+
+  it("quietly rebuilds the plan after a done succeeds under a budget", async () => {
+    // The beforeEach render already consumed the default list, so this test
+    // remounts with its own queue: first a plan where Lab 3 does not fit.
+    mockGetToday
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [item("a1", "Problem Set 4", 1)],
+          hoursFilter: { hours: 2, plannedHours: 1, unestimatedCount: 1, skippedCount: 1 },
+        },
+      })
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [item("a2", "Lab 3", 2)],
+          hoursFilter: { hours: 2, plannedHours: 2, unestimatedCount: 1, skippedCount: 0 },
+        },
+      });
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TodayList />);
+    });
+    expect(titles()).toEqual(["Problem Set 4"]);
+
+    await click(button("Mark Problem Set 4 done"));
+    // The rebuilt plan admits Lab 3, so the old "nothing fits" claim never shows.
+    expect(titles()).toEqual(["Lab 3"]);
+    expect(container.textContent).not.toContain("Nothing fits");
+    expect(container.textContent).not.toContain("Loading your list…");
+  });
+
+  it("does not reload after a successful done when no hours filter is active", async () => {
+    await click(button("Mark Lab 3 done"));
+    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
+    expect(mockGetToday).toHaveBeenCalledTimes(1);
   });
 });

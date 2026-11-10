@@ -200,9 +200,12 @@ function GradeOverview({
       <div className={styles.gradeBlock}>
         {/* The letter rides beside the percentage, the way the Classes cards show it. */}
         <p className={styles.gradeLine}>
-          <span className={styles.grade}>
-            {calculated && !showGrades ? "Grade hidden" : summary.headline}
-          </span>
+          {calculated && !showGrades ? (
+            // A note, not a number: it reads at text size, unlike the headline it replaces.
+            <span className={styles.gradeHidden}>Grade hidden</span>
+          ) : (
+            <span className={styles.grade}>{summary.headline}</span>
+          )}
           {calculated && showGrades && grade.letter !== null ? (
             <span className={styles.gradeLetter}>{grade.letter}</span>
           ) : null}

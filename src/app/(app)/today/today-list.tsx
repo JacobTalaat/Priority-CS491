@@ -20,6 +20,13 @@ type LoadState =
 // The item just marked done, so Undo can reverse it while the bar is up.
 type UndoState = { item: TodayItem };
 
+// A reload must not resurrect a row whose done request is still in flight: the
+// server reports it open until the POST lands. Ids land in the in-flight set at
+// click time and leave it the moment their request settles.
+function withoutInFlightDone(data: TodayResponse, inFlight: ReadonlySet<string>): TodayResponse {
+  return { ...data, items: data.items.filter((entry) => !inFlight.has(entry.assignmentId)) };
+}
+
 async function loadToday(hours: number | null): Promise<LoadState> {
   const result = await getToday(hours);
   return result.ok ? { status: "ready", data: result.data } : { status: "error", message: result.error };
@@ -55,6 +62,9 @@ export function TodayList() {
   // Each done request, so Undo can wait for it: an undo that reached the server first would
   // leave the item done.
   const pendingDone = useRef(new Map<string, Promise<boolean>>());
+  // Assignment ids whose done request has not settled yet, so a reload never
+  // brings their rows back while the server still reports them open.
+  const inFlightDone = useRef(new Set<string>());
 
   const reload = useCallback(async (hours = activeHours.current) => {
     const currentRequest = ++requestId.current;
@@ -62,7 +72,31 @@ export function TodayList() {
     setState({ status: "loading" });
     const next = await loadToday(hours);
     if (currentRequest === requestId.current) {
-      setState(next);
+      setState(
+        next.status === "ready"
+          ? { status: "ready", data: withoutInFlightDone(next.data, inFlightDone.current) }
+          : next,
+      );
+    }
+  }, []);
+
+  // Actions reconcile with a quiet reload: it fetches without the loading
+  // state and swaps the fresh data into the ready list in place, so rows keep
+  // their keys and any open details and keyboard focus survive. A failure
+  // keeps the list on screen and reports through the action error instead of
+  // replacing the page with the error state.
+  const quietReload = useCallback(async () => {
+    const currentRequest = ++requestId.current;
+    const next = await loadToday(activeHours.current);
+    if (currentRequest !== requestId.current) {
+      return;
+    }
+    if (next.status === "error") {
+      setActionError(next.message);
+      return;
+    }
+    if (next.status === "ready") {
+      setState({ status: "ready", data: withoutInFlightDone(next.data, inFlightDone.current) });
     }
   }, []);
 
@@ -119,18 +153,27 @@ export function TodayList() {
       ...state,
       data: { ...state.data, items: state.data.items.filter((entry) => entry.assignmentId !== item.assignmentId) },
     });
+    // Under a budget the done may open room for the next item, so the plan is
+    // rebuilt from the server; without one the optimistic removal is exact.
+    const planned = state.data.hoursFilter !== null;
+    inFlightDone.current.add(item.assignmentId);
     const request = markDone(
       item.assignmentId,
       { rank: index + 1, listGeneratedAt: state.data.generatedAt },
       newRequestId(),
     ).then(
       (result) => {
+        // Off the in-flight set before the reconcile: a failed done has to come
+        // back with the fresh list.
+        inFlightDone.current.delete(item.assignmentId);
         if (!result.ok) {
-          // The server kept the item open, so the list is rebuilt from it instead
-          // of guessing where the row belonged.
-          void reload();
+          // The server kept the item open, so the list is quietly rebuilt from
+          // it instead of guessing where the row belonged.
+          void quietReload();
           setUndo((current) => (current?.item.assignmentId === item.assignmentId ? null : current));
           setActionError(`Couldn't mark “${item.title}” done. ${result.error}`);
+        } else if (planned) {
+          void quietReload();
         }
         return result.ok;
       },
@@ -158,7 +201,7 @@ export function TodayList() {
     if (!saved) {
       // The done never saved, so there is nothing to undo; the reload shows
       // what the server actually has.
-      await reload();
+      await quietReload();
       return;
     }
     const result = await undoItem(item.assignmentId, newRequestId());
@@ -167,7 +210,7 @@ export function TodayList() {
     }
     // Reload on success and on failure: the item only comes back when the list
     // reflects the server, so a slow undo keeps it off screen until this lands.
-    await reload();
+    await quietReload();
   }
 
   // From the "nothing fits" state: no budget at all, so the plan on screen
@@ -251,7 +294,7 @@ export function TodayList() {
                   Nothing fits in {state.data.hoursFilter.hours}{" "}
                   {state.data.hoursFilter.hours === 1 ? "hour" : "hours"}
                 </h2>
-                <p>Your open work is still there. Try more hours, or clear the box to see everything.</p>
+                <p>Each item counts as 1 hour unless it has an estimate. Try at least 1 hour, or clear the box to see everything.</p>
               </div>
               <Button variant="secondary" onClick={showAllWork}>
                 Show all work

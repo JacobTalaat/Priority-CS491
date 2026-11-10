@@ -202,6 +202,9 @@ describe("ClassPageView", () => {
     };
     const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: true, data: solved }} />);
     expect(html).toContain("Grade hidden");
+    // The placeholder reads as a note at text size, not as the big headline number.
+    expect(html).toMatch(/gradeHidden[^"]*">Grade hidden</);
+    expect(html).not.toMatch(/_grade_[0-9a-f]+">Grade hidden</);
     // The figures: the overall percentage and letter, the per-category numbers,
     // the needed final scores and each assignment's score.
     expect(html).not.toContain("90%");

@@ -186,7 +186,7 @@ describe("TodayList", () => {
     const view = await renderLoadedList();
     expect(view.container.textContent).toContain("Nothing fits in 1.5 hours");
     expect(view.container.textContent).toContain(
-      "Your open work is still there. Try more hours, or clear the box to see everything.",
+      "Each item counts as 1 hour unless it has an estimate. Try at least 1 hour, or clear the box to see everything.",
     );
     expect(view.container.textContent).not.toContain("all caught up");
     await view.unmount();
