@@ -156,28 +156,27 @@ export function TodayList() {
       loudInFlight.current -= 1;
       // A loud response stands unless a newer LOUD reload started; quiet
       // reloads never invalidate it.
-      if (startedAt !== loudRequestId.current) {
-        return;
+      if (startedAt === loudRequestId.current) {
+        if (next.status !== "ready") {
+          setState(next);
+        } else {
+          const { data, planCurrent } = reconcileGetResponse(
+            next.data,
+            startedAt,
+            doneRecords.current,
+            lastSavedDoneSeq.current,
+          );
+          setState({ status: "ready", data });
+          setActionError(null);
+          if (planCurrent) {
+            setPlanStale(false);
+          }
+        }
       }
-      if (next.status !== "ready") {
-        reconcileOwed.current = false;
-        setState(next);
-        return;
-      }
-      const { data, planCurrent } = reconcileGetResponse(
-        next.data,
-        startedAt,
-        doneRecords.current,
-        lastSavedDoneSeq.current,
-      );
-      setState({ status: "ready", data });
-      setActionError(null);
-      if (planCurrent) {
-        setPlanStale(false);
-      }
-      // A quiet reload skipped while this loud one was in flight is re-run
-      // here: the loud GET may have started before the latest save.
-      if (reconcileOwed.current) {
+      // Once the last loud has landed — applied, obsolete or failed — a quiet
+      // reconcile skipped while a loud was in flight is re-run here: the loud
+      // GET may have started before the latest save.
+      if (loudInFlight.current === 0 && reconcileOwed.current) {
         reconcileOwed.current = false;
         void quietReload();
       }
@@ -238,11 +237,10 @@ export function TodayList() {
       ...state,
       data: { ...state.data, items: state.data.items.filter((entry) => entry.assignmentId !== item.assignmentId) },
     });
-    // Removing a row under a budget invalidates the plan the server last sent;
-    // the reconcile after the POST rebuilds it.
-    if (state.data.hoursFilter !== null) {
-      setPlanStale(true);
-    }
+    // Removing a row makes the plan on screen older than the student's actions
+    // until a GET reconciles it — under a budget the empty states would be
+    // guesses, without one the caught-up claim would be.
+    setPlanStale(true);
     doneRecords.current.set(item.assignmentId, { status: "pending" });
     const request = markDone(
       item.assignmentId,
@@ -263,15 +261,13 @@ export function TodayList() {
           return result.ok;
         }
         // The save is server truth from sequence savedAt on; a GET that started
-        // before it may still have read the item open.
+        // before it may still have read the item open. The reconcile always
+        // runs: it also rebuilds a plan that a budget submit may have built
+        // while this POST was pending.
         const savedAt = requestId.current;
         doneRecords.current.set(item.assignmentId, { status: "saved", savedAt });
         lastSavedDoneSeq.current = savedAt;
-        // Under a budget the done may open room for the next item, so the plan
-        // is rebuilt from the server; without one the optimistic removal is exact.
-        if (state.data.hoursFilter !== null) {
-          void quietReload();
-        }
+        void quietReload();
         return result.ok;
       },
     );
@@ -328,6 +324,9 @@ export function TodayList() {
     void reload(null);
   }
 
+  // A loud reload is already in flight, so retry buttons must not overlap it.
+  const busy = state.status === "loading";
+
   return (
     <>
       {/* The hours filter sits opposite the title, so it fills the header instead of
@@ -368,7 +367,7 @@ export function TodayList() {
       {state.status === "error" ? (
         <div className={styles.errorState}>
           <Notice tone="error">{state.message}</Notice>
-          <Button variant="secondary" onClick={() => void reload()}>
+          <Button variant="secondary" disabled={busy} onClick={() => void reload()}>
             Try again
           </Button>
         </div>
@@ -377,7 +376,7 @@ export function TodayList() {
         <Notice tone="error">
           {actionError.message}{" "}
           {actionError.needsReload ? (
-            <Button variant="secondary" onClick={() => void reload()}>
+            <Button variant="secondary" disabled={busy} onClick={() => void reload()}>
               Reload list
             </Button>
           ) : null}

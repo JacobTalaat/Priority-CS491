@@ -111,6 +111,19 @@ function budgetPlan(items: TodayItem[], skippedCount: number) {
   };
 }
 
+// Server truth once Lab 3 (a2) is done and nothing else changed.
+function withoutLab3() {
+  return {
+    ok: true as const,
+    status: 200,
+    data: {
+      generatedAt: GENERATED_AT,
+      items: [item("a1", "Problem Set 4", 1), item("a3", "Essay", 3)],
+      hoursFilter: null,
+    },
+  };
+}
+
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   mockGetToday.mockReset().mockResolvedValue({
@@ -142,6 +155,9 @@ afterEach(async () => {
 
 describe("marking an item done on Today", () => {
   it("removes the item, saves it as done with what was shown, and offers Undo", async () => {
+    // Every done settle reconciles, so the GET after the save reports the
+    // post-done truth.
+    mockGetToday.mockResolvedValueOnce(withoutLab3());
     expect(titles()).toEqual(["Problem Set 4", "Lab 3", "Essay"]);
     await click(button("Mark Lab 3 done"));
     expect(titles()).toEqual(["Problem Set 4", "Essay"]);
@@ -167,12 +183,15 @@ describe("marking an item done on Today", () => {
           resolveUndo = resolve;
         }),
     );
-    mockGetToday.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveGet = resolve;
-        }),
-    );
+    mockGetToday
+      // The done's own reconcile lands first, then the undo's reconcile hangs.
+      .mockResolvedValueOnce(withoutLab3())
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveGet = resolve;
+          }),
+      );
     await click(button("Mark Lab 3 done"));
     await click(button("Undo"));
     // While the DELETE is still in flight the row must not be back on screen.
@@ -196,12 +215,13 @@ describe("marking an item done on Today", () => {
     expect(titles()).toEqual(["Problem Set 4", "Lab 3", "Essay"]);
     expect(mockUndoItem).toHaveBeenCalledWith("a2", expect.any(String));
     expect(mockMarkDone.mock.invocationCallOrder[0]).toBeLessThan(mockUndoItem.mock.invocationCallOrder[0]);
-    expect(mockGetToday).toHaveBeenCalledTimes(2);
+    expect(mockGetToday).toHaveBeenCalledTimes(3);
     expect(container.textContent).not.toContain("Marked “Lab 3” done.");
   });
 
   it("Undo goes away after a few seconds and the item stays done", async () => {
     vi.useFakeTimers();
+    mockGetToday.mockResolvedValueOnce(withoutLab3());
     await click(button("Mark Lab 3 done"));
     await act(async () => {
       vi.advanceTimersByTime(UNDO_MS);
@@ -222,10 +242,11 @@ describe("marking an item done on Today", () => {
 
   it("reloads the list when an undo fails, so it shows what was really saved", async () => {
     mockUndoItem.mockResolvedValue({ ok: false, status: 500, error: "Something went wrong (500). Try again." });
+    mockGetToday.mockResolvedValueOnce(withoutLab3());
     await click(button("Mark Lab 3 done"));
     await click(button("Undo"));
     expect(container.textContent).toContain("Couldn't undo “Lab 3”.");
-    expect(mockGetToday).toHaveBeenCalledTimes(2);
+    expect(mockGetToday).toHaveBeenCalledTimes(3);
   });
 
   it("does not resurrect a row whose done is still in flight when another done fails", async () => {
@@ -241,6 +262,27 @@ describe("marking an item done on Today", () => {
         resolveB = resolve;
       });
     });
+    // A's failure reconcile still reads the server with both rows open; once
+    // B's done saves, later GETs report the post-done truth.
+    mockGetToday
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [item("a1", "Problem Set 4", 1), item("a3", "Essay", 3)],
+          hoursFilter: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [item("a1", "Problem Set 4", 1), item("a2", "Lab 3", 2), item("a3", "Essay", 3)],
+          hoursFilter: null,
+        },
+      });
     await click(button("Mark Problem Set 4 done"));
     await click(button("Mark Lab 3 done"));
     expect(titles()).toEqual(["Essay"]);
@@ -266,6 +308,36 @@ describe("marking an item done on Today", () => {
           })
         : Promise.resolve({ ok: true, status: 200, data: { assignmentId: "a1", status: "done" } }),
     );
+    // The reconciles while B's done is pending still read it as open; after it
+    // saves, the GETs report the post-done truth.
+    mockGetToday
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [item("a1", "Problem Set 4", 1), item("a3", "Essay", 3)],
+          hoursFilter: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [item("a1", "Problem Set 4", 1), item("a2", "Lab 3", 2), item("a3", "Essay", 3)],
+          hoursFilter: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [item("a1", "Problem Set 4", 1), item("a2", "Lab 3", 2), item("a3", "Essay", 3)],
+          hoursFilter: null,
+        },
+      });
     await click(button("Mark Lab 3 done"));
     await click(button("Mark Problem Set 4 done"));
     await click(button("Undo"));
@@ -289,13 +361,16 @@ describe("marking an item done on Today", () => {
           resolveUndo = resolve;
         }),
     );
-    // The reconcile GET is deferred too, so the in-flight state is really observed.
-    mockGetToday.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveGet = resolve;
-        }),
-    );
+    // The done's own reconcile lands first; the undo's reconcile GET is
+    // deferred so the in-flight state is really observed.
+    mockGetToday
+      .mockResolvedValueOnce(withoutLab3())
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveGet = resolve;
+          }),
+      );
     await click(button("Mark Lab 3 done"));
     const details = container.querySelector("details") as HTMLDetailsElement;
     details.setAttribute("open", "");
@@ -312,7 +387,7 @@ describe("marking an item done on Today", () => {
       resolveUndo({ ok: true, status: 200, data: { assignmentId: "a2", undone: true } });
     });
     // The reconcile GET is still pending: still quiet, still the same nodes.
-    expect(mockGetToday).toHaveBeenCalledTimes(2);
+    expect(mockGetToday).toHaveBeenCalledTimes(3);
     expect(titles()).toEqual(["Problem Set 4", "Essay"]);
     expect(container.textContent).not.toContain("Loading your list…");
     expect(document.contains(details)).toBe(true);
@@ -340,7 +415,9 @@ describe("marking an item done on Today", () => {
   it("keeps the rows, offers Reload list, and shows the error when the undo's reload fails", async () => {
     // Guards the quiet failure path: the list stays and the notice carries the
     // way out instead of the page flipping to the error state.
-    mockGetToday.mockResolvedValueOnce({ ok: false, status: 500, error: "Something went wrong (500). Try again." });
+    mockGetToday
+      .mockResolvedValueOnce(withoutLab3())
+      .mockResolvedValueOnce({ ok: false, status: 500, error: "Something went wrong (500). Try again." });
     await click(button("Mark Lab 3 done"));
     await click(button("Undo"));
     // The quiet reload failed, so the list stays as it was and the notice speaks.
@@ -422,6 +499,8 @@ describe("marking an item done on Today", () => {
     let resolveLoud: (value: unknown) => void = () => {};
     mockGetToday
       .mockReset()
+      // The done's own reconcile lands first (the done already saved).
+      .mockResolvedValueOnce(withoutLab3())
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -435,8 +514,9 @@ describe("marking an item done on Today", () => {
     // The loud reload owns the loading state.
     expect(container.textContent).toContain("Loading your list…");
     await click(button("Undo"));
-    // The undo's reconcile was skipped, not fetched.
-    expect(mockGetToday).toHaveBeenCalledTimes(1);
+    // The undo's reconcile was skipped, not fetched: only the done's reconcile
+    // and the loud GET have run.
+    expect(mockGetToday).toHaveBeenCalledTimes(2);
     await act(async () => {
       resolveLoud({
         ok: true,
@@ -467,12 +547,15 @@ describe("marking an item done on Today", () => {
           resolveDone = resolve;
         }),
     );
-    mockGetToday.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveGet = resolve;
-        }),
-    );
+    mockGetToday
+      // Later GETs report the post-done truth, as the server would.
+      .mockResolvedValue(withoutLab3())
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveGet = resolve;
+          }),
+      );
     await click(button("Mark Lab 3 done"));
     // A user reload (Show what fits with an empty box) starts the loud GET.
     await submitHours("");
@@ -527,23 +610,197 @@ describe("marking an item done on Today", () => {
     expect(titles()).toEqual(["Problem Set 4", "Essay"]);
   });
 
-  it("does not reload after a done when no hours filter is active", async () => {
-    // Guards the no-filter rule: the optimistic removal is exact, so no GET at
-    // all — not while the POST is pending, not after it succeeds.
+  it("quietly reconciles after a done even when no hours filter is active", async () => {
+    // Guards R1: every done settle schedules a quiet reconcile — the plan on
+    // screen must come from the server, with no loading flash.
+    mockGetToday.mockResolvedValueOnce(withoutLab3());
+    await click(button("Mark Lab 3 done"));
+    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
+    expect(mockGetToday).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain("Loading your list…");
+  });
+
+  it("reconciles a no-budget done that a budget submit overtook", async () => {
+    // Guards R1+R2: the done's quiet reconcile runs even though no budget was
+    // active at click time, so the budgeted plan built while the POST was
+    // pending cannot stick as a false "Nothing fits".
     let resolveDone: (value: unknown) => void = () => {};
+    let resolveGet: (value: unknown) => void = () => {};
+    let resolveOwed: (value: unknown) => void = () => {};
     mockMarkDone.mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveDone = resolve;
         }),
     );
-    await click(button("Mark Lab 3 done"));
-    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
-    expect(mockGetToday).toHaveBeenCalledTimes(1);
+    mockGetToday
+      .mockReset()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveGet = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOwed = resolve;
+          }),
+      )
+      .mockResolvedValue(budgetPlan([item("a2", "Lab 3", 2)], 0));
+    await click(button("Mark Problem Set 4 done"));
+    // A 1-hour budget is submitted while the done POST is pending; its GET
+    // picks Problem Set 4 and skips Lab 3.
+    await submitHours("1");
     await act(async () => {
-      resolveDone({ ok: true, status: 200, data: { assignmentId: "a2", status: "done" } });
+      resolveDone({ ok: true, status: 200, data: { assignmentId: "a1", status: "done" } });
     });
-    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
-    expect(mockGetToday).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveGet(budgetPlan([item("a1", "Problem Set 4", 1)], 1));
+    });
+    // The picked row is filtered (its done saved), the plan is stale, and the
+    // owed reconcile is in flight: no "Nothing fits" may stick.
+    expect(titles()).toEqual([]);
+    expect(container.textContent).toContain("Updating your plan…");
+    expect(container.textContent).not.toContain("Nothing fits");
+    await act(async () => {
+      resolveOwed(budgetPlan([item("a2", "Lab 3", 2)], 0));
+    });
+    // The owed reconcile lands: Lab 3 now fits in the freed hour.
+    expect(titles()).toEqual(["Lab 3"]);
+    expect(container.textContent).not.toContain("Updating your plan…");
+  });
+
+  it("reconciles after the last done settles even when the budget was cleared mid-flight", async () => {
+    // Guards R1+R2: the last done settles with no budget active, but the plan
+    // is still stale from the budgeted click — only its reconcile clears
+    // "Updating your plan…", so settling must always schedule one.
+    mockGetToday
+      .mockReset()
+      .mockResolvedValueOnce(budgetPlan([item("a1", "Problem Set 4", 1), item("a2", "Lab 3", 2)], 0))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [item("a1", "Problem Set 4", 1), item("a2", "Lab 3", 2)],
+          hoursFilter: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: { generatedAt: GENERATED_AT, items: [item("a2", "Lab 3", 2)], hoursFilter: null },
+      })
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { generatedAt: GENERATED_AT, items: [], hoursFilter: null },
+      });
+    await remount();
+    let resolveA: (value: unknown) => void = () => {};
+    let resolveB: (value: unknown) => void = () => {};
+    mockMarkDone.mockImplementation((assignmentId: string) =>
+      assignmentId === "a1"
+        ? new Promise((resolve) => {
+            resolveA = resolve;
+          })
+        : new Promise((resolve) => {
+            resolveB = resolve;
+          }),
+    );
+    await click(button("Mark Problem Set 4 done"));
+    await submitHours("");
+    await click(button("Mark Lab 3 done"));
+    await act(async () => {
+      resolveA({ ok: true, status: 200, data: { assignmentId: "a1", status: "done" } });
+    });
+    // A's reconcile landed while B is still pending: the plan is not current.
+    expect(container.textContent).toContain("Updating your plan…");
+    expect(container.textContent).not.toContain("all caught up");
+    await act(async () => {
+      resolveB({ ok: true, status: 200, data: { assignmentId: "a2", status: "done" } });
+    });
+    // B's reconcile is plan-current, so the line clears and the caught-up
+    // state finally speaks for the server.
+    expect(container.textContent).not.toContain("Updating your plan…");
+    expect(container.textContent).toContain("all caught up");
+  });
+
+  it("re-runs the owed reconcile even when the last loud reload is obsolete", async () => {
+    // Guards R3: a loud reload that finishes obsolete (response discarded)
+    // must still trigger the owed quiet reconcile once loudInFlight drops to 0.
+    let resolveDone: (value: unknown) => void = () => {};
+    let resolveLoud1: (value: unknown) => void = () => {};
+    let resolveLoud2: (value: unknown) => void = () => {};
+    mockMarkDone.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDone = resolve;
+        }),
+    );
+    mockGetToday
+      .mockReset()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLoud1 = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLoud2 = resolve;
+          }),
+      )
+      .mockResolvedValue(budgetPlan([item("a2", "Lab 3", 2)], 1));
+    await click(button("Mark Problem Set 4 done"));
+    await submitHours("1");
+    await submitHours("1");
+    await act(async () => {
+      resolveDone({ ok: true, status: 200, data: { assignmentId: "a1", status: "done" } });
+    });
+    // Both louds are in flight, so the done's reconcile is owed.
+    await act(async () => {
+      resolveLoud2(budgetPlan([item("a1", "Problem Set 4", 1)], 2));
+    });
+    // Loud 2 applies (the newest loud); its refired reconcile skips again
+    // while loud 1 is still in flight.
+    expect(titles()).toEqual([]);
+    expect(container.textContent).toContain("Updating your plan…");
+    await act(async () => {
+      resolveLoud1(budgetPlan([item("a1", "Problem Set 4", 1)], 2));
+    });
+    // Loud 1 is discarded, but the owed reconcile still runs: the fresh plan
+    // admits Lab 3 in the freed hour.
+    expect(titles()).toEqual(["Lab 3"]);
+    expect(container.textContent).not.toContain("Updating your plan…");
+    expect(container.textContent).not.toContain("Nothing fits");
+  });
+
+  it("disables Reload list while a loud reload is in flight", async () => {
+    // Guards R3's double-click guard: a loud reload cannot be started twice.
+    mockGetToday
+      .mockReset()
+      .mockResolvedValueOnce(budgetPlan([item("a1", "Problem Set 4", 1)], 1))
+      .mockResolvedValueOnce({ ok: false, status: 500, error: "Something went wrong (500). Try again." })
+      .mockResolvedValue(budgetPlan([item("a2", "Lab 3", 2)], 0));
+    await remount();
+    await click(button("Mark Problem Set 4 done"));
+    expect(button("Reload list")).toBeTruthy();
+
+    let resolveLoud: (value: unknown) => void = () => {};
+    mockGetToday.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLoud = resolve;
+        }),
+    );
+    await submitHours("2");
+    expect(button("Reload list").disabled).toBe(true);
+    await act(async () => {
+      resolveLoud(budgetPlan([item("a2", "Lab 3", 2)], 0));
+    });
+    expect(container.textContent).not.toContain("Couldn't refresh your list.");
   });
 });
