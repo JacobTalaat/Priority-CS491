@@ -9,6 +9,7 @@ export type TodayItem = {
   courseId: string;
   courseName: string;
   title: string;
+  htmlUrl: string | null;
   dueAt: string | null;
   dueDay: string | null;
   overdue: boolean;

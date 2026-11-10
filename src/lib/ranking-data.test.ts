@@ -23,6 +23,7 @@ function assignment(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     title: `Work ${id}`,
+    htmlUrl: null,
     dueAt: null,
     hasDueDate: false,
     pointsPossible: 50,
@@ -65,6 +66,7 @@ describe("loadOpenWork", () => {
           assignment("hw-1", {
             title: "Problem set",
             dueAt: new Date("2026-10-14T17:00:00-04:00"),
+            htmlUrl: "https://canvas.example.edu/courses/1/assignments/hw-1",
             hasDueDate: true,
           }),
           assignment("hw-2", {
@@ -86,6 +88,7 @@ describe("loadOpenWork", () => {
       courseId: "course-1",
       courseName: "Algorithms",
       title: "Problem set",
+      htmlUrl: "https://canvas.example.edu/courses/1/assignments/hw-1",
       dueAt: new Date("2026-10-14T17:00:00-04:00"),
       share: 50,
       hours: null,
@@ -600,7 +603,7 @@ describe("loadOpenWork", () => {
       NOW,
     );
     const withoutFlags = (entry: RankedItem): Record<string, unknown> =>
-      Object.fromEntries(Object.entries(entry).filter(([key]) => key !== "boundary"));
+      Object.fromEntries(Object.entries(entry).filter(([key]) => key !== "boundary" && key !== "htmlUrl"));
     expect(ranked.map(withoutFlags)).toEqual(plain.map(withoutFlags));
     expect(ranked.map((entry) => entry.boundary)).toEqual([
       { letter: "A-", cutoff: 89, direction: "at-risk", distance: 0 },
