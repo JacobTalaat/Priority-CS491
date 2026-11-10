@@ -25,6 +25,7 @@ function item(assignmentId: string, title: string, rank: number): TodayItem {
     courseId: "c1",
     courseName: "Algorithms",
     title,
+    htmlUrl: null,
     dueAt: "2026-10-31T03:59:00.000Z",
     dueDay: "2026-10-30",
     overdue: false,
@@ -43,7 +44,7 @@ let root: ReturnType<typeof createRoot>;
 
 function titles(): string[] {
   return [...container.querySelectorAll("ol[aria-label='Today'] > li")].map(
-    (row) => row.querySelector("p")?.textContent ?? "",
+    (row) => row.querySelector("summary")?.textContent ?? "",
   );
 }
 

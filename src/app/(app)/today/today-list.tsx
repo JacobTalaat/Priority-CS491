@@ -29,6 +29,18 @@ function newRequestId(): string {
   return crypto.randomUUID();
 }
 
+function safeCanvasUrl(htmlUrl: string | null): string | null {
+  if (!htmlUrl) {
+    return null;
+  }
+  try {
+    const url = new URL(htmlUrl);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function TodayList() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [undo, setUndo] = useState<UndoState | null>(null);
@@ -172,6 +184,7 @@ export function TodayItems({
       {items.map((item, index) => {
         const share = shareLabel(item.share);
         const tag = boundaryTag(item.boundary);
+        const canvasUrl = safeCanvasUrl(item.htmlUrl);
         return (
           <li key={item.assignmentId} className={styles.item}>
             {/* Positions in the list as shown, so marking one done never leaves a gap. */}
@@ -179,15 +192,28 @@ export function TodayItems({
               {index + 1}
             </span>
             <div className={styles.body}>
-              <p className={styles.title}>{item.title}</p>
-              <p className={styles.meta}>
-                <span>{item.courseName}</span>
-                <span className={item.overdue ? styles.overdue : undefined}>{dueLabel(item.dueAt, item.overdue)}</span>
-              </p>
-              <p className={styles.reason}>{item.reason}</p>
-              {tag ? (
-                <span className={item.boundary?.direction === "at-risk" ? styles.atRisk : styles.withinReach}>{tag}</span>
-              ) : null}
+              <details className={styles.details}>
+                <summary className={styles.title}>{item.title}</summary>
+                <div className={styles.detailContent}>
+                  <p className={styles.meta}>
+                    <span>{item.courseName}</span>
+                    <span className={item.overdue ? styles.overdue : undefined}>{dueLabel(item.dueAt, item.overdue)}</span>
+                  </p>
+                  <p className={styles.shareDetail}>
+                    <span>Weight share</span>
+                    <strong>{share ?? "Unavailable"}</strong>
+                  </p>
+                  <p className={styles.reason}>{item.reason}</p>
+                  {tag ? (
+                    <span className={item.boundary?.direction === "at-risk" ? styles.atRisk : styles.withinReach}>{tag}</span>
+                  ) : null}
+                  {canvasUrl ? (
+                    <a className={styles.canvasLink} href={canvasUrl} target="_blank" rel="noopener noreferrer">
+                      Open in Canvas
+                    </a>
+                  ) : null}
+                </div>
+              </details>
             </div>
             <div className={styles.side}>
               {share ? (

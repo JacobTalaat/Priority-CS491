@@ -2488,6 +2488,7 @@ curl -i "http://localhost:3000/api/today?hours=3" \
       "courseId": "course-id",
       "courseName": "Algorithms",
       "title": "Project 1",
+      "htmlUrl": "https://canvas.example.edu/courses/123/assignments/456",
       "dueAt": "2026-10-14T17:00:00.000Z",
       "dueDay": "2026-10-14",
       "overdue": false,
@@ -2504,6 +2505,7 @@ curl -i "http://localhost:3000/api/today?hours=3" \
       "courseId": "course-id",
       "courseName": "Algorithms",
       "title": "Quiz",
+      "htmlUrl": null,
       "dueAt": "2026-10-15T17:00:00.000Z",
       "dueDay": "2026-10-15",
       "overdue": false,
@@ -2522,6 +2524,7 @@ curl -i "http://localhost:3000/api/today?hours=3" \
 Field meanings:
 
 - `rank` — the item's 1-based position in the full ranked list.
+- `htmlUrl` — the Canvas assignment URL, or `null` when the assignment has no Canvas URL.
 - `dueAt` — the real due timestamp, `null` for work without a due date.
 - `dueDay` — the item's due calendar day, `YYYY-MM-DD` in America/New_York, `null` for undated work. Overdue work keeps its real day here even though it ranks within today.
 - `overdue` — true when the due time has passed.
