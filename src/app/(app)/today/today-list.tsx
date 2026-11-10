@@ -176,26 +176,34 @@ export function TodayList() {
 
   return (
     <>
-      <PageHeader eyebrow="Do this first" title="Today" description="Your open work, most important first." />
-      <form className={styles.hoursForm} onSubmit={applyHours}>
-        <Input
-          label="Hours available tonight"
-          hint="Enter 0.5 to 12 hours. Leave blank to show all work."
-          error={hoursError}
-          type="number"
-          min="0.5"
-          max="12"
-          step="any"
-          value={hoursValue}
-          onChange={(event) => {
-            setHoursValue(event.target.value);
-            setHoursError(null);
-          }}
-        />
-        <Button type="submit" loading={state.status === "loading"}>
-          Show what fits
-        </Button>
-      </form>
+      {/* The hours filter sits opposite the title, so it fills the header instead of
+          leaving an empty row beside the button. */}
+      <PageHeader
+        eyebrow="Do this first"
+        title="Today"
+        description="Your open work, most important first."
+        actions={
+          <form className={styles.hoursForm} onSubmit={applyHours}>
+            <Input
+              label="Hours available tonight"
+              hint="0.5 to 12 hours. Leave blank to show all work."
+              error={hoursError}
+              type="number"
+              min="0.5"
+              max="12"
+              step="any"
+              value={hoursValue}
+              onChange={(event) => {
+                setHoursValue(event.target.value);
+                setHoursError(null);
+              }}
+            />
+            <Button type="submit" className={styles.hoursSubmit} loading={state.status === "loading"}>
+              Show what fits
+            </Button>
+          </form>
+        }
+      />
       {hoursMessage ? <p className={styles.hoursMessage} role="status">{hoursMessage}</p> : null}
       {storageError ? <Notice tone="warning">{storageError}</Notice> : null}
       {state.status === "loading" ? (
@@ -240,9 +248,12 @@ export function TodayList() {
 export function TodayItems({
   items,
   onDone,
+  now,
 }: {
   items: TodayItem[];
   onDone?: (item: TodayItem, index: number) => void;
+  // Fixed in tests so "today" and "tomorrow" don't depend on the clock.
+  now?: Date;
 }) {
   if (items.length === 0) {
     return (
@@ -273,21 +284,29 @@ export function TodayItems({
               {index + 1}
             </span>
             <div className={styles.body}>
+              {/* Title, course and due date stay visible so the list scans at a glance; the
+                  reason and the Canvas link open underneath. */}
               <details className={styles.details}>
-                <summary className={styles.title}>{item.title}</summary>
-                <div className={styles.detailContent}>
-                  <p className={styles.meta}>
+                <summary className={styles.summary}>
+                  <span className={styles.title}>{item.title}</span>
+                  <span className={styles.meta}>
                     <span>{item.courseName}</span>
-                    <span className={item.overdue ? styles.overdue : undefined}>{dueLabel(item.dueAt, item.overdue)}</span>
-                  </p>
+                    <span className={item.overdue ? styles.overdue : undefined}>
+                      {dueLabel(item.dueAt, item.overdue, now)}
+                    </span>
+                    {tag ? (
+                      <span className={item.boundary?.direction === "at-risk" ? styles.atRisk : styles.withinReach}>
+                        {tag}
+                      </span>
+                    ) : null}
+                  </span>
+                </summary>
+                <div className={styles.detailContent}>
+                  <p className={styles.reason}>{item.reason}</p>
                   <p className={styles.shareDetail}>
                     <span>Weight share</span>
                     <strong>{share ?? "Unavailable"}</strong>
                   </p>
-                  <p className={styles.reason}>{item.reason}</p>
-                  {tag ? (
-                    <span className={item.boundary?.direction === "at-risk" ? styles.atRisk : styles.withinReach}>{tag}</span>
-                  ) : null}
                   {canvasUrl ? (
                     <a className={styles.canvasLink} href={canvasUrl} target="_blank" rel="noopener noreferrer">
                       Open in Canvas

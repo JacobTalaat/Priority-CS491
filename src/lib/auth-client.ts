@@ -2,6 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 import { apiRequest } from "./api-client";
 import { publicEnv } from "@/lib/public-env";
 import { clearToken } from "@/lib/session";
+import { WRONG_CREDENTIALS, describeAuthError, isServiceProblem, type AuthFlow } from "./auth-errors";
+
+export { WRONG_CREDENTIALS };
 
 export const MIN_PASSWORD_LENGTH = 8;
 
@@ -74,27 +77,38 @@ export function validateSignUp({ email, password }: Credentials): FieldErrors {
   return errors;
 }
 
-function resultFromError(error: { message?: string; status?: number }): AuthResult {
-  const message = error.message ?? "";
-  if (error.status === 422 && /already registered/i.test(message)) {
-    return { ok: false, fieldErrors: { email: "That email already has an account." } };
+function resultFromError(error: unknown, flow: AuthFlow): AuthResult {
+  const described = describeAuthError(error, flow);
+  if (isServiceProblem(described)) {
+    const { status, code } = (typeof error === "object" && error !== null ? error : {}) as {
+      status?: unknown;
+      code?: unknown;
+    };
+    console.error("Supabase Auth could not complete the request", { flow, status, code });
   }
-  if (error.status === 422 && /password/i.test(message)) {
-    return { ok: false, fieldErrors: { password: `Password is too weak. ${message}` } };
+  if (described.field && flow === "signup") {
+    return { ok: false, fieldErrors: { [described.field]: described.message } };
   }
-  return { ok: false, fieldErrors: {}, formError: "Check your email and password and try again." };
+  return { ok: false, fieldErrors: {}, formError: described.message };
 }
 
 export async function signUp({ email, password }: Credentials): Promise<AuthResult> {
-  const { data, error } = await supabase().auth.signUp({
-    email: email.trim(),
-    password,
-    // Ask Supabase to land the confirmation link on our page so the tab that
-    // signed up is the one that picks the session up.
-    options: { emailRedirectTo: emailRedirectTo() },
-  });
+  let response: Awaited<ReturnType<ReturnType<typeof supabase>["auth"]["signUp"]>>;
+  try {
+    response = await supabase().auth.signUp({
+      email: email.trim(),
+      password,
+      // Ask Supabase to land the confirmation link on our page so the tab that
+      // signed up is the one that picks the session up.
+      options: { emailRedirectTo: emailRedirectTo() },
+    });
+  } catch (error) {
+    // Thrown, not returned: missing Supabase settings or no network at all.
+    return resultFromError(error, "signup");
+  }
+  const { data, error } = response;
   if (error) {
-    return resultFromError(error);
+    return resultFromError(error, "signup");
   }
   if (!data.session || !data.user) {
     // Supabase holds the account back when the project asks students to confirm
@@ -119,18 +133,23 @@ export function validateLogIn({ email, password }: Credentials): FieldErrors {
   return errors;
 }
 
-export const WRONG_CREDENTIALS = "Wrong email or password. Check them and try again.";
-
 // Supabase marks an account that is still waiting for confirmation with this
 // error code (the one stable handle, unlike message text).
 const EMAIL_NOT_CONFIRMED = "email_not_confirmed";
 
 export async function logIn({ email, password }: Credentials): Promise<AuthResult> {
   const address = email.trim();
-  const { data, error } = await supabase().auth.signInWithPassword({
-    email: address,
-    password,
-  });
+  let response: Awaited<ReturnType<ReturnType<typeof supabase>["auth"]["signInWithPassword"]>>;
+  try {
+    response = await supabase().auth.signInWithPassword({
+      email: address,
+      password,
+    });
+  } catch (error) {
+    // Thrown, not returned: missing Supabase settings or no network at all.
+    return resultFromError(error, "login");
+  }
+  const { data, error } = response;
   if (error) {
     if (error.code === EMAIL_NOT_CONFIRMED) {
       return {
@@ -140,7 +159,7 @@ export async function logIn({ email, password }: Credentials): Promise<AuthResul
         emailSentTo: address,
       };
     }
-    return { ok: false, fieldErrors: {}, formError: WRONG_CREDENTIALS };
+    return resultFromError(error, "login");
   }
   if (!data.session || !data.user) {
     return { ok: false, fieldErrors: {}, formError: WRONG_CREDENTIALS };

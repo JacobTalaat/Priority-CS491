@@ -17,7 +17,6 @@
 
 .section {
   display: grid;
-  max-width: 760px;
   gap: 16px;
   margin-bottom: 40px;
 }
@@ -102,5 +101,37 @@
   .detailRow {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+}
+
+.columns {
+  display: grid;
+  gap: 8px;
+}
+
+.main,
+.aside {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+}
+
+/* Grade, final exam and assignments on the left; the class details beside them stay in
+   view while the assignments scroll. */
+@media (min-width: 1100px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    align-items: start;
+    column-gap: 56px;
+  }
+
+  .aside {
+    position: sticky;
+    top: 24px;
+  }
+
+  .aside .detailRow {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 }

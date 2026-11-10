@@ -44,11 +44,18 @@
 
 .hoursForm {
   display: grid;
-  grid-template-columns: minmax(0, 240px) auto;
-  align-items: end;
-  justify-content: start;
-  gap: 12px;
-  margin-bottom: 8px;
+  grid-template-columns: minmax(0, 300px) auto;
+  align-items: start;
+  justify-content: end;
+  column-gap: 12px;
+}
+
+/* Lines the button up with the input box rather than with the hint under it: the
+   label above the box is one 13px line (line-height 1.5) plus the field's 8px gap,
+   and the box itself is 46px tall. */
+.hoursSubmit {
+  min-height: 46px;
+  margin-top: calc(13px * 1.5 + 8px);
 }
 
 .hoursMessage,
@@ -69,22 +76,26 @@
 }
 
 .list {
-  max-width: 760px;
   border-top: 1px solid var(--divider);
   list-style: none;
 }
 
+/* Rank, title and share number sit on one text baseline, whatever their font sizes. */
 .item {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px;
-  padding: 16px 4px;
+  align-items: baseline;
+  column-gap: 16px;
+  padding: 14px 8px;
   border-bottom: 1px solid var(--divider);
+  transition: background-color 160ms ease;
+}
+
+.item:hover {
+  background: var(--surface);
 }
 
 .rank {
-  padding-top: 1px;
   color: var(--muted);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
@@ -97,31 +108,58 @@
   gap: 4px;
 }
 
+.details {
+  display: grid;
+  width: 100%;
+  justify-items: start;
+}
+
+.summary {
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
 .title {
   font-weight: 600;
   overflow-wrap: anywhere;
+  transition: color 160ms ease;
 }
 
-.details {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
+/* A quiet chevron says the row opens, without a triangle pushing every title right. */
+.title::after {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--muted);
+  content: "›";
+  font-weight: 400;
+  transition: transform 160ms ease;
 }
 
-.details > summary {
-  cursor: pointer;
+.summary:hover .title {
+  color: var(--accent);
+}
+
+.details[open] .title::after {
+  transform: rotate(90deg);
 }
 
 .detailContent {
   display: grid;
+  max-width: 640px;
   justify-items: start;
-  gap: 8px;
+  gap: 6px;
+  padding-top: 10px;
 }
 
 .meta {
   display: flex;
   flex-wrap: wrap;
-  column-gap: 12px;
   row-gap: 2px;
   color: var(--secondary);
   font-size: 13px;
@@ -129,6 +167,12 @@
 
 .meta > span {
   overflow-wrap: anywhere;
+}
+
+.meta > span + span::before {
+  margin: 0 8px;
+  color: var(--muted);
+  content: "·";
 }
 
 .overdue {
@@ -142,11 +186,6 @@
 
 .atRisk,
 .withinReach {
-  margin-top: 4px;
-  padding: 2px 8px;
-  border: 1px solid currentColor;
-  border-radius: var(--radius);
-  font-size: 12px;
   font-weight: 500;
 }
 
@@ -159,13 +198,14 @@
 }
 
 .share {
-  display: grid;
-  justify-items: end;
-  text-align: right;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .shareValue {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -203,9 +243,10 @@
 }
 
 .side {
-  display: grid;
-  justify-items: end;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
 }
 
 .doneButton {
@@ -272,6 +313,34 @@
 
 @media (max-width: 480px) {
   .hoursForm {
+    width: 100%;
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Stacked under the field, the button only needs a little room after the hint. */
+  .hoursSubmit {
+    margin-top: 12px;
+  }
+
+  /* Course, due date and flag each get a line, so no separator dot starts a line. */
+  .meta {
+    flex-direction: column;
+  }
+
+  .meta > span + span::before {
+    content: none;
+  }
+
+  /* On a phone the share sits above Done, so long titles keep most of the row. */
+  .side {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .share {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0;
   }
 }

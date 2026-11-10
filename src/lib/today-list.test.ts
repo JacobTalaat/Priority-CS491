@@ -2,18 +2,27 @@ import { describe, expect, it } from "vitest";
 import { boundaryTag, dueLabel, insertAt, shareLabel } from "./today-list";
 
 describe("dueLabel", () => {
-  it("reads the due date and time in campus time", () => {
-    // 03:59 UTC on Oct 31 is 11:59 pm on Oct 30 in New York.
-    expect(dueLabel("2026-10-31T03:59:00.000Z", false)).toBe("Due Fri, Oct 30, 11:59 PM");
+  // Thursday Oct 29, 2026, noon in New York.
+  const now = new Date("2026-10-29T16:00:00.000Z");
+
+  it("says today and tomorrow in campus time, with the time", () => {
+    // 03:59 UTC on Oct 30 is 11:59 pm on Oct 29 in New York: still today there.
+    expect(dueLabel("2026-10-30T03:59:00.000Z", false, now)).toBe("Due today, 11:59 PM");
+    expect(dueLabel("2026-10-31T03:59:00.000Z", false, now)).toBe("Due tomorrow, 11:59 PM");
+  });
+
+  it("uses the weekday within the week and the date further out", () => {
+    expect(dueLabel("2026-11-03T04:59:00.000Z", false, now)).toBe("Due Mon, 11:59 PM");
+    expect(dueLabel("2026-11-06T04:59:00.000Z", false, now)).toBe("Due Thu, Nov 5");
   });
 
   it("says overdue work is overdue", () => {
-    expect(dueLabel("2026-10-28T03:59:00.000Z", true)).toBe("Overdue, was due Tue, Oct 27, 11:59 PM");
+    expect(dueLabel("2026-10-28T03:59:00.000Z", true, now)).toBe("Overdue, was due Tue, Oct 27");
   });
 
   it("handles work without a usable due date", () => {
-    expect(dueLabel(null, false)).toBe("No due date");
-    expect(dueLabel("not a date", false)).toBe("No due date");
+    expect(dueLabel(null, false, now)).toBe("No due date");
+    expect(dueLabel("not a date", false, now)).toBe("No due date");
   });
 });
 

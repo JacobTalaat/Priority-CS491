@@ -1,22 +1,43 @@
 import type { LetterBoundary } from "./letter-boundary";
 
 // The student is at NJIT, so due dates and times read in campus time.
-const dueFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York",
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
+const TIME_ZONE = "America/New_York";
+const timeFormatter = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit" });
+const weekdayFormatter = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, weekday: "short" });
+const dateFormatter = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, weekday: "short", month: "short", day: "numeric" });
+const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
 
-export function dueLabel(dueAt: string | null, overdue: boolean): string {
+// Whole New York calendar days from `from` to `to`, so "tomorrow" flips at midnight ET.
+function nyDaysBetween(from: Date, to: Date): number {
+  const dayNumber = (date: Date) => {
+    const [year, month, day] = dayKeyFormatter.format(date).split("-").map(Number);
+    return Date.UTC(year, month - 1, day) / 86_400_000;
+  };
+  return dayNumber(to) - dayNumber(from);
+}
+
+// Short and relative where it helps scanning: "Due today, 11:59 PM", "Due tomorrow, 9:00 AM",
+// "Due Fri, 11:59 PM" this week, then the date ("Due Fri, Nov 20") further out.
+export function dueLabel(dueAt: string | null, overdue: boolean, now: Date = new Date()): string {
   const date = dueAt ? new Date(dueAt) : null;
   if (!date || Number.isNaN(date.getTime())) {
     return "No due date";
   }
-  const when = dueFormatter.format(date);
-  return overdue ? `Overdue, was due ${when}` : `Due ${when}`;
+  if (overdue) {
+    return `Overdue, was due ${dateFormatter.format(date)}`;
+  }
+  const days = nyDaysBetween(now, date);
+  const time = timeFormatter.format(date);
+  if (days === 0) {
+    return `Due today, ${time}`;
+  }
+  if (days === 1) {
+    return `Due tomorrow, ${time}`;
+  }
+  if (days > 1 && days < 7) {
+    return `Due ${weekdayFormatter.format(date)}, ${time}`;
+  }
+  return `Due ${dateFormatter.format(date)}`;
 }
 
 // The share badge: whole percents, and a real slice under 1% still shows as one.

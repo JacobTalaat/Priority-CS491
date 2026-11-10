@@ -1,5 +1,7 @@
+/* Wide enough to use a laptop or desktop screen like a web app, capped so lines stay
+   readable on very wide monitors. */
 .shell {
-  width: min(100%, 1200px);
+  width: min(100%, 1440px);
   min-height: 100vh;
   margin: 0 auto;
   padding: 0 var(--page-gutter);

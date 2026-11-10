@@ -44,7 +44,8 @@ let root: ReturnType<typeof createRoot>;
 
 function titles(): string[] {
   return [...container.querySelectorAll("ol[aria-label='Today'] > li")].map(
-    (row) => row.querySelector("summary")?.textContent ?? "",
+    // The title is the summary's first line; course and due date follow it.
+    (row) => row.querySelector("summary > span")?.textContent ?? "",
   );
 }
 
