@@ -37,6 +37,21 @@ export type TotpEnrollment = {
 // the student's authenticator app. It must be verified or unenrolled later —
 // a stray unverified factor locks nothing but is cleaned up either way.
 export async function enrollAuthenticator(): Promise<TotpEnrollment | null> {
+  // Supabase refuses a second TOTP enrollment with the same (empty) friendly
+  // name, so an unverified factor left behind by a crashed or abandoned setup
+  // blocks every future "Turn two factor on". Clear those first, and never
+  // touch verified factors — they are a working authenticator app. A failed
+  // cleanup must not stop the enroll attempt from being made anyway.
+  try {
+    const { data } = await browserAuthClient().auth.mfa.listFactors();
+    for (const factor of data?.all ?? []) {
+      if (factor.factor_type === "totp" && factor.status === "unverified") {
+        await browserAuthClient().auth.mfa.unenroll({ factorId: factor.id });
+      }
+    }
+  } catch {
+    // Listing failed: the enroll below still gets its attempt.
+  }
   const { data, error } = await browserAuthClient().auth.mfa.enroll({
     factorType: "totp",
   });
