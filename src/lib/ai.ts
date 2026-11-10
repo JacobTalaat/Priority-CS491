@@ -204,10 +204,12 @@ export async function completeChat(request: AiRequest): Promise<AiCompletion> {
   let outputPrice: number;
   let budget: number;
   let timeoutMs: number;
+  let reasoningEnabled: boolean;
   try {
     baseUrl = env.aiBaseUrl;
     model = env.aiModel;
     apiKey = env.aiApiKey;
+    reasoningEnabled = env.aiReasoning === "off" ? false : true;
     inputPrice = env.aiInputMicrosPerMillion;
     outputPrice = env.aiOutputMicrosPerMillion;
     budget = env.aiMonthlyBudgetMicros;
@@ -267,6 +269,9 @@ export async function completeChat(request: AiRequest): Promise<AiCompletion> {
         messages: request.messages,
         max_tokens: request.maxOutputTokens,
         stream: false,
+        // Reasoning models spend the whole token budget on hidden thinking and
+        // return content null, unless the provider is told to skip it.
+        ...(reasoningEnabled ? {} : { reasoning: { enabled: false } }),
         ...(request.responseFormat === "json" ? { response_format: { type: "json_object" } } : {}),
       }),
       signal: AbortSignal.any([
