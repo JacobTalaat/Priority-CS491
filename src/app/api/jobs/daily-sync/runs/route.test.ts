@@ -105,6 +105,16 @@ describe("GET /api/jobs/daily-sync/runs", () => {
     expect(mockSyncRunFindMany).not.toHaveBeenCalled();
   });
 
+  it("returns a JSON 500 when the run list cannot be read", async () => {
+    mockSyncRunFindMany.mockRejectedValue(new Error("connection reset"));
+    const res = await GET(requestWithHeader(GOOD_HEADER));
+    expect(res.status).toBe(500);
+    // The raw error text stays out of the response.
+    const body = JSON.stringify(await res.json());
+    expect(body).not.toContain("connection reset");
+    expect(JSON.parse(body)).toEqual({ error: "Could not load sync runs" });
+  });
+
   it("returns 503 when CRON_SECRET is not configured", async () => {
     mockEnv.cronSecret = undefined;
     const res = await GET(requestWithHeader(GOOD_HEADER));

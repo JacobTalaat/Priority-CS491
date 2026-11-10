@@ -95,6 +95,20 @@ describe("sendPush", () => {
     expect(mockPushDelete).not.toHaveBeenCalled();
   });
 
+  it("counts a delivered push as sent even when the bookkeeping update fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockPushUpdate.mockRejectedValueOnce(new Error("db down"));
+      const outcome = await sendPush(TARGET, MESSAGE);
+      expect(outcome).toBe("sent");
+      expect(errorSpy.mock.calls.flat().join("\n")).toBe("Web push bookkeeping failed.");
+    } finally {
+      // This file has no global restore; a leaked spy feeds later tests'
+      // expectations earlier tests' log lines.
+      errorSpy.mockRestore();
+    }
+  });
+
   it("removes a subscription the push service reports as gone on 404", async () => {
     mockSendNotification.mockRejectedValueOnce(pushError(404));
     const outcome = await sendPush(TARGET, MESSAGE);
