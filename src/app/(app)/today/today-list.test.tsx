@@ -1,7 +1,31 @@
+// @vitest-environment jsdom
+import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { createRoot } from "react-dom/client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { mockGetToday, mockReadTodayHours, mockSaveTodayHours } = vi.hoisted(() => ({
+  mockGetToday: vi.fn(),
+  mockReadTodayHours: vi.fn(),
+  mockSaveTodayHours: vi.fn(),
+}));
+
+vi.mock("@/lib/today-client", () => ({
+  getToday: mockGetToday,
+  markDone: vi.fn(),
+  undoItem: vi.fn(),
+}));
+
+vi.mock("@/lib/today-hours", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/today-hours")>()),
+  readTodayHours: mockReadTodayHours,
+  saveTodayHours: mockSaveTodayHours,
+}));
+
 import type { TodayItem } from "@/lib/today-client";
 import { TodayItems, TodayList } from "./today-list";
+
+const GENERATED_AT = "2026-10-29T20:00:00.000Z";
 
 function item(overrides: Partial<TodayItem>): TodayItem {
   return {
@@ -109,6 +133,17 @@ describe("TodayItems", () => {
 });
 
 describe("TodayList", () => {
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    mockReadTodayHours.mockReset().mockReturnValue({ ok: true, hours: null });
+    mockSaveTodayHours.mockReset().mockReturnValue(true);
+    mockGetToday.mockReset().mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { generatedAt: GENERATED_AT, items: [item({})], hoursFilter: null },
+    });
+  });
+
   it("offers an hours input and save action before loading the list", () => {
     const html = renderToStaticMarkup(<TodayList />);
 
@@ -116,6 +151,128 @@ describe("TodayList", () => {
     expect(html).toContain('min="0.5"');
     expect(html).toContain('max="12"');
     expect(html).toContain("Hours available tonight");
+    expect(html).toContain("Each item counts as 1 hour unless it has an estimate.");
     expect(html).toContain("Show what fits");
+  });
+
+  async function renderLoadedList() {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TodayList />);
+    });
+    return {
+      container,
+      unmount: async () => {
+        await act(async () => {
+          root.unmount();
+        });
+        container.remove();
+      },
+    };
+  }
+
+  it("shows a nothing-fits state, not the caught-up state, when the budget leaves open work off the list", async () => {
+    mockGetToday.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        generatedAt: GENERATED_AT,
+        items: [],
+        hoursFilter: { hours: 1.5, plannedHours: 0, unestimatedCount: 0, skippedCount: 3 },
+      },
+    });
+    const view = await renderLoadedList();
+    expect(view.container.textContent).toContain("Nothing fits in 1.5 hours");
+    expect(view.container.textContent).toContain(
+      "Your open work is still there. Try more hours, or clear the box to see everything.",
+    );
+    expect(view.container.textContent).not.toContain("all caught up");
+    await view.unmount();
+  });
+
+  it("keeps the caught-up state when the budget left nothing out and no work is open", async () => {
+    mockGetToday.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        generatedAt: GENERATED_AT,
+        items: [],
+        hoursFilter: { hours: 2, plannedHours: 0, unestimatedCount: 0, skippedCount: 0 },
+      },
+    });
+    const view = await renderLoadedList();
+    expect(view.container.textContent).toContain("all caught up");
+    expect(view.container.textContent).not.toContain("Nothing fits");
+    await view.unmount();
+  });
+
+  it("Show all work clears the box and the saved hours and reloads the full list", async () => {
+    mockReadTodayHours.mockReturnValue({ ok: true, hours: 1.5 });
+    mockGetToday
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: {
+          generatedAt: GENERATED_AT,
+          items: [],
+          hoursFilter: { hours: 1.5, plannedHours: 0, unestimatedCount: 0, skippedCount: 1 },
+        },
+      })
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { generatedAt: GENERATED_AT, items: [item({})], hoursFilter: null },
+      });
+    const view = await renderLoadedList();
+    expect(view.container.textContent).toContain("Nothing fits in 1.5 hours");
+
+    const showAll = [...view.container.querySelectorAll("button")].find(
+      (entry) => entry.textContent === "Show all work",
+    );
+    expect(showAll).toBeTruthy();
+    await act(async () => {
+      showAll!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mockSaveTodayHours).toHaveBeenCalledWith(null);
+    expect(mockGetToday).toHaveBeenLastCalledWith(null);
+    expect(view.container.textContent).toContain("Problem Set 4");
+    expect(view.container.textContent).not.toContain("Nothing fits");
+    expect((view.container.querySelector("input") as HTMLInputElement).value).toBe("");
+    await view.unmount();
+  });
+
+  it("explains the 1-hour default in the summary while unestimated items are on the plan", async () => {
+    mockGetToday.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        generatedAt: GENERATED_AT,
+        items: [item({ estimated: false })],
+        hoursFilter: { hours: 2, plannedHours: 1, unestimatedCount: 1, skippedCount: 0 },
+      },
+    });
+    const view = await renderLoadedList();
+    expect(view.container.textContent).toContain("Showing work that fits in 2 hours tonight.");
+    expect(view.container.textContent).toContain("Items without a time estimate count as 1 hour.");
+    await view.unmount();
+  });
+
+  it("leaves the 1-hour note out when every planned item has an estimate", async () => {
+    mockGetToday.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        generatedAt: GENERATED_AT,
+        items: [item({ estimated: true, hours: 2 })],
+        hoursFilter: { hours: 2, plannedHours: 2, unestimatedCount: 0, skippedCount: 0 },
+      },
+    });
+    const view = await renderLoadedList();
+    expect(view.container.textContent).toContain("Showing work that fits in 2 hours tonight.");
+    expect(view.container.textContent).not.toContain("Items without a time estimate count as 1 hour.");
+    await view.unmount();
   });
 });

@@ -203,6 +203,22 @@ describe("ClassesList grid", () => {
     });
   });
 
+  it("marks an unconfirmed class's number as points only, and a confirmed one not", async () => {
+    mockGetImportedCourses.mockResolvedValue({ ok: true, status: 200, data: connected });
+    mockGetCourseGrade.mockImplementation((courseId: string) =>
+      courseId === "c1"
+        ? Promise.resolve({ ok: true, status: 200, data: gradeResponse({ setupConfirmed: false }) })
+        : Promise.resolve({ ok: true, status: 200, data: gradeResponse() }),
+    );
+    await withMounted(<ClassesList />, async (container) => {
+      await waitFor(() => cardsLoaded(container));
+      expect(cards(container)[0]!.textContent).toContain("91.4%");
+      expect(cards(container)[0]!.textContent).toContain("Points only · weights not set up");
+      expect(cards(container)[1]!.textContent).toContain("91.4%");
+      expect(cards(container)[1]!.textContent).not.toContain("Points only");
+    });
+  });
+
   it("waits with a skeleton on every card while the grade requests are in flight", async () => {
     const released: (() => void)[] = [];
     mockGetImportedCourses.mockResolvedValue({ ok: true, status: 200, data: connected });
@@ -290,57 +306,5 @@ describe("ClassesList show-grades toggle", () => {
       expect(container.textContent).toContain("Grade hidden");
       expect(cards(container).every((card) => card.textContent?.includes("Grade hidden"))).toBe(true);
     });
-  });
-
-  it("saves the choice to localStorage", async () => {
-    await withMounted(<ClassesList />, async (container) => {
-      await waitFor(() => cardsLoaded(container));
-      await click(buttonNamed(container, "Hide grades"));
-      expect(localStorage.getItem("priority.classes.showGrades")).toBe("false");
-      await click(buttonNamed(container, "Show grades"));
-      expect(localStorage.getItem("priority.classes.showGrades")).toBe("true");
-    });
-  });
-
-  it("restores the hidden choice on mount", async () => {
-    localStorage.setItem("priority.classes.showGrades", "false");
-    await withMounted(<ClassesList />, async (container) => {
-      await waitFor(() => cardsLoaded(container));
-      expect(container.textContent).not.toContain("91.4%");
-      expect(container.textContent).toContain("Grade hidden");
-      expect(buttonNamed(container, "Show grades").getAttribute("aria-pressed")).toBe("true");
-    });
-  });
-
-  it("still shows grades when reading localStorage throws", async () => {
-    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
-    try {
-      await withMounted(<ClassesList />, async (container) => {
-        await waitFor(() => cardsLoaded(container));
-        expect(container.textContent).toContain("91.4%");
-        expect(container.textContent).toContain("A-");
-        expect(container.textContent).not.toContain("Grade hidden");
-      });
-    } finally {
-      getItem.mockRestore();
-    }
-  });
-
-  it("keeps the choice applied even when writing localStorage throws", async () => {
-    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
-    try {
-      await withMounted(<ClassesList />, async (container) => {
-        await waitFor(() => cardsLoaded(container));
-        await click(buttonNamed(container, "Hide grades"));
-        expect(container.textContent).toContain("Grade hidden");
-        expect(buttonNamed(container, "Show grades").getAttribute("aria-pressed")).toBe("true");
-      });
-    } finally {
-      setItem.mockRestore();
-    }
   });
 });

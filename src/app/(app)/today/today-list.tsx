@@ -6,7 +6,7 @@ import { Button, ButtonLink, Input, Notice, PageHeader } from "@/components/ui";
 import { getToday, markDone, undoItem } from "@/lib/today-client";
 import type { TodayItem, TodayResponse } from "@/lib/today-client";
 import { isValidTodayHours, readTodayHours, saveTodayHours } from "@/lib/today-hours";
-import { boundaryTag, dueLabel, insertAt, shareLabel } from "@/lib/today-list";
+import { boundaryTag, dueLabel, shareLabel } from "@/lib/today-list";
 import styles from "./today.module.css";
 
 // How long "Undo" stays on screen after marking something done.
@@ -17,8 +17,8 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ready"; data: TodayResponse };
 
-// The item just marked done and where it sat, so Undo can put it back in the same place.
-type UndoState = { item: TodayItem; index: number };
+// The item just marked done, so Undo can reverse it while the bar is up.
+type UndoState = { item: TodayItem };
 
 async function loadToday(hours: number | null): Promise<LoadState> {
   const result = await getToday(hours);
@@ -110,15 +110,6 @@ export function TodayList() {
     void reload(hours);
   }
 
-  function putBack(item: TodayItem, index: number) {
-    setState((current) =>
-      current.status === "ready" &&
-      !current.data.items.some((entry) => entry.assignmentId === item.assignmentId)
-        ? { ...current, data: { ...current.data, items: insertAt(current.data.items, item, index) } }
-        : current,
-    );
-  }
-
   function handleDone(item: TodayItem, index: number) {
     if (state.status !== "ready") {
       return;
@@ -135,7 +126,9 @@ export function TodayList() {
     ).then(
       (result) => {
         if (!result.ok) {
-          putBack(item, index);
+          // The server kept the item open, so the list is rebuilt from it instead
+          // of guessing where the row belonged.
+          void reload();
           setUndo((current) => (current?.item.assignmentId === item.assignmentId ? null : current));
           setActionError(`Couldn't mark “${item.title}” done. ${result.error}`);
         }
@@ -143,7 +136,7 @@ export function TodayList() {
       },
     );
     pendingDone.current.set(item.assignmentId, request);
-    setUndo({ item, index });
+    setUndo({ item });
     if (undoTimer.current) {
       clearTimeout(undoTimer.current);
     }
@@ -154,24 +147,40 @@ export function TodayList() {
     if (!undo) {
       return;
     }
-    const { item, index } = undo;
+    const { item } = undo;
     if (undoTimer.current) {
       clearTimeout(undoTimer.current);
     }
     setUndo(null);
     setActionError(null);
-    putBack(item, index);
     const saved = await pendingDone.current.get(item.assignmentId);
     pendingDone.current.delete(item.assignmentId);
     if (!saved) {
-      // The done never saved, so there is nothing to undo; the item is already back.
+      // The done never saved, so there is nothing to undo; the reload shows
+      // what the server actually has.
+      await reload();
       return;
     }
     const result = await undoItem(item.assignmentId, newRequestId());
     if (!result.ok) {
       setActionError(`Couldn't undo “${item.title}”. ${result.error}`);
-      await reload();
     }
+    // Reload on success and on failure: the item only comes back when the list
+    // reflects the server, so a slow undo keeps it off screen until this lands.
+    await reload();
+  }
+
+  // From the "nothing fits" state: no budget at all, so the plan on screen
+  // matches the full list the reload brings back.
+  function showAllWork() {
+    setHoursValue("");
+    setHoursError(null);
+    const saved = saveTodayHours(null);
+    setStorageError(
+      saved ? null : "Could not save your hours for this evening. The list will still use this budget.",
+    );
+    setHoursMessage(null);
+    void reload(null);
   }
 
   return (
@@ -186,7 +195,7 @@ export function TodayList() {
           <form className={styles.hoursForm} onSubmit={applyHours}>
             <Input
               label="Hours available tonight"
-              hint="0.5 to 12 hours. Leave blank to show all work."
+              hint="0.5 to 12 hours. Each item counts as 1 hour unless it has an estimate. Leave blank to show all work."
               error={hoursError}
               type="number"
               min="0.5"
@@ -228,9 +237,29 @@ export function TodayList() {
               {state.data.hoursFilter.skippedCount > 0
                 ? `; ${state.data.hoursFilter.skippedCount} ${state.data.hoursFilter.skippedCount === 1 ? "item" : "items"} left off the list.`
                 : "."}
+              {state.data.hoursFilter.unestimatedCount > 0
+                ? " Items without a time estimate count as 1 hour."
+                : ""}
             </p>
           ) : null}
-          <TodayItems items={state.data.items} onDone={handleDone} />
+          {state.data.items.length === 0 &&
+          state.data.hoursFilter !== null &&
+          state.data.hoursFilter.skippedCount > 0 ? (
+            <section className={styles.emptyState} aria-labelledby="today-nothing-fits-title">
+              <div className={styles.emptyMessage}>
+                <h2 id="today-nothing-fits-title">
+                  Nothing fits in {state.data.hoursFilter.hours}{" "}
+                  {state.data.hoursFilter.hours === 1 ? "hour" : "hours"}
+                </h2>
+                <p>Your open work is still there. Try more hours, or clear the box to see everything.</p>
+              </div>
+              <Button variant="secondary" onClick={showAllWork}>
+                Show all work
+              </Button>
+            </section>
+          ) : (
+            <TodayItems items={state.data.items} onDone={handleDone} />
+          )}
         </>
       ) : null}
       {undo ? (

@@ -229,7 +229,7 @@ export function describeFinalExamResult(
 ): string {
   switch (result.status) {
     case "no-final":
-      return "Pick which assignment is the final exam for this class to see what you need on it.";
+      return "If your final is a Canvas assignment, pick it in the grade setup to see the score you need on it.";
     case "final-not-gradable":
       return "The final exam has no points to grade against, so we can't tell what you would need.";
     case "already-graded":

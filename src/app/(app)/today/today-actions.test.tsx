@@ -110,13 +110,34 @@ describe("marking an item done on Today", () => {
     expect([...container.querySelectorAll("ol > li > span")].map((rank) => rank.textContent)).toEqual(["1", "2"]);
   });
 
-  it("Undo puts the item back where it was and undoes it after the done has saved", async () => {
+  it("brings the item back only after the undo saves and the list reloads", async () => {
     await click(button("Mark Lab 3 done"));
     await click(button("Undo"));
     expect(titles()).toEqual(["Problem Set 4", "Lab 3", "Essay"]);
     expect(mockUndoItem).toHaveBeenCalledWith("a2", expect.any(String));
     expect(mockMarkDone.mock.invocationCallOrder[0]).toBeLessThan(mockUndoItem.mock.invocationCallOrder[0]);
+    expect(mockGetToday).toHaveBeenCalledTimes(2);
     expect(container.textContent).not.toContain("Marked “Lab 3” done.");
+  });
+
+  it("keeps a slow undo off the list until it finishes and the list reloads", async () => {
+    let resolveUndo: (value: unknown) => void = () => {};
+    mockUndoItem.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUndo = resolve;
+        }),
+    );
+    await click(button("Mark Lab 3 done"));
+    await click(button("Undo"));
+    // While the undo request is in flight nothing has been put back yet.
+    expect(titles()).toEqual(["Problem Set 4", "Essay"]);
+    await act(async () => {
+      resolveUndo({ ok: true, status: 200, data: { assignmentId: "a2", undone: true } });
+    });
+    // The reload after the undo is what brings the item back.
+    expect(titles()).toEqual(["Problem Set 4", "Lab 3", "Essay"]);
+    expect(mockGetToday).toHaveBeenCalledTimes(2);
   });
 
   it("Undo goes away after a few seconds and the item stays done", async () => {
@@ -130,10 +151,11 @@ describe("marking an item done on Today", () => {
     expect(mockUndoItem).not.toHaveBeenCalled();
   });
 
-  it("puts the item back and says so when the done can't be saved", async () => {
+  it("reloads the list and says so when the done can't be saved", async () => {
     mockMarkDone.mockResolvedValue({ ok: false, status: 500, error: "Something went wrong (500). Try again." });
     await click(button("Mark Lab 3 done"));
     expect(titles()).toEqual(["Problem Set 4", "Lab 3", "Essay"]);
+    expect(mockGetToday).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("Couldn't mark “Lab 3” done. Something went wrong (500). Try again.");
     expect(container.textContent).not.toContain("Marked “Lab 3” done.");
   });

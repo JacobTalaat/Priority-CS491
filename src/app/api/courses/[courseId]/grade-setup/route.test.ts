@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FINAL_NOT_ON_CANVAS_MESSAGE } from "@/lib/final-exam-setup-message";
 
 const {
   mockVerifyAccessToken,
@@ -187,7 +188,7 @@ describe("POST /api/courses/[courseId]/grade-setup", () => {
     );
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Pick which assignment is the final exam, or set the final exam weight to 0.",
+      error: FINAL_NOT_ON_CANVAS_MESSAGE,
     });
     expect(mockGradeSetupUpsert).not.toHaveBeenCalled();
   });
@@ -207,7 +208,7 @@ describe("POST /api/courses/[courseId]/grade-setup", () => {
     );
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Pick which assignment is the final exam, or set the final exam weight to 0.",
+      error: FINAL_NOT_ON_CANVAS_MESSAGE,
     });
     expect(mockGradeSetupUpsert).not.toHaveBeenCalled();
   });

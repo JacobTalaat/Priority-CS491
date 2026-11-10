@@ -1330,7 +1330,7 @@ curl -i -X POST http://localhost:3000/api/courses/course-id/grade-setup \
 
 ```json
 {
-  "error": "Pick which assignment is the final exam, or set the final exam weight to 0."
+  "error": "Your final isn't a Canvas assignment, so put its weight in a category (for example Final Exam) and set the final exam weight to 0."
 }
 ```
 
@@ -2284,7 +2284,7 @@ curl -i http://localhost:3000/api/jobs/daily-sync/runs \
 
 ### `GET /api/jobs/nightly`
 
-Runs one tick of the nightly reminders job: the "Tonight" and "Due tomorrow" pushes, each at the student's own chosen reminder time. Like the daily sync, the job is a resumable tick, so a scheduler should call this every 15 minutes; each tick handles the students whose most recent scheduled reminder time has already struck and stops starting new ones once 40 seconds of the tick are spent.
+Runs one tick of the nightly reminders job: the "Tonight" and "Due tomorrow" pushes, each at the student's own chosen reminder time. Like the daily sync, the job is a resumable tick, so a scheduler should call this every 15 minutes; each tick handles the students whose most recent scheduled reminder time has already struck and stops starting new ones once 30 seconds of the tick are spent.
 
 Each reminder is tied to a scheduled occurrence: the instant in America/New_York when wall clock `HH:MM` struck (today's if it is past, otherwise yesterday's), so a 23:45 reminder seen by the 00:05 tick is still delivered, keyed to the previous New York day, with the messages computed as of that evening — "due tomorrow" then means the day after the evening the student asked about. A reminder that falls inside the spring-forward gap (like 02:30) counts as one wall-hour later; a fall-back repeat counts as its first pass. Lateness is measured in real minutes since the occurrence instant: more than 3 hours old (the scheduler was down) the day is claimed but nothing is sent.
 

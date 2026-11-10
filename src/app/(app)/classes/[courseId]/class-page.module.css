@@ -49,11 +49,26 @@
   gap: 6px;
 }
 
+/* The percentage and the letter sit on one baseline, the way the Classes cards show them. */
+.gradeLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+
 .grade {
   font-size: clamp(36px, 6vw, 48px);
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 1.1;
+}
+
+.gradeLetter {
+  font-size: clamp(28px, 4vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
 }
 
 .details {

@@ -91,11 +91,29 @@ describe("Onboarding", () => {
 
     expect(container.textContent).toContain("2 of 3 steps complete");
     expect(container.textContent).toContain("Algorithms has a confirmed grade setup.");
+    // The confirmed course is the one to review now.
+    expect(container.querySelector('a[href="/weights?from=onboarding&course=course-1"]')?.textContent).toBe(
+      "Review class setup",
+    );
     const finish = [...container.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Finish setup and see Today"),
     );
     expect(finish).not.toBeUndefined();
     await act(async () => finish?.click());
     expect(mocks.replace).toHaveBeenCalledWith("/today");
+  });
+
+  it("reviews the confirmed course instead of pointing at an unconfirmed one", async () => {
+    mocks.getGradeSetupCourses.mockResolvedValue({
+      ok: true,
+      data: { courses: [classCourse(true), { ...classCourse(false), id: "course-2", name: "Databases" }] },
+    });
+    await renderOnboarding();
+
+    expect(container.querySelector('a[href="/weights?from=onboarding&course=course-1"]')?.textContent).toBe(
+      "Review class setup",
+    );
+    // Step 2 is done once one class is confirmed, so no second confirm link is offered.
+    expect(container.textContent).not.toContain("Confirm a class");
   });
 });

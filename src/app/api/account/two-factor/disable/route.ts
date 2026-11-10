@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest, unauthorized } from "@/lib/auth";
+import { authenticateRequest, getBearerToken, unauthorized } from "@/lib/auth";
 import { deleteAllTotpFactors, verifyStudentTotpCode } from "@/lib/supabase";
 import { prisma } from "@/lib/prisma";
 
@@ -20,6 +20,13 @@ export async function POST(request: Request) {
   const user = outcome.user;
   const authUserId = outcome.authUserId;
 
+  // Checking the code means acting as the student at Supabase, so the request's
+  // own access token rides along — not the Supabase account id.
+  const token = getBearerToken(request);
+  if (!token) {
+    return unauthorized();
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -34,7 +41,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: WRONG_CODE }, { status: 400 });
   }
 
-  const check = await verifyStudentTotpCode(authUserId, code);
+  const check = await verifyStudentTotpCode(token, code);
   if (check === "rejected") {
     return NextResponse.json({ error: WRONG_CODE }, { status: 400 });
   }
