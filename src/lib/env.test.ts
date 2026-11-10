@@ -193,6 +193,29 @@ describe("AI_API_KEY", () => {
   });
 });
 
+describe("AI_REASONING", () => {
+  it("defaults when it is unset or blank", () => {
+    expect(readEnv({}).aiReasoning).toBe("default");
+    expect(readEnv({ AI_REASONING: undefined }).aiReasoning).toBe("default");
+    expect(readEnv({ AI_REASONING: "" }).aiReasoning).toBe("default");
+    expect(readEnv({ AI_REASONING: "   " }).aiReasoning).toBe("default");
+  });
+
+  it("accepts off case-insensitively with surrounding spaces", () => {
+    expect(readEnv({ AI_REASONING: "off" }).aiReasoning).toBe("off");
+    expect(readEnv({ AI_REASONING: " OFF " }).aiReasoning).toBe("off");
+  });
+
+  it("rejects any other value", () => {
+    expect(() => readEnv({ AI_REASONING: "on" }).aiReasoning).toThrow(
+      "AI_REASONING must be off or left empty"
+    );
+    expect(() => readEnv({ AI_REASONING: "enabled" }).aiReasoning).toThrow(
+      "AI_REASONING must be off or left empty"
+    );
+  });
+});
+
 describe("Supabase variables", () => {
   it("throws naming NEXT_PUBLIC_SUPABASE_URL when it is missing", () => {
     expect(() => readEnv({}).supabaseUrl).toThrow(
