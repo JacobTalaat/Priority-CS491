@@ -345,7 +345,7 @@ describe("final exam picker", () => {
   it("offers every assignment, plus none, and starts on none for a new setup", () => {
     const html = renderToStaticMarkup(<WeightsSetup initialCourses={[course]} />);
     expect(html).toMatch(/<label[^>]*for="final-exam-assignment"[^>]*>Final exam<\/label>/);
-    expect(html).toContain('<option value="" selected="">No final exam in this class</option>');
+    expect(html).toContain('<option value="" selected="">Not on Canvas, or no final exam</option>');
     expect(html).toContain('<option value="a1">Homework 1</option>');
     expect(html).toContain('<option value="a2">Project 1</option>');
   });
@@ -387,9 +387,9 @@ describe("confirmProblems", () => {
     ]);
   });
 
-  it("asks for the final exam when it carries weight but none is picked", () => {
+  it("says what to do when the final carries weight but none is picked", () => {
     expect(confirmProblems({ ...valid(), finalExamAssignmentId: "" }, assignments)).toEqual([
-      "Pick which assignment is the final exam, or set the final exam weight to 0.",
+      "Your final isn't a Canvas assignment, so put its weight in a category (for example Final Exam) and set the final exam weight to 0.",
     ]);
   });
 

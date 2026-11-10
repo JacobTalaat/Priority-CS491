@@ -20,6 +20,7 @@ import { AiError } from "@/lib/ai";
 import {
   SYLLABUS_READER_MAX_CHARS,
   buildSyllabusReaderMessages,
+  normalizeFinalExamWeight,
   parseSyllabusSuggestions,
   readSyllabusSuggestions,
 } from "./syllabus-reader";
@@ -251,6 +252,49 @@ describe("parseSyllabusSuggestions hostile inputs", () => {
     expect(
       parseSyllabusSuggestions(JSON.stringify({ unsupportedRules: "drop lowest" }))?.unsupportedRules
     ).toEqual([]);
+  });
+});
+
+describe("normalizeFinalExamWeight", () => {
+  it("drops a repeated final exam weight when the categories already total 100", () => {
+    // The live model output that made the Weights form show 135%.
+    const categories = [
+      { name: "Participation", weight: 10 },
+      { name: "Midterm Project", weight: 30 },
+      { name: "Final Project", weight: 25 },
+      { name: "Final Exam", weight: 35 },
+    ];
+    expect(normalizeFinalExamWeight(categories, 35)).toBe(0);
+  });
+
+  it("keeps a final exam weight the syllabus stated outside its categories", () => {
+    const categories = [
+      { name: "Homework", weight: 35 },
+      { name: "Quizzes", weight: 30 },
+    ];
+    expect(normalizeFinalExamWeight(categories, 35)).toBe(35);
+  });
+
+  it("keeps a final exam weight that repeats a final project category instead", () => {
+    const categories = [
+      { name: "Participation", weight: 50 },
+      { name: "Final Project", weight: 25 },
+    ];
+    expect(normalizeFinalExamWeight(categories, 25)).toBe(25);
+  });
+
+  it("drops a final exam weight that repeats a non-project final category when the total is short", () => {
+    const categories = [
+      { name: "Homework", weight: 35 },
+      { name: "Final Exam", weight: 35 },
+    ];
+    expect(normalizeFinalExamWeight(categories, 35)).toBe(0);
+  });
+
+  it("leaves null and zero alone whatever the categories say", () => {
+    const completeCategories = [{ name: "Homework", weight: 100 }];
+    expect(normalizeFinalExamWeight(completeCategories, null)).toBeNull();
+    expect(normalizeFinalExamWeight(completeCategories, 0)).toBe(0);
   });
 });
 
