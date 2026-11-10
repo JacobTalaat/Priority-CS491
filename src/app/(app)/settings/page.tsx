@@ -3,6 +3,7 @@ import { ButtonLink, List, ListRow, PageHeader } from "@/components/ui";
 import { CanvasConnection } from "./canvas-connection";
 import { CalendarFeed } from "./calendar-feed";
 import { DeleteAccount } from "./delete-account";
+import { NotificationPreferences } from "./notification-preferences";
 import { PushNotifications } from "./push-notifications";
 import { TwoFactor } from "./two-factor";
 import styles from "./settings.module.css";
@@ -24,6 +25,7 @@ export default async function SettingsPage({
       />
       <CanvasConnection />
       <CalendarFeed />
+      <NotificationPreferences />
       <PushNotifications />
       <TwoFactor />
       <DeleteAccount />
