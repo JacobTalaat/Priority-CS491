@@ -42,6 +42,26 @@
   font-size: 14px;
 }
 
+.hoursForm {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) auto;
+  align-items: end;
+  justify-content: start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.hoursMessage,
+.planSummary {
+  margin-bottom: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.hoursMessage {
+  color: var(--accent);
+}
+
 .errorState {
   display: grid;
   justify-items: start;
@@ -248,4 +268,10 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .hoursForm {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

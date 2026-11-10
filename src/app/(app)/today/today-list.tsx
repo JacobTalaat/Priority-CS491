@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, ButtonLink, Notice, PageHeader } from "@/components/ui";
+import type { FormEvent } from "react";
+import { Button, ButtonLink, Input, Notice, PageHeader } from "@/components/ui";
 import { getToday, markDone, undoItem } from "@/lib/today-client";
-import type { TodayItem } from "@/lib/today-client";
+import type { TodayItem, TodayResponse } from "@/lib/today-client";
+import { isValidTodayHours, readTodayHours, saveTodayHours } from "@/lib/today-hours";
 import { boundaryTag, dueLabel, insertAt, shareLabel } from "@/lib/today-list";
 import styles from "./today.module.css";
 
@@ -13,16 +15,14 @@ export const UNDO_MS = 6000;
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; items: TodayItem[]; generatedAt: string };
+  | { status: "ready"; data: TodayResponse };
 
 // The item just marked done and where it sat, so Undo can put it back in the same place.
 type UndoState = { item: TodayItem; index: number };
 
-async function loadToday(): Promise<LoadState> {
-  const result = await getToday();
-  return result.ok
-    ? { status: "ready", items: result.data.items, generatedAt: result.data.generatedAt }
-    : { status: "error", message: result.error };
+async function loadToday(hours: number | null): Promise<LoadState> {
+  const result = await getToday(hours);
+  return result.ok ? { status: "ready", data: result.data } : { status: "error", message: result.error };
 }
 
 function newRequestId(): string {
@@ -45,35 +45,76 @@ export function TodayList() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [undo, setUndo] = useState<UndoState | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [hoursValue, setHoursValue] = useState("");
+  const [hoursError, setHoursError] = useState<string | null>(null);
+  const [hoursMessage, setHoursMessage] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestId = useRef(0);
+  const activeHours = useRef<number | null>(null);
   // Each done request, so Undo can wait for it: an undo that reached the server first would
   // leave the item done.
   const pendingDone = useRef(new Map<string, Promise<boolean>>());
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (hours = activeHours.current) => {
+    const currentRequest = ++requestId.current;
+    activeHours.current = hours;
     setState({ status: "loading" });
-    setState(await loadToday());
+    const next = await loadToday(hours);
+    if (currentRequest === requestId.current) {
+      setState(next);
+    }
   }, []);
 
   useEffect(() => {
+    const saved = readTodayHours();
     let cancelled = false;
-    loadToday().then((next) => {
-      if (!cancelled) {
-        setState(next);
+    void Promise.resolve().then(() => {
+      if (cancelled) {
+        return;
+      }
+      if (saved.ok) {
+        setHoursValue(saved.hours === null ? "" : String(saved.hours));
+        setHoursMessage(saved.hours === null ? null : "Saved for this evening.");
+        void reload(saved.hours);
+      } else {
+        setStorageError("Could not read your saved hours. You can still set a budget for tonight.");
+        void reload(null);
       }
     });
     return () => {
       cancelled = true;
+      requestId.current += 1;
       if (undoTimer.current) {
         clearTimeout(undoTimer.current);
       }
     };
-  }, []);
+  }, [reload]);
+
+  function applyHours(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = hoursValue.trim();
+    const hours = value === "" ? null : Number(value);
+    if (hours !== null && !isValidTodayHours(hours)) {
+      setHoursError("Enter a number from 0.5 to 12 hours.");
+      setHoursMessage(null);
+      return;
+    }
+
+    setHoursError(null);
+    const saved = saveTodayHours(hours);
+    setStorageError(
+      saved ? null : "Could not save your hours for this evening. The list will still use this budget.",
+    );
+    setHoursMessage(saved && hours !== null ? "Saved for this evening." : null);
+    void reload(hours);
+  }
 
   function putBack(item: TodayItem, index: number) {
     setState((current) =>
-      current.status === "ready" && !current.items.some((entry) => entry.assignmentId === item.assignmentId)
-        ? { ...current, items: insertAt(current.items, item, index) }
+      current.status === "ready" &&
+      !current.data.items.some((entry) => entry.assignmentId === item.assignmentId)
+        ? { ...current, data: { ...current.data, items: insertAt(current.data.items, item, index) } }
         : current,
     );
   }
@@ -83,8 +124,15 @@ export function TodayList() {
       return;
     }
     setActionError(null);
-    setState({ ...state, items: state.items.filter((entry) => entry.assignmentId !== item.assignmentId) });
-    const request = markDone(item.assignmentId, { rank: index + 1, listGeneratedAt: state.generatedAt }, newRequestId()).then(
+    setState({
+      ...state,
+      data: { ...state.data, items: state.data.items.filter((entry) => entry.assignmentId !== item.assignmentId) },
+    });
+    const request = markDone(
+      item.assignmentId,
+      { rank: index + 1, listGeneratedAt: state.data.generatedAt },
+      newRequestId(),
+    ).then(
       (result) => {
         if (!result.ok) {
           putBack(item, index);
@@ -129,6 +177,27 @@ export function TodayList() {
   return (
     <>
       <PageHeader eyebrow="Do this first" title="Today" description="Your open work, most important first." />
+      <form className={styles.hoursForm} onSubmit={applyHours}>
+        <Input
+          label="Hours available tonight"
+          hint="Enter 0.5 to 12 hours. Leave blank to show all work."
+          error={hoursError}
+          type="number"
+          min="0.5"
+          max="12"
+          step="any"
+          value={hoursValue}
+          onChange={(event) => {
+            setHoursValue(event.target.value);
+            setHoursError(null);
+          }}
+        />
+        <Button type="submit" loading={state.status === "loading"}>
+          Show what fits
+        </Button>
+      </form>
+      {hoursMessage ? <p className={styles.hoursMessage} role="status">{hoursMessage}</p> : null}
+      {storageError ? <Notice tone="warning">{storageError}</Notice> : null}
       {state.status === "loading" ? (
         <p className={styles.status} role="status">
           Loading your list…
@@ -137,13 +206,25 @@ export function TodayList() {
       {state.status === "error" ? (
         <div className={styles.errorState}>
           <Notice tone="error">{state.message}</Notice>
-          <Button variant="secondary" onClick={reload}>
+          <Button variant="secondary" onClick={() => void reload()}>
             Try again
           </Button>
         </div>
       ) : null}
       {actionError ? <Notice tone="error">{actionError}</Notice> : null}
-      {state.status === "ready" ? <TodayItems items={state.items} onDone={handleDone} /> : null}
+      {state.status === "ready" ? (
+        <>
+          {state.data.hoursFilter ? (
+            <p className={styles.planSummary} role="status">
+              Showing work that fits in {state.data.hoursFilter.hours} hours tonight
+              {state.data.hoursFilter.skippedCount > 0
+                ? `; ${state.data.hoursFilter.skippedCount} ${state.data.hoursFilter.skippedCount === 1 ? "item" : "items"} left off the list.`
+                : "."}
+            </p>
+          ) : null}
+          <TodayItems items={state.data.items} onDone={handleDone} />
+        </>
+      ) : null}
       {undo ? (
         <div className={styles.undoBar} role="status">
           <span className={styles.undoText}>Marked “{undo.item.title}” done.</span>
