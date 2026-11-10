@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SERVICE_UNREACHABLE, SIGN_IN_UNAVAILABLE, TOO_MANY_ATTEMPTS } from "./auth-errors";
 
 const {
   mockCreateClient,
@@ -161,7 +162,7 @@ describe("signUp", () => {
     expect(result.fieldErrors.password).toMatch(/Password is too weak/);
   });
 
-  it("keeps other failures generic", async () => {
+  it("says sign ups are off instead of blaming the email or password", async () => {
     mockSignUp.mockResolvedValue({
       data: { user: null },
       error: { message: "Signups not allowed", status: 403 },
@@ -170,8 +171,29 @@ describe("signUp", () => {
     expect(result).toEqual({
       ok: false,
       fieldErrors: {},
-      formError: "Check your email and password and try again.",
+      formError: "New accounts can't be created right now.",
     });
+  });
+
+  it("says the problem is on Priority's side when Supabase rejects the app's key", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockSignUp.mockResolvedValue({ data: { user: null }, error: { message: "Invalid API key", status: 401 } });
+    const result = await signUp({ email: "student@njit.edu", password: "12345678" });
+    expect(result).toEqual({ ok: false, fieldErrors: {}, formError: SIGN_IN_UNAVAILABLE });
+    // Logged for whoever runs the app, without the student's email.
+    expect(consoleError).toHaveBeenCalledWith("Supabase Auth could not complete the request", {
+      flow: "signup",
+      status: 401,
+      code: undefined,
+    });
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain("student@njit.edu");
+    consoleError.mockRestore();
+  });
+
+  it("answers instead of throwing when sign up can't even start", async () => {
+    mockSignUp.mockRejectedValue(new TypeError("Failed to fetch"));
+    const result = await signUp({ email: "student@njit.edu", password: "12345678" });
+    expect(result).toEqual({ ok: false, fieldErrors: {}, formError: SERVICE_UNREACHABLE });
   });
 });
 
@@ -235,6 +257,32 @@ describe("logIn", () => {
       formError: "Confirm your email first. We sent a link to student@njit.edu.",
       emailSentTo: "student@njit.edu",
     });
+  });
+
+  it("doesn't blame the password when the service is down or rate limited", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockSignInWithPassword.mockResolvedValue({ data: { user: null }, error: { message: "Invalid API key", status: 401 } });
+    expect(await logIn({ email: "student@njit.edu", password: "12345678" })).toEqual({
+      ok: false,
+      fieldErrors: {},
+      formError: SIGN_IN_UNAVAILABLE,
+    });
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: null },
+      error: { message: "Request rate limit reached", status: 429, code: "over_request_rate_limit" },
+    });
+    expect(await logIn({ email: "student@njit.edu", password: "12345678" })).toEqual({
+      ok: false,
+      fieldErrors: {},
+      formError: TOO_MANY_ATTEMPTS,
+    });
+    mockSignInWithPassword.mockRejectedValue(new TypeError("Failed to fetch"));
+    expect(await logIn({ email: "student@njit.edu", password: "12345678" })).toEqual({
+      ok: false,
+      fieldErrors: {},
+      formError: SERVICE_UNREACHABLE,
+    });
+    consoleError.mockRestore();
   });
 
   it("treats a missing session as a failed log in", async () => {
