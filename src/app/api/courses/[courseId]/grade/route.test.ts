@@ -113,6 +113,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
       course: { id: "course-1", name: "Algorithms", courseCode: "CS-341", term: "Fall 2026" },
       setupConfirmed: true,
       engine: "weighted",
+      letter: "B",
       grade: { status: "calculated", percentage: 80.4 },
       breakdown: [
         { category: "Homework", weight: 40, percentage: 81, pointsEarned: 81, pointsPossible: 100, gradedCount: 2, ungradedCount: 0 },
@@ -125,6 +126,45 @@ describe("GET /api/courses/[courseId]/grade", () => {
         { assignmentId: "exam-1", share: 60, category: "Exams" },
       ],
     });
+  });
+
+  it("carries the letter the saved cutoffs give the calculated grade, an exact boundary included", async () => {
+    // Homework: 90%, Exams: 60% of weight with nothing graded, overall 90 — exactly the A cutoff.
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        assignments: [
+          { id: "hw-1", pointsPossible: 50, grade: { score: 45 } },
+          { id: "hw-2", pointsPossible: 50, grade: { score: 45 } },
+        ],
+      }),
+    );
+
+    const body = await (await GET(request(), context)).json();
+
+    expect(body.grade).toEqual({ status: "calculated", percentage: 90 });
+    expect(body.letter).toBe("A");
+  });
+
+  it("reports no letter when the grade cannot be calculated or no comparable cutoff is met", async () => {
+    // A setup with no cutoff at all can still grade, but carries no letter with it.
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({ gradeSetup: null, assignments: [{ id: "hw-1", pointsPossible: 10, grade: { score: 9 } }] }),
+    );
+    let body = await (await GET(request(), context)).json();
+    expect(body.grade).toEqual({ status: "calculated", percentage: 90 });
+    expect(body.letter).toBeNull();
+
+    mockCourseFindFirst.mockResolvedValue(
+      courseRow({
+        assignments: [
+          { id: "hw-1", pointsPossible: 50, grade: null },
+          { id: "exam-1", pointsPossible: 150, grade: { score: null } },
+        ],
+      }),
+    );
+    body = await (await GET(request(), context)).json();
+    expect(body.grade).toEqual({ status: "insufficient-data" });
+    expect(body.letter).toBeNull();
   });
 
   it("loads the course, its setup, and its graded assignments in one query", async () => {
@@ -156,6 +196,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
       course: { id: "course-1", name: "Algorithms", courseCode: "CS-341", term: "Fall 2026" },
       setupConfirmed: false,
       engine: "points",
+      letter: null,
       grade: { status: "calculated", percentage: 75 },
       breakdown: [],
       finalExam: { status: "no-final" },
@@ -207,6 +248,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
       course: { id: "course-1", name: "Algorithms", courseCode: "CS-341", term: "Fall 2026" },
       setupConfirmed: true,
       engine: "weighted",
+      letter: null,
       grade: { status: "insufficient-data" },
       breakdown: [
         { category: "Homework", weight: 40, percentage: null, pointsEarned: 0, pointsPossible: 0, gradedCount: 0, ungradedCount: 1 },
@@ -439,6 +481,7 @@ describe("GET /api/courses/[courseId]/grade", () => {
       course: { id: "course-1", name: "Algorithms", courseCode: "CS-341", term: "Fall 2026" },
       setupConfirmed: true,
       engine: "points",
+      letter: null,
       grade: { status: "calculated", percentage: 75 },
       breakdown: [],
       finalExam: { status: "no-final" },
