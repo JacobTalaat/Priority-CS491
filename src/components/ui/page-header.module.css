@@ -33,3 +33,11 @@
   flex-wrap: wrap;
   gap: 10px;
 }
+
+/* On a phone the actions drop under the title and get the full row, so a form there
+   (like the hours filter on Today) can stretch instead of hugging its content. */
+@media (max-width: 480px) {
+  .actions {
+    width: 100%;
+  }
+}

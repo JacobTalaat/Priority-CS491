@@ -176,26 +176,34 @@ export function TodayList() {
 
   return (
     <>
-      <PageHeader eyebrow="Do this first" title="Today" description="Your open work, most important first." />
-      <form className={styles.hoursForm} onSubmit={applyHours}>
-        <Input
-          label="Hours available tonight"
-          hint="Enter 0.5 to 12 hours. Leave blank to show all work."
-          error={hoursError}
-          type="number"
-          min="0.5"
-          max="12"
-          step="any"
-          value={hoursValue}
-          onChange={(event) => {
-            setHoursValue(event.target.value);
-            setHoursError(null);
-          }}
-        />
-        <Button type="submit" className={styles.hoursSubmit} loading={state.status === "loading"}>
-          Show what fits
-        </Button>
-      </form>
+      {/* The hours filter sits opposite the title, so it fills the header instead of
+          leaving an empty row beside the button. */}
+      <PageHeader
+        eyebrow="Do this first"
+        title="Today"
+        description="Your open work, most important first."
+        actions={
+          <form className={styles.hoursForm} onSubmit={applyHours}>
+            <Input
+              label="Hours available tonight"
+              hint="0.5 to 12 hours. Leave blank to show all work."
+              error={hoursError}
+              type="number"
+              min="0.5"
+              max="12"
+              step="any"
+              value={hoursValue}
+              onChange={(event) => {
+                setHoursValue(event.target.value);
+                setHoursError(null);
+              }}
+            />
+            <Button type="submit" className={styles.hoursSubmit} loading={state.status === "loading"}>
+              Show what fits
+            </Button>
+          </form>
+        }
+      />
       {hoursMessage ? <p className={styles.hoursMessage} role="status">{hoursMessage}</p> : null}
       {storageError ? <Notice tone="warning">{storageError}</Notice> : null}
       {state.status === "loading" ? (
