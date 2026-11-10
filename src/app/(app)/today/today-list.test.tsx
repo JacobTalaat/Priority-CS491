@@ -24,6 +24,9 @@ function item(overrides: Partial<TodayItem>): TodayItem {
   };
 }
 
+// Thursday Oct 29, 2026, noon in New York, so the due labels don't depend on the clock.
+const NOW = new Date("2026-10-29T16:00:00.000Z");
+
 describe("TodayItems", () => {
   it("shows course, title, due date, share, and reason for each item, in the order given", () => {
     const html = renderToStaticMarkup(
@@ -32,17 +35,31 @@ describe("TodayItems", () => {
           item({}),
           item({ rank: 2, assignmentId: "a2", title: "Lab 3", courseName: "Databases", share: 4, reason: "Due Saturday, 4 percent of your grade" }),
         ]}
+        now={NOW}
       />,
     );
     expect(html).toMatch(/<ol[^>]*aria-label="Today"/);
     expect(html.indexOf("Problem Set 4")).toBeLessThan(html.indexOf("Lab 3"));
     expect(html).toContain("Algorithms");
-    expect(html).toContain("Due Fri, Oct 30, 11:59 PM");
+    expect(html).toContain("Due tomorrow, 11:59 PM");
     expect(html).toContain("Due tomorrow, 15 percent of your grade");
     expect(html).toContain(">15%<");
     expect(html).toContain(">4%<");
     expect(html).toContain("Weight share");
     expect(html).toContain("of grade");
+  });
+
+  it("keeps course, due date and the boundary flag visible without opening the row", () => {
+    const html = renderToStaticMarkup(
+      <TodayItems items={[item({ boundary: { letter: "A-", cutoff: 90, direction: "at-risk", distance: 1 } })]} now={NOW} />,
+    );
+    const summary = html.match(/<summary[^>]*>(.*?)<\/summary>/)?.[1] ?? "";
+    expect(summary).toContain("Problem Set 4");
+    expect(summary).toContain("Algorithms");
+    expect(summary).toContain("Due tomorrow, 11:59 PM");
+    expect(summary).toContain("A- at risk");
+    // The reason and the Canvas link open underneath.
+    expect(summary).not.toContain("percent of your grade");
   });
 
   it("shows a safe Open in Canvas link in the item details", () => {
@@ -75,9 +92,9 @@ describe("TodayItems", () => {
 
   it("marks overdue work and leaves out the share badge when there is no share", () => {
     const html = renderToStaticMarkup(
-      <TodayItems items={[item({ overdue: true, dueAt: "2026-10-28T03:59:00.000Z", share: null })]} />,
+      <TodayItems items={[item({ overdue: true, dueAt: "2026-10-28T03:59:00.000Z", share: null })]} now={NOW} />,
     );
-    expect(html).toContain("Overdue, was due Tue, Oct 27, 11:59 PM");
+    expect(html).toContain("Overdue, was due Tue, Oct 27");
     expect(html).not.toContain("of grade");
   });
 

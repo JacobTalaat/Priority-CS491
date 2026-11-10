@@ -86,12 +86,17 @@
   grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: start;
   column-gap: 16px;
-  padding: 12px 4px;
+  padding: 14px 8px;
   border-bottom: 1px solid var(--divider);
+  transition: background-color 160ms ease;
+}
+
+.item:hover {
+  background: var(--surface);
 }
 
 .rank {
-  /* Centres the rank and title on the 32px Done button beside them. */
+  /* Sits on the title's line, which is centred on the 32px Done button beside it. */
   padding-top: 5px;
   color: var(--muted);
   font-size: 14px;
@@ -106,31 +111,58 @@
   padding-top: 4px;
 }
 
+.details {
+  display: grid;
+  width: 100%;
+  justify-items: start;
+}
+
+.summary {
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
 .title {
   font-weight: 600;
   overflow-wrap: anywhere;
+  transition: color 160ms ease;
 }
 
-.details {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
+/* A quiet chevron says the row opens, without a triangle pushing every title right. */
+.title::after {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--muted);
+  content: "›";
+  font-weight: 400;
+  transition: transform 160ms ease;
 }
 
-.details > summary {
-  cursor: pointer;
+.summary:hover .title {
+  color: var(--accent);
+}
+
+.details[open] .title::after {
+  transform: rotate(90deg);
 }
 
 .detailContent {
   display: grid;
+  max-width: 640px;
   justify-items: start;
-  gap: 8px;
+  gap: 6px;
+  padding-top: 10px;
 }
 
 .meta {
   display: flex;
   flex-wrap: wrap;
-  column-gap: 12px;
   row-gap: 2px;
   color: var(--secondary);
   font-size: 13px;
@@ -138,6 +170,12 @@
 
 .meta > span {
   overflow-wrap: anywhere;
+}
+
+.meta > span + span::before {
+  margin: 0 8px;
+  color: var(--muted);
+  content: "·";
 }
 
 .overdue {
@@ -151,11 +189,6 @@
 
 .atRisk,
 .withinReach {
-  margin-top: 4px;
-  padding: 2px 8px;
-  border: 1px solid currentColor;
-  border-radius: var(--radius);
-  font-size: 12px;
   font-weight: 500;
 }
 
@@ -289,6 +322,15 @@
   /* Stacked under the field, the button only needs a little room after the hint. */
   .hoursSubmit {
     margin-top: 12px;
+  }
+
+  /* Course, due date and flag each get a line, so no separator dot starts a line. */
+  .meta {
+    flex-direction: column;
+  }
+
+  .meta > span + span::before {
+    content: none;
   }
 
   /* On a phone the share sits above Done, so long titles keep most of the row. */

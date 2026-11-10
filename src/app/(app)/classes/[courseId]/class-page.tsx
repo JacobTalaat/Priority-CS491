@@ -110,55 +110,63 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
         }
       />
 
-      <section className={styles.section} aria-labelledby="class-grade">
-        <h2 id="class-grade" className={styles.sectionTitle}>
-          Grade
-        </h2>
-        {grade.ok ? <GradeOverview grade={grade.data} setupHref={setupHref} /> : <Notice tone="error">{grade.message}</Notice>}
-      </section>
+      {/* On wide screens the class details sit beside the grade and assignments instead of
+          after them, so the whole class reads on one screen. */}
+      <div className={styles.columns}>
+        <div className={styles.main}>
+          <section className={styles.section} aria-labelledby="class-grade">
+            <h2 id="class-grade" className={styles.sectionTitle}>
+              Grade
+            </h2>
+            {grade.ok ? <GradeOverview grade={grade.data} setupHref={setupHref} /> : <Notice tone="error">{grade.message}</Notice>}
+          </section>
 
-      {grade.ok ? (
-        <section className={styles.section} aria-labelledby="class-final">
-          <h2 id="class-final" className={styles.sectionTitle}>
-            Final exam
-          </h2>
-          <FinalExamTool finalExam={grade.data.finalExam} setupHref={setupHref} />
-        </section>
-      ) : null}
+          {grade.ok ? (
+            <section className={styles.section} aria-labelledby="class-final">
+              <h2 id="class-final" className={styles.sectionTitle}>
+                Final exam
+              </h2>
+              <FinalExamTool finalExam={grade.data.finalExam} setupHref={setupHref} />
+            </section>
+          ) : null}
 
-      <section className={styles.section} aria-labelledby="class-assignments">
-        <h2 id="class-assignments" className={styles.sectionTitle}>
-          Assignments
-        </h2>
-        {details.assignments.length === 0 ? (
-          <p className={styles.muted}>No assignments imported for this class yet. Sync Canvas to bring them in.</p>
-        ) : (
-          <List label="Assignments">
-            {details.assignments.map((assignment) => {
-              const share = shares.get(assignment.id);
-              const category = share?.category ?? assignment.assignmentGroup?.name ?? null;
-              const meta = [dueText(assignment.dueAt, assignment.hasDueDate), category, shareText(share?.share)]
-                .filter(Boolean)
-                .join(" · ");
-              return (
-                <ListRow
-                  key={assignment.id}
-                  title={assignment.title}
-                  meta={meta}
-                  trailing={scoreText(assignment.grade, assignment.pointsPossible)}
-                />
-              );
-            })}
-          </List>
-        )}
-      </section>
+          <section className={styles.section} aria-labelledby="class-assignments">
+            <h2 id="class-assignments" className={styles.sectionTitle}>
+              Assignments
+            </h2>
+            {details.assignments.length === 0 ? (
+              <p className={styles.muted}>No assignments imported for this class yet. Sync Canvas to bring them in.</p>
+            ) : (
+              <List label="Assignments">
+                {details.assignments.map((assignment) => {
+                  const share = shares.get(assignment.id);
+                  const category = share?.category ?? assignment.assignmentGroup?.name ?? null;
+                  const meta = [dueText(assignment.dueAt, assignment.hasDueDate), category, shareText(share?.share)]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <ListRow
+                      key={assignment.id}
+                      title={assignment.title}
+                      meta={meta}
+                      trailing={scoreText(assignment.grade, assignment.pointsPossible)}
+                    />
+                  );
+                })}
+              </List>
+            )}
+          </section>
 
-      <section className={styles.section} aria-labelledby="class-details">
-        <h2 id="class-details" className={styles.sectionTitle}>
-          Class details
-        </h2>
-        <ClassDetails details={details.details} setupHref={setupHref} />
-      </section>
+        </div>
+        <aside className={styles.aside}>
+          <section className={styles.section} aria-labelledby="class-details">
+            <h2 id="class-details" className={styles.sectionTitle}>
+              Class details
+            </h2>
+            <ClassDetails details={details.details} setupHref={setupHref} />
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }

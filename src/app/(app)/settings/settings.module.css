@@ -1,5 +1,8 @@
+/* One readable column: a section's status badge stays next to its content instead of
+   drifting to the far edge of a wide screen. */
 .section {
   display: grid;
+  max-width: 720px;
   gap: 16px;
   padding: 28px 0 32px;
   border-top: 1px solid var(--divider);
