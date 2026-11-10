@@ -19,3 +19,99 @@
   max-width: 480px;
   color: var(--secondary);
 }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  list-style: none;
+}
+
+.cardLink {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  height: 100%;
+  padding: 16px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.cardLink:hover {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.cardLink:hover .cardTitle {
+  color: var(--accent);
+}
+
+.cardTitle {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  transition: color 160ms ease;
+}
+
+.cardMeta {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.cardGrade {
+  display: grid;
+  align-content: end;
+  min-height: 44px;
+  margin-top: 8px;
+}
+
+.gradeValues {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.gradePercent {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.gradeLetter {
+  font-size: clamp(28px, 4vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.gradeMuted {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.gradeLoading {
+  letter-spacing: 0.2em;
+}
+
+.gradePlaceholder {
+  color: var(--secondary);
+  font-size: 14px;
+}
+
+@media (min-width: 600px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 960px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

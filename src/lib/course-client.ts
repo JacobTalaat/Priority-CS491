@@ -39,6 +39,7 @@ export type CourseDetailsResponse = {
 export type CourseGradeResponse = {
   setupConfirmed: boolean;
   engine: "weighted" | "points";
+  letter: string | null;
   grade: WeightedGradeResult;
   breakdown: CategoryBreakdown[];
   finalExam: FinalExamResult;
