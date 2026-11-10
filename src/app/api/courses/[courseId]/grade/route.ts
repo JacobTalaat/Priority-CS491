@@ -6,6 +6,7 @@ import { type WeightedGradeResult } from "@/lib/weighted-grade";
 import { buildCategoryBreakdown, calculateCourseGrade, type CategoryBreakdown } from "@/lib/grade-engine";
 import { readFinalExamAssignmentId, solveFinalExam, type FinalExamResult } from "@/lib/final-exam-solver";
 import { assignmentShares, type AssignmentShare } from "@/lib/grade-share";
+import { letterForGrade } from "@/lib/letter-grade";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ type GradeResponse = {
   };
   setupConfirmed: boolean;
   engine: "weighted" | "points";
+  letter: string | null;
   grade: WeightedGradeResult;
   breakdown: CategoryBreakdown[];
   finalExam: FinalExamResult;
@@ -105,6 +107,9 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
     },
     setupConfirmed: course.gradeSetup !== null,
     engine: choice.engine,
+    // The saved setup's cutoffs are the one source of letters, even for a points
+    // course, so the label always matches what the grade setup confirmed.
+    letter: letterForGrade(grade, setup?.cutoffs ?? {}),
     grade,
     breakdown,
     finalExam,

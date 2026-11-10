@@ -1785,6 +1785,8 @@ The needed score assumes every other ungraded assignment keeps counting the way 
 
 The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` — but when `grade.status` is `unsupported`, every share is `null` (with the mapped `category` kept where the setup knows it): a rule like a drop or a curve reshuffles the slice each assignment would carry, so any figure would be wrong. When a picked final exam's weight lives outside the categories, the route folds that weight into the final's own category before computing shares, so the final carries the slice the syllabus gave it. If the setup holds a weight outside the categories with no final exam picked and mapped, that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final.
 
+The response also carries `letter`: the label of the highest saved cutoff the calculated percentage reaches, so a client can show the grade as a letter without re-implementing the scale. Cutoffs live in `cutoffs` in the saved grade setup, and an exact boundary counts as reached (`80.4` with `B` at `80` is a `B`). `letter` is `null` when `grade.status` is not `calculated` — `insufficient-data` and `unsupported` never carry a letter — when the setup has no cutoffs (in particular a points course with no confirmed setup can grade on total points with no scale to name it), and when the percentage sits below every saved cutoff while no saved cutoff is `0`: a scale without an `F at 0` has no lowest label to fall back on.
+
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
 
@@ -1811,6 +1813,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": "B",
   "grade": { "status": "calculated", "percentage": 80.4 },
   "breakdown": [
     {
@@ -1853,6 +1856,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": false,
   "engine": "points",
+  "letter": null,
   "grade": { "status": "calculated", "percentage": 75 },
   "breakdown": [],
   "finalExam": { "status": "no-final" },
@@ -1875,6 +1879,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": null,
   "grade": { "status": "insufficient-data" },
   "breakdown": [
     {
@@ -1904,6 +1909,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": "A",
   "grade": { "status": "calculated", "percentage": 102 },
   "breakdown": [
     {
@@ -1945,6 +1951,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": null,
   "grade": { "status": "unsupported", "reason": "negative-score" },
   "breakdown": [],
   "finalExam": { "status": "no-final" },
@@ -1967,6 +1974,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": "B",
   "grade": { "status": "calculated", "percentage": 80 },
   "breakdown": [
     {
