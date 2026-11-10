@@ -198,14 +198,19 @@ export function dueTomorrowMessage(ranked: readonly RankedItem[], now: Date): No
 }
 
 export function gradePostedMessage(input: GradePostedInput): NotificationMessage {
-  const score = formatNumber(input.score);
-  const points =
-    typeof input.pointsPossible === "number" &&
-    Number.isFinite(input.pointsPossible) &&
-    input.pointsPossible > 0
-      ? `/${formatNumber(input.pointsPossible)}`
-      : "";
-  const suffix = ` (${course(input.courseName)}) — ${score}${points}.`;
+  // A score the push can only print as NaN or Infinity reads as a bug, so a
+  // non-finite score leaves out the score clause entirely instead.
+  const scored = Number.isFinite(input.score);
+  const scoreClause = scored
+    ? ` — ${formatNumber(input.score)}${
+        typeof input.pointsPossible === "number" &&
+        Number.isFinite(input.pointsPossible) &&
+        input.pointsPossible > 0
+          ? `/${formatNumber(input.pointsPossible)}`
+          : ""
+      }.`
+    : ".";
+  const suffix = ` (${course(input.courseName)})${scoreClause}`;
   const [title] = fitNames("Grade posted: ", suffix, [input.assignmentTitle]);
   return {
     kind: "grade-posted",

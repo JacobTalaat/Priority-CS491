@@ -1785,6 +1785,8 @@ The needed score assumes every other ungraded assignment keeps counting the way 
 
 The `shares` array says how much each assignment is worth toward the final grade, one `{ assignmentId, share, category }` entry per assignment in the same order as the course's assignments. In a weighted course, a share is the assignment's points possible over the total points possible of every assignment mapped to its category (graded or not) times the category's weight, and `category` names the category it was mapped to. In a points course, a share is the assignment's points possible over the course's total points times 100, and `category` is always `null`. `null` means the assignment sits outside the grading math entirely — unmapped in a weighted course, or mapped to a category that carries no weight — while `0` means it is inside the math but carries no points, so it cannot move the grade. Shares depend on no grades, so they come back even when `grade.status` is `insufficient-data` — but when `grade.status` is `unsupported`, every share is `null` (with the mapped `category` kept where the setup knows it): a rule like a drop or a curve reshuffles the slice each assignment would carry, so any figure would be wrong. When a picked final exam's weight lives outside the categories, the route folds that weight into the final's own category before computing shares, so the final carries the slice the syllabus gave it. If the setup holds a weight outside the categories with no final exam picked and mapped, that weight belongs to no assignment, so every share is `null`: any number would be wrong about the final.
 
+The response also carries `letter`: the label of the highest saved cutoff the calculated percentage reaches, so a client can show the grade as a letter without re-implementing the scale. Cutoffs live in `cutoffs` in the saved grade setup, and an exact boundary counts as reached (`80.4` with `B` at `80` is a `B`). `letter` is `null` when `grade.status` is not `calculated` — `insufficient-data` and `unsupported` never carry a letter — when the setup has no cutoffs (in particular a points course with no confirmed setup can grade on total points with no scale to name it), and when the percentage sits below every saved cutoff while no saved cutoff is `0`: a scale without an `F at 0` has no lowest label to fall back on.
+
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]/grade`
 
@@ -1811,6 +1813,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": "B",
   "grade": { "status": "calculated", "percentage": 80.4 },
   "breakdown": [
     {
@@ -1853,6 +1856,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": false,
   "engine": "points",
+  "letter": null,
   "grade": { "status": "calculated", "percentage": 75 },
   "breakdown": [],
   "finalExam": { "status": "no-final" },
@@ -1875,6 +1879,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": null,
   "grade": { "status": "insufficient-data" },
   "breakdown": [
     {
@@ -1904,6 +1909,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": "A",
   "grade": { "status": "calculated", "percentage": 102 },
   "breakdown": [
     {
@@ -1945,6 +1951,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": null,
   "grade": { "status": "unsupported", "reason": "negative-score" },
   "breakdown": [],
   "finalExam": { "status": "no-final" },
@@ -1967,6 +1974,7 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
   },
   "setupConfirmed": true,
   "engine": "weighted",
+  "letter": "B",
   "grade": { "status": "calculated", "percentage": 80 },
   "breakdown": [
     {
@@ -2280,7 +2288,7 @@ Runs one tick of the nightly reminders job: the "Tonight" and "Due tomorrow" pus
 
 Each reminder is tied to a scheduled occurrence: the instant in America/New_York when wall clock `HH:MM` struck (today's if it is past, otherwise yesterday's), so a 23:45 reminder seen by the 00:05 tick is still delivered, keyed to the previous New York day, with the messages computed as of that evening — "due tomorrow" then means the day after the evening the student asked about. A reminder that falls inside the spring-forward gap (like 02:30) counts as one wall-hour later; a fall-back repeat counts as its first pass. Lateness is measured in real minutes since the occurrence instant: more than 3 hours old (the scheduler was down) the day is claimed but nothing is sent.
 
-A candidate is a student with at least one push subscription and the `notifyTonight` or `notifyDueTomorrow` preference on. Before anything is sent the tick claims the night by creating the `NightlyDelivery` row, so delivery is at-most-once even when two ticks overlap — and that one row claims the whole night's bundle, so a crash between the "Tonight" push and the "Due tomorrow" push loses the second message by design. The messages come from the same wording as the today list, ranked by the same engine, with duplicate suppression between the two messages (see the messages under `GET /api/notifications/preferences`), and each push is sent with a 2-hour expiry, so it expires 2 hours after it is sent. A message counts as delivered only when at least one of the student's subscriptions responded; a claimed student whose sends all failed is flagged in the delivery row and never retried tonight. One failed student never stops the rest, and a claimed student is never retried that night.
+A candidate is a student with at least one push subscription and the `notifyTonight` or `notifyDueTomorrow` preference on. Before anything is sent the tick claims the night by creating the `NightlyDelivery` row, so delivery is at-most-once even when two ticks overlap — and that one row claims the whole night's bundle, so a crash between the "Tonight" push and the "Due tomorrow" push loses the second message by design. The messages come from the same wording as the today list, ranked by the same engine, with duplicate suppression between the two messages (see the messages under `GET /api/notifications/preferences`), and each push is sent with a 2-hour expiry, so it expires 2 hours after it is sent. A message counts as delivered only when at least one of the student's subscriptions responded. An attempt that delivered nothing — every send failed, or the student's ranked list could not be loaded — gives the claim back, and later ticks that night retry the whole bundle until the 3-hour late limit closes the night; `failed` counts those students as well as the failed messages. Once anything was delivered, or there was nothing to send, or the occurrence was too late, the night stays claimed and is never re-sent; a partially delivered bundle keeps its claim, so the one undelivered message of the pair is dropped rather than repeated. One failed student never stops the rest, and each tick visits the owed students in a random order, so students whose sends keep failing cannot eat the whole tick budget and starve the others.
 
 This route is protected by the same shared secret as the daily sync. Send `Authorization: Bearer <CRON_SECRET>`. See `.env.example` for scheduling examples.
 
@@ -2298,7 +2306,7 @@ curl -i http://localhost:3000/api/jobs/nightly \
 
 **Response**
 
-`200` — the tick ran. `day` is the New York day of the tick, `due` how many students owed a reminder now (today's or last night's occurrence, whichever struck), `sent` how many messages delivered at least one push this tick, `failed` how many messages were attempted where no subscription delivered, `nothingToSend` claimed students with nothing worth a push, `skippedLate` claimed-but-not-sent students whose occurrence was more than 3 hours old, and `remaining` owed students this tick did not get to (a claim lost to an overlapping tick counts as handled, not as remaining). A delivery row counts against the occurrence's New York day, so the day before midnight-carried reminders is their `NightlyDelivery` day, not this `day`.
+`200` — the tick ran. `day` is the New York day of the tick, `due` how many students owed a reminder now (today's or last night's occurrence, whichever struck), `sent` how many messages delivered at least one push this tick, `failed` how many messages were attempted where no subscription delivered — a student whose ranked list failed to load or timed out adds one here as well — `nothingToSend` claimed students with nothing worth a push, `skippedLate` claimed-but-not-sent students whose occurrence was more than 3 hours old, and `remaining` owed students this tick did not get to (a claim lost to an overlapping tick counts as handled, not as remaining). A delivery row counts against the occurrence's New York day, so the day before midnight-carried reminders is their `NightlyDelivery` day, not this `day`.
 
 ```json
 {
@@ -2480,6 +2488,7 @@ curl -i "http://localhost:3000/api/today?hours=3" \
       "courseId": "course-id",
       "courseName": "Algorithms",
       "title": "Project 1",
+      "htmlUrl": "https://canvas.example.edu/courses/123/assignments/456",
       "dueAt": "2026-10-14T17:00:00.000Z",
       "dueDay": "2026-10-14",
       "overdue": false,
@@ -2496,6 +2505,7 @@ curl -i "http://localhost:3000/api/today?hours=3" \
       "courseId": "course-id",
       "courseName": "Algorithms",
       "title": "Quiz",
+      "htmlUrl": null,
       "dueAt": "2026-10-15T17:00:00.000Z",
       "dueDay": "2026-10-15",
       "overdue": false,
@@ -2514,6 +2524,7 @@ curl -i "http://localhost:3000/api/today?hours=3" \
 Field meanings:
 
 - `rank` — the item's 1-based position in the full ranked list.
+- `htmlUrl` — the Canvas assignment URL, or `null` when the assignment has no Canvas URL.
 - `dueAt` — the real due timestamp, `null` for work without a due date.
 - `dueDay` — the item's due calendar day, `YYYY-MM-DD` in America/New_York, `null` for undated work. Overdue work keeps its real day here even though it ranks within today.
 - `overdue` — true when the due time has passed.

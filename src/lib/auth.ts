@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyAccessToken } from "@/lib/supabase";
+import { authUserExists, verifyAccessToken } from "@/lib/supabase";
 
 function getBearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
@@ -36,6 +36,27 @@ export type AuthOutcome =
   | { user: AuthUser; authUserId: string; mfaRequired: false }
   | { user: null; authUserId: string | null; mfaRequired: boolean };
 
+// Account deletion removes the Prisma row before the Supabase auth user, so a
+// concurrent request holding a stale token can pass every check above right
+// before the auth user goes and create its row in the gap between the two
+// deletes. One that authenticates forever. Re-checking the account right
+// after creating closes that window: only a definite "gone" (false) throws
+// the fresh row away, an unreachable Supabase (null) or a still-live account
+// (true) keeps it, since failing closed here would lock the student out over
+// an outage.
+async function finishCreate(
+  identity: { authUserId: string; email: string },
+  created: { id: string; email: string; twoFactorEnabled: boolean }
+): Promise<{ user: AuthUser | null; twoFactorEnabled: boolean }> {
+  if ((await authUserExists(identity.authUserId)) === false) {
+    await prisma.user.deleteMany({
+      where: { id: created.id, authUserId: identity.authUserId },
+    });
+    return { user: null, twoFactorEnabled: false };
+  }
+  return { user: { id: created.id, email: created.email }, twoFactorEnabled: created.twoFactorEnabled };
+}
+
 async function loadOrCreateUser(
   identity: { authUserId: string; email: string }
 ): Promise<{ user: AuthUser | null; twoFactorEnabled: boolean }> {
@@ -47,11 +68,21 @@ async function loadOrCreateUser(
     // has gone stale (the student changed their email in Supabase).
     return { user: { id: existing.id, email: identity.email }, twoFactorEnabled: existing.twoFactorEnabled };
   }
+  // An access token keeps verifying until it expires, even after its own
+  // account is deleted (deletion removed the Prisma row first, so this token
+  // has no row to find). Creating a row for a deleted auth user would park a
+  // ghost on the email and lock a fresh sign-up out with a P2002 forever, so
+  // the row is only created when Supabase still knows the account. An unknown
+  // answer (a Supabase outage) fails closed: a first request on a brand new
+  // account is cheap to retry.
+  if ((await authUserExists(identity.authUserId)) !== true) {
+    return { user: null, twoFactorEnabled: false };
+  }
   try {
     const created = await prisma.user.create({
       data: { authUserId: identity.authUserId, email: identity.email },
     });
-    return { user: { id: created.id, email: created.email }, twoFactorEnabled: created.twoFactorEnabled };
+    return await finishCreate(identity, created);
   } catch (error) {
     if (!isUniqueConstraintError(error)) {
       throw error;
@@ -65,10 +96,13 @@ async function loadOrCreateUser(
       return { user: { id: winner.id, email: identity.email }, twoFactorEnabled: winner.twoFactorEnabled };
     }
     // The conflict is on the email: another row holds it and no row belongs to
-    // this Supabase account. That leaves the owner of the address unproven — a
-    // signup with someone else's address succeeds until email confirmation is
-    // on — so adopting that row could hand its Canvas token to the wrong
-    // person. Fail closed: the request is unauthorized, and the row stays.
+    // this Supabase account. The owner of the address is unproven — a signup
+    // with someone else's address succeeds until email confirmation is on — so
+    // the row stays exactly as it is: neither adopting nor erasing it. Erasing
+    // would wipe the holder's data on re-sign-up if the database is ever
+    // pointed at a different Supabase project, where every returning user's
+    // auth id changes. Adopting could hand the row's Canvas token to the wrong
+    // person. Fail closed: the request is unauthorized.
     console.error(
       "Refusing to reassign a user row to a Supabase account that does not already own it"
     );

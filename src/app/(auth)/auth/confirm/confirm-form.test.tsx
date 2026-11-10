@@ -88,7 +88,7 @@ describe("finishConfirmation", () => {
       token: "link-token",
     });
     expect(mockSetToken).toHaveBeenCalledWith("link-token");
-    expect(navigateTo).toBe("/classes");
+    expect(navigateTo).toBe("/onboarding");
   });
 });
 

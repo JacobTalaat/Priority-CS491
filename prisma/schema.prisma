@@ -362,8 +362,11 @@ model SyncFailure {
 
 // At-most-once marker for the nightly Tonight / Due tomorrow push: one row per
 // student per America/New_York day, claimed before anything is sent. The two
-// flags record what actually went out, so a send failure after the claim never
-// retries that student that night.
+// flags record what actually went out. An attempt that delivered nothing
+// deletes its row, so later ticks that night retry the whole bundle until the
+// occurrence is more than 3 hours old; once anything was delivered, or there
+// was nothing to send, or the occurrence was too late, the row stays and that
+// night is never sent a second time.
 model NightlyDelivery {
   userId      String
   day         String

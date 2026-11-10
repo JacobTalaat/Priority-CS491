@@ -41,6 +41,7 @@ const details: CourseDetailsResponse = {
 const weightedGrade: CourseGradeResponse = {
   setupConfirmed: true,
   engine: "weighted",
+  letter: null,
   grade: { status: "calculated", percentage: 90 },
   breakdown: [
     { category: "Homework", weight: 40, percentage: 90, pointsEarned: 18, pointsPossible: 20, gradedCount: 1, ungradedCount: 0 },

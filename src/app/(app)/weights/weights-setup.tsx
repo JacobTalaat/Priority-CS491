@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Notice, PageHeader, TextArea } from "@/components/ui";
+import { Button, ButtonLink, Input, Notice, PageHeader, TextArea } from "@/components/ui";
 import { mappingSummary, unmappedAssignmentIds } from "@/lib/assignment-mapping";
 import { detailText, detailValue, formatContacts } from "@/lib/class-details";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
@@ -267,7 +267,9 @@ export function confirmProblems(form: FormState, assignments: { id: string }[]):
     finalExamWeight <= 100 &&
     !assignments.some((assignment) => assignment.id === form.finalExamAssignmentId)
   ) {
-    problems.push("Pick which assignment is the final exam, or set the final exam weight to 0.");
+    problems.push(
+      "Your final isn't a Canvas assignment, so put its weight in a category (for example Final Exam) and set the final exam weight to 0."
+    );
   }
   const total = categories.reduce(
     (sum, category) => sum + (Number.isFinite(category.weight) ? category.weight : 0),
@@ -350,7 +352,8 @@ export function applySyllabusRead(
 export function WeightsSetup({
   initialCourses,
   initialCourseId,
-}: { initialCourses?: GradeSetupCourse[]; initialCourseId?: string } = {}) {
+  returnToOnboarding = false,
+}: { initialCourses?: GradeSetupCourse[]; initialCourseId?: string; returnToOnboarding?: boolean } = {}) {
   const [courses, setCourses] = useState<GradeSetupCourse[]>(initialCourses ?? []);
   const [selectedCourseId, setSelectedCourseId] = useState(
     () => pickCourse(initialCourses ?? [], initialCourseId)?.id ?? "",
@@ -612,6 +615,11 @@ export function WeightsSetup({
         eyebrow="Grade weights"
         title="Weights"
         description="Set up each class using its syllabus, Canvas weights, or your own categories."
+        actions={
+          returnToOnboarding ? (
+            <ButtonLink href="/onboarding" variant="secondary">Back to setup</ButtonLink>
+          ) : undefined
+        }
       />
 
       {state === "loading" ? <p className={styles.status} role="status">Loading your classes…</p> : null}
@@ -767,13 +775,15 @@ export function WeightsSetup({
                   }
                   aria-describedby="final-exam-assignment-hint"
                 >
-                  <option value="">No final exam in this class</option>
+                  <option value="">Not on Canvas, or no final exam</option>
                   {selectedCourse.assignments.map((assignment) => (
                     <option key={assignment.id} value={assignment.id}>{assignment.title}</option>
                   ))}
                 </select>
                 <p className={styles.description} id="final-exam-assignment-hint">
-                  Pick the assignment that is your final, so Priority can show the score you need on it.
+                  Pick the Canvas assignment that is your final so Priority can show the score you
+                  need on it. If your final is only in the syllabus, keep it as a category above and
+                  leave this as Not on Canvas.
                 </p>
               </div>
               <p className={isCompleteTotal(totalWeight) ? styles.totalValid : styles.totalInvalid} role="status">
