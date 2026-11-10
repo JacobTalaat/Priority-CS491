@@ -267,7 +267,9 @@ export function confirmProblems(form: FormState, assignments: { id: string }[]):
     finalExamWeight <= 100 &&
     !assignments.some((assignment) => assignment.id === form.finalExamAssignmentId)
   ) {
-    problems.push("Pick which assignment is the final exam, or set the final exam weight to 0.");
+    problems.push(
+      "Your final isn't a Canvas assignment, so put its weight in a category (for example Final Exam) and set the final exam weight to 0."
+    );
   }
   const total = categories.reduce(
     (sum, category) => sum + (Number.isFinite(category.weight) ? category.weight : 0),
@@ -767,13 +769,15 @@ export function WeightsSetup({
                   }
                   aria-describedby="final-exam-assignment-hint"
                 >
-                  <option value="">No final exam in this class</option>
+                  <option value="">Not on Canvas, or no final exam</option>
                   {selectedCourse.assignments.map((assignment) => (
                     <option key={assignment.id} value={assignment.id}>{assignment.title}</option>
                   ))}
                 </select>
                 <p className={styles.description} id="final-exam-assignment-hint">
-                  Pick the assignment that is your final, so Priority can show the score you need on it.
+                  Pick the Canvas assignment that is your final so Priority can show the score you
+                  need on it. If your final is only in the syllabus, keep it as a category above and
+                  leave this as Not on Canvas.
                 </p>
               </div>
               <p className={isCompleteTotal(totalWeight) ? styles.totalValid : styles.totalInvalid} role="status">

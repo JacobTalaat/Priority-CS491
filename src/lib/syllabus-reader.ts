@@ -78,6 +78,32 @@ export function buildSyllabusReaderMessages(syllabusText: string): AiMessage[] {
   ];
 }
 
+// Models sometimes repeat the final exam's category weight in finalExamWeight even when the
+// prompt forbids it, which would make the Weights form total past 100; such duplicates are
+// neutralised the same way isCompleteTotal tolerates rounding.
+export function normalizeFinalExamWeight(
+  categories: SyllabusCategorySuggestion[],
+  finalExamWeight: number | null
+): number | null {
+  if (finalExamWeight === null || finalExamWeight <= 0) {
+    return finalExamWeight;
+  }
+  const statedTotal = categories.reduce(
+    (sum, category) => sum + (category.weight === null ? 0 : category.weight),
+    0
+  );
+  if (Math.abs(statedTotal - 100) <= 0.001) {
+    return 0;
+  }
+  const repeatedFinalCategory = categories.find(
+    (category) =>
+      /final/i.test(category.name) &&
+      !/project/i.test(category.name) &&
+      category.weight === finalExamWeight
+  );
+  return repeatedFinalCategory ? 0 : finalExamWeight;
+}
+
 export function parseSyllabusSuggestions(raw: string): SyllabusSuggestions | null {
   let parsed: unknown;
   try {
@@ -152,7 +178,7 @@ export function parseSyllabusSuggestions(raw: string): SyllabusSuggestions | nul
 
   return {
     categories,
-    finalExamWeight: parseWeight(parsed.finalExamWeight),
+    finalExamWeight: normalizeFinalExamWeight(categories, parseWeight(parsed.finalExamWeight)),
     cutoffs,
     latePolicy: parseBoundedString(parsed.latePolicy, 2000),
     officeHours: parseBoundedString(parsed.officeHours, 2000),
