@@ -5,6 +5,7 @@ export type OpenWorkItem = {
   courseId: string;
   courseName: string;
   title: string;
+  htmlUrl?: string | null;
   dueAt: Date | null;
   share: number | null;
   // Hours are not stored yet: PR-124 makes a plan's total the hours, and the

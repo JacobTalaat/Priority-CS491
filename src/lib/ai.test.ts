@@ -132,6 +132,30 @@ describe("completeChat", () => {
     expect(requestBody().response_format).toBeUndefined();
   });
 
+  it("sends reasoning disabled only when AI_REASONING is off", async () => {
+    vi.stubEnv("AI_REASONING", "off");
+    fetchMock.mockResolvedValue(aiResponse({ choices: [{ message: { content: "ok" } }] }));
+    await completeChat(baseRequest());
+    expect(requestBody().reasoning).toEqual({ enabled: false });
+    expect(requestBody()).toMatchObject({
+      model: MODEL,
+      messages: MESSAGES,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      stream: false,
+    });
+
+    vi.stubEnv("AI_REASONING", "");
+    fetchMock.mockResolvedValue(aiResponse({ choices: [{ message: { content: "ok" } }] }));
+    await completeChat(baseRequest());
+    expect(requestBody()).not.toHaveProperty("reasoning");
+    expect(requestBody()).toMatchObject({
+      model: MODEL,
+      messages: MESSAGES,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      stream: false,
+    });
+  });
+
   it("throws cap_reached without calling fetch when the reservation is denied", async () => {
     mockQueryRaw.mockResolvedValue([]);
     const error = await captureError(() => completeChat(baseRequest()));

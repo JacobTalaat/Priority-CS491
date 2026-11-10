@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Button, Input, Notice, PageHeader } from "@/components/ui";
+import { Button, ButtonLink, Input, Notice, PageHeader } from "@/components/ui";
 import { getToday, markDone, undoItem } from "@/lib/today-client";
 import type { TodayItem, TodayResponse } from "@/lib/today-client";
 import { isValidTodayHours, readTodayHours, saveTodayHours } from "@/lib/today-hours";
@@ -27,6 +27,18 @@ async function loadToday(hours: number | null): Promise<LoadState> {
 
 function newRequestId(): string {
   return crypto.randomUUID();
+}
+
+function safeCanvasUrl(htmlUrl: string | null): string | null {
+  if (!htmlUrl) {
+    return null;
+  }
+  try {
+    const url = new URL(htmlUrl);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 export function TodayList() {
@@ -233,13 +245,27 @@ export function TodayItems({
   onDone?: (item: TodayItem, index: number) => void;
 }) {
   if (items.length === 0) {
-    return <p className={styles.status}>Nothing on your list right now.</p>;
+    return (
+      <section className={styles.emptyState} aria-labelledby="today-empty-title">
+        <span className={styles.emptyMark} aria-hidden="true">
+          ✓
+        </span>
+        <div className={styles.emptyMessage}>
+          <h2 id="today-empty-title">You&apos;re all caught up!</h2>
+          <p>There are no open items right now. Your Today list is ready when new work arrives.</p>
+        </div>
+        <ButtonLink href="/classes" variant="secondary">
+          View classes
+        </ButtonLink>
+      </section>
+    );
   }
   return (
     <ol className={styles.list} aria-label="Today">
       {items.map((item, index) => {
         const share = shareLabel(item.share);
         const tag = boundaryTag(item.boundary);
+        const canvasUrl = safeCanvasUrl(item.htmlUrl);
         return (
           <li key={item.assignmentId} className={styles.item}>
             {/* Positions in the list as shown, so marking one done never leaves a gap. */}
@@ -247,15 +273,28 @@ export function TodayItems({
               {index + 1}
             </span>
             <div className={styles.body}>
-              <p className={styles.title}>{item.title}</p>
-              <p className={styles.meta}>
-                <span>{item.courseName}</span>
-                <span className={item.overdue ? styles.overdue : undefined}>{dueLabel(item.dueAt, item.overdue)}</span>
-              </p>
-              <p className={styles.reason}>{item.reason}</p>
-              {tag ? (
-                <span className={item.boundary?.direction === "at-risk" ? styles.atRisk : styles.withinReach}>{tag}</span>
-              ) : null}
+              <details className={styles.details}>
+                <summary className={styles.title}>{item.title}</summary>
+                <div className={styles.detailContent}>
+                  <p className={styles.meta}>
+                    <span>{item.courseName}</span>
+                    <span className={item.overdue ? styles.overdue : undefined}>{dueLabel(item.dueAt, item.overdue)}</span>
+                  </p>
+                  <p className={styles.shareDetail}>
+                    <span>Weight share</span>
+                    <strong>{share ?? "Unavailable"}</strong>
+                  </p>
+                  <p className={styles.reason}>{item.reason}</p>
+                  {tag ? (
+                    <span className={item.boundary?.direction === "at-risk" ? styles.atRisk : styles.withinReach}>{tag}</span>
+                  ) : null}
+                  {canvasUrl ? (
+                    <a className={styles.canvasLink} href={canvasUrl} target="_blank" rel="noopener noreferrer">
+                      Open in Canvas
+                    </a>
+                  ) : null}
+                </div>
+              </details>
             </div>
             <div className={styles.side}>
               {share ? (

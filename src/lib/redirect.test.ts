@@ -26,6 +26,46 @@ describe("safeNextPath", () => {
   it("does not send a student back to the log in or sign up page", () => {
     expect(safeNextPath("/login?next=%2Ftoday")).toBe(DEFAULT_AFTER_LOGIN);
     expect(safeNextPath("/signup")).toBe(DEFAULT_AFTER_LOGIN);
+    expect(safeNextPath("/signup#a")).toBe(DEFAULT_AFTER_LOGIN);
+  });
+});
+
+describe("safeNextPath against browser URL stripping", () => {
+  // Same characters browsers strip or normalise before resolving a URL, so the
+  // crafted value below each of them lands somewhere else entirely.
+  it.each([
+    ["/\t/evil.com"],
+    ["/\n/evil.com"],
+    ["/\r/evil.com"],
+    ["/\u0000/evil.com"],
+    ["/\u007F/evil.com"],
+    ["/\\evil.com"],
+    ["/\\/evil.com"],
+    ["\\\\evil.com"],
+    ["/./\t/evil.com"],
+  ])("falls back to Today for %j", (raw) => {
+    expect(safeNextPath(raw)).toBe(DEFAULT_AFTER_LOGIN);
+  });
+
+  it.each([
+    ["//priority.invalid/landing"],
+    ["//evil.com"],
+  ])("falls back to Today for the protocol-relative %j", (raw) => {
+    expect(safeNextPath(raw)).toBe(DEFAULT_AFTER_LOGIN);
+  });
+
+  it.each(["/%2F/evil.com", "/%09/evil.com"])("keeps %j as a same-origin path", (raw) => {
+    // Percent escapes stay encoded: the URL parser does not decode them, so
+    // the resolved URL is still this site, byte for byte.
+    expect(safeNextPath(raw)).toBe(raw);
+  });
+
+  it("falls back when the log in path is reached whatever the request string or fragment", () => {
+    expect(safeNextPath("/login?x")).toBe(DEFAULT_AFTER_LOGIN);
+  });
+
+  it("keeps ordinary paths and their queries", () => {
+    expect(safeNextPath("/classes/42?tab=grades")).toBe("/classes/42?tab=grades");
   });
 });
 

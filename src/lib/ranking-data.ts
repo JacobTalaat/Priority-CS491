@@ -25,6 +25,7 @@ const openWorkCourseSelect = {
     select: {
       id: true,
       title: true,
+      htmlUrl: true,
       dueAt: true,
       hasDueDate: true,
       pointsPossible: true,
@@ -91,6 +92,7 @@ export async function loadOpenWork(userId: string, now: Date): Promise<RankedIte
         courseId: course.id,
         courseName: course.name,
         title: assignment.title,
+        htmlUrl: assignment.htmlUrl,
         dueAt: assignment.hasDueDate && assignment.dueAt ? assignment.dueAt : null,
         share: shares.get(assignment.id) ?? null,
         hours: null,

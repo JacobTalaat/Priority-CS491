@@ -35,6 +35,7 @@ function todayItemJson(item: TodayItem) {
     courseId: item.courseId,
     courseName: item.courseName,
     title: item.title,
+    htmlUrl: item.htmlUrl ?? null,
     dueAt: item.dueAt ? item.dueAt.toISOString() : null,
     dueDay: item.dueDay,
     overdue: item.overdue,

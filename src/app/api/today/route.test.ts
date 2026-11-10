@@ -137,6 +137,7 @@ describe("GET /api/today", () => {
       courseId: "course-1",
       courseName: "Algorithms",
       title: "Problem set",
+      htmlUrl: null,
       dueAt: "2026-10-14T17:00:00.000Z",
       dueDay: "2026-10-14",
       overdue: false,
