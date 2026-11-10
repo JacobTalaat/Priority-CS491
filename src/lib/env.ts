@@ -19,6 +19,7 @@ export type Env = {
   readonly aiBaseUrl: string;
   readonly aiModel: string;
   readonly aiApiKey: string;
+  readonly aiReasoning: "default" | "off";
   readonly aiInputMicrosPerMillion: number;
   readonly aiOutputMicrosPerMillion: number;
   readonly aiMonthlyBudgetMicros: number;
@@ -139,6 +140,20 @@ export function readEnv(source: EnvSource): Env {
         throw new Error("AI_API_KEY must be a non-empty string");
       }
       return value;
+    },
+    get aiReasoning(): "default" | "off" {
+      const raw = source.AI_REASONING;
+      if (raw === undefined) {
+        return "default";
+      }
+      const value = raw.trim();
+      if (value === "") {
+        return "default";
+      }
+      if (value.toLowerCase() === "off") {
+        return "off";
+      }
+      throw new Error("AI_REASONING must be off or left empty");
     },
     get aiInputMicrosPerMillion(): number {
       return requirePriceMicros("AI_INPUT_USD_PER_MILLION_TOKENS", source.AI_INPUT_USD_PER_MILLION_TOKENS);

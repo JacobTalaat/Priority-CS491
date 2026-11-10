@@ -67,6 +67,7 @@ Real values live only in `.env` on each laptop and in the server's own environme
 - `CANVAS_BASE_URL` — optional Canvas host, defaults to `https://canvas.instructure.com`.
 - `AI_BASE_URL` — base URL of an OpenAI-compatible chat completions provider, for example `https://openrouter.ai/api/v1`. No query string, fragment, or embedded credentials.
 - `AI_MODEL` — model id sent with every AI request, for example `openai/gpt-4o-mini`.
+- `AI_REASONING` — optional; set to `off` to send `reasoning: { enabled: false }` to OpenRouter so reasoning models do not spend the whole token limit thinking and return no answer. Leave empty for any other provider.
 - `AI_API_KEY` — AI provider key sent as a Bearer token. It is read from the environment only on the server and is never asked for from users or sent to the browser.
 - `AI_INPUT_USD_PER_MILLION_TOKENS` — input price in USD per million tokens, used to cost each request before it runs and to settle actual spend afterwards. `0` is for free models.
 - `AI_OUTPUT_USD_PER_MILLION_TOKENS` — output price in USD per million tokens, same rules as the input price.
