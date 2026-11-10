@@ -64,7 +64,12 @@ describe("TodayItems", () => {
     expect(html).not.toContain("of grade");
   });
 
-  it("says so when there is nothing on the list", () => {
-    expect(renderToStaticMarkup(<TodayItems items={[]} />)).toContain("Nothing on your list right now.");
+  it("shows a friendly empty state and links to classes when there are no open items", () => {
+    const html = renderToStaticMarkup(<TodayItems items={[]} />);
+    expect(html).toContain("You&#x27;re all caught up!");
+    expect(html).toContain("There are no open items right now.");
+    expect(html).toContain('href="/classes"');
+    expect(html).toContain("View classes");
+    expect(html).not.toContain("<ol");
   });
 });
