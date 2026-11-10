@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Notice, PageHeader, TextArea } from "@/components/ui";
+import { Button, ButtonLink, Input, Notice, PageHeader, TextArea } from "@/components/ui";
 import { mappingSummary, unmappedAssignmentIds } from "@/lib/assignment-mapping";
 import { detailText, detailValue, formatContacts } from "@/lib/class-details";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
@@ -352,7 +352,8 @@ export function applySyllabusRead(
 export function WeightsSetup({
   initialCourses,
   initialCourseId,
-}: { initialCourses?: GradeSetupCourse[]; initialCourseId?: string } = {}) {
+  returnToOnboarding = false,
+}: { initialCourses?: GradeSetupCourse[]; initialCourseId?: string; returnToOnboarding?: boolean } = {}) {
   const [courses, setCourses] = useState<GradeSetupCourse[]>(initialCourses ?? []);
   const [selectedCourseId, setSelectedCourseId] = useState(
     () => pickCourse(initialCourses ?? [], initialCourseId)?.id ?? "",
@@ -614,6 +615,11 @@ export function WeightsSetup({
         eyebrow="Grade weights"
         title="Weights"
         description="Set up each class using its syllabus, Canvas weights, or your own categories."
+        actions={
+          returnToOnboarding ? (
+            <ButtonLink href="/onboarding" variant="secondary">Back to setup</ButtonLink>
+          ) : undefined
+        }
       />
 
       {state === "loading" ? <p className={styles.status} role="status">Loading your classes…</p> : null}

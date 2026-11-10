@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { List, ListRow, PageHeader } from "@/components/ui";
+import { ButtonLink, List, ListRow, PageHeader } from "@/components/ui";
 import { CanvasConnection } from "./canvas-connection";
 import { CalendarFeed } from "./calendar-feed";
 import { DeleteAccount } from "./delete-account";
@@ -9,10 +9,19 @@ import styles from "./settings.module.css";
 
 export const metadata: Metadata = { title: "Settings" };
 
-export default function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const { from } = await searchParams;
   return (
     <>
-      <PageHeader eyebrow="Account" title="Settings" />
+      <PageHeader
+        eyebrow="Account"
+        title="Settings"
+        actions={from === "onboarding" ? <ButtonLink href="/onboarding" variant="secondary">Back to setup</ButtonLink> : undefined}
+      />
       <CanvasConnection />
       <CalendarFeed />
       <PushNotifications />
