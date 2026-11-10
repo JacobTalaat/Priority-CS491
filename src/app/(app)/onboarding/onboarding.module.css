@@ -1,0 +1,124 @@
+.status {
+  margin-bottom: 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.error {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.progressSection {
+  display: grid;
+  max-width: 720px;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.progressCopy {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--secondary);
+  font-size: 13px;
+}
+
+.progress {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: var(--divider);
+  color: var(--accent);
+  accent-color: var(--accent);
+}
+
+.steps {
+  display: grid;
+  max-width: 720px;
+  gap: 12px;
+  list-style: none;
+}
+
+.step,
+.complete,
+.lockedStep {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.complete {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.lockedStep {
+  opacity: 0.7;
+}
+
+.stepNumber {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--divider);
+  border-radius: 50%;
+  color: var(--secondary);
+  font-weight: 600;
+}
+
+.complete .stepNumber {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+
+.stepBody {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+.stepBody h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stepBody p {
+  color: var(--secondary);
+  font-size: 14px;
+}
+
+.stepBody .locked {
+  color: var(--muted);
+}
+
+.stepStatus {
+  padding-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  .step,
+  .complete,
+  .lockedStep {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .stepStatus {
+    grid-column: 2;
+    padding-top: 0;
+  }
+}
