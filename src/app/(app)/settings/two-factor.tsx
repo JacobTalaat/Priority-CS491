@@ -13,6 +13,7 @@ import {
   verifyAuthenticatorCode,
 } from "@/lib/two-factor-client";
 import type { TotpEnrollment, TwoFactorStatus } from "@/lib/two-factor-client";
+import { svgDataUri } from "@/lib/svg-data-uri";
 import styles from "./settings.module.css";
 
 type Message = { tone: "success" | "error"; text: string } | null;
@@ -173,6 +174,9 @@ export function TwoFactor() {
   }
 
   const enabled = status?.enabled ?? false;
+  // Supabase hands back a raw, unencoded SVG data URI that next/image refuses:
+  // rebuild it into a safe URI, and skip the image entirely when it is useless.
+  const qrCode = enrollment ? svgDataUri(enrollment.qrCode) : "";
 
   function codeForm(onSubmit: (event: FormEvent<HTMLFormElement>) => void, submitLabel: string) {
     return (
@@ -244,14 +248,16 @@ export function TwoFactor() {
         </>
       ) : enrollment ? (
         <>
-          <Image
-            src={enrollment.qrCode}
-            alt="Two factor QR code. Scan it with your authenticator app."
-            width={180}
-            height={180}
-            unoptimized
-            className={styles.qr}
-          />
+          {qrCode ? (
+            <Image
+              src={qrCode}
+              alt="Two factor QR code. Scan it with your authenticator app."
+              width={180}
+              height={180}
+              unoptimized
+              className={styles.qr}
+            />
+          ) : null}
           <p className={styles.sectionNote}>
             Scan this QR code with your authenticator app, or enter the secret by hand: {enrollment.secret}
           </p>
