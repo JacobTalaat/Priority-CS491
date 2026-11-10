@@ -1,5 +1,6 @@
 import "server-only";
 import { AiError, completeChat, type AiMessage } from "@/lib/ai";
+import { neutralizeDelimiters, parseJsonReply } from "@/lib/ai-prompt-text";
 
 export type SyllabusCategorySuggestion = { name: string; weight: number | null };
 export type SyllabusContactSuggestion = { name: string | null; role: string | null; email: string | null };
@@ -73,23 +74,14 @@ export function buildSyllabusReaderMessages(syllabusText: string): AiMessage[] {
   ].join(" ");
   return [
     { role: "system", content: system },
-    { role: "user", content: `<syllabus>\n${truncated}\n</syllabus>` },
+    { role: "user", content: `<syllabus>\n${neutralizeDelimiters(truncated)}\n</syllabus>` },
   ];
 }
 
 export function parseSyllabusSuggestions(raw: string): SyllabusSuggestions | null {
   let parsed: unknown;
   try {
-    const trimmed = raw.trim();
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-      if (!fence) {
-        return null;
-      }
-      parsed = JSON.parse(fence[1]);
-    }
+    parsed = parseJsonReply(raw);
   } catch {
     return null;
   }

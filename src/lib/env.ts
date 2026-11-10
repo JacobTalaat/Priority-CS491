@@ -1,4 +1,6 @@
+import "server-only";
 import { createECDH } from "node:crypto";
+import { parseSupabasePublishableKey, parseSupabaseUrl } from "./public-env";
 
 const DEFAULT_CANVAS_BASE_URL = "https://canvas.instructure.com";
 const DEFAULT_AI_TIMEOUT_MS = 60000;
@@ -92,34 +94,10 @@ export function readEnv(source: EnvSource): Env {
       return value.replace(/\/+$/, "");
     },
     get supabaseUrl(): string {
-      const raw = requireValue("NEXT_PUBLIC_SUPABASE_URL", source.NEXT_PUBLIC_SUPABASE_URL).trim();
-      if (raw.includes("?") || raw.includes("#")) {
-        throw new Error("NEXT_PUBLIC_SUPABASE_URL must not include a query string or fragment");
-      }
-      let parsed: URL;
-      try {
-        parsed = new URL(raw);
-      } catch {
-        throw new Error("NEXT_PUBLIC_SUPABASE_URL must be an https URL");
-      }
-      const isLocal = LOCAL_AI_HOSTNAMES.has(parsed.hostname);
-      if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLocal)) {
-        throw new Error("NEXT_PUBLIC_SUPABASE_URL must be an https URL");
-      }
-      if (parsed.username !== "" || parsed.password !== "") {
-        throw new Error("NEXT_PUBLIC_SUPABASE_URL must not include credentials");
-      }
-      return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
+      return parseSupabaseUrl(source.NEXT_PUBLIC_SUPABASE_URL);
     },
     get supabasePublishableKey(): string {
-      const value = requireValue(
-        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-        source.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-      ).trim();
-      if (value === "") {
-        throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY must be a non-empty string");
-      }
-      return value;
+      return parseSupabasePublishableKey(source.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
     },
     get supabaseSecretKey(): string {
       const value = requireValue("SUPABASE_SECRET_KEY", source.SUPABASE_SECRET_KEY).trim();

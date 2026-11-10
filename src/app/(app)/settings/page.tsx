@@ -4,6 +4,7 @@ import { CanvasConnection } from "./canvas-connection";
 import { CalendarFeed } from "./calendar-feed";
 import { DeleteAccount } from "./delete-account";
 import { PushNotifications } from "./push-notifications";
+import { TwoFactor } from "./two-factor";
 import styles from "./settings.module.css";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -15,6 +16,7 @@ export default function SettingsPage() {
       <CanvasConnection />
       <CalendarFeed />
       <PushNotifications />
+      <TwoFactor />
       <DeleteAccount />
       <div className={styles.rest}>
         <List label="More settings">

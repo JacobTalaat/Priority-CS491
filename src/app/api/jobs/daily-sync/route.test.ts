@@ -95,7 +95,7 @@ describe("tick auth", () => {
     const res = await POST(requestWithHeader("POST", GOOD_HEADER));
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toEqual({
-      error: "Daily sync is not configured. Set CRON_SECRET to at least 32 characters.",
+      error: "Scheduled jobs are not configured. Set CRON_SECRET to at least 32 characters.",
     });
     expect(mockRunDailyTick).not.toHaveBeenCalled();
   });

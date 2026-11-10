@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { apiRequest } from "./api-client";
-import { env } from "@/lib/env";
+import { publicEnv } from "@/lib/public-env";
 import { clearToken } from "@/lib/session";
 
 export const MIN_PASSWORD_LENGTH = 8;
@@ -14,10 +14,17 @@ export const MIN_PASSWORD_LENGTH = 8;
 let client: ReturnType<typeof createClient> | null = null;
 
 function supabase() {
-  client ??= createClient(env.supabaseUrl, env.supabasePublishableKey, {
+  client ??= createClient(publicEnv.supabaseUrl, publicEnv.supabasePublishableKey, {
     auth: { persistSession: true, autoRefreshToken: true },
   });
   return client;
+}
+
+// Only for the two factor flow: the MFA steps have to run against the same
+// browser client that owns the session, so a code challenge can hand the
+// promoted aal2 session back to the exact storage everything else reads from.
+export function browserAuthClient() {
+  return supabase();
 }
 
 export type Credentials = {
