@@ -95,6 +95,7 @@ describe("signUp", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("creates the account with Supabase Auth and returns its access token", async () => {
@@ -124,6 +125,17 @@ describe("signUp", () => {
     expect(mockSignUp).toHaveBeenCalledWith(
       expect.objectContaining({
         options: { emailRedirectTo: "http://localhost:3000/auth/confirm" },
+      }),
+    );
+  });
+
+  it("points the confirmation email at NEXT_PUBLIC_SITE_URL when it's set, so any device can open it", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://priority.example.edu/");
+    mockSignUp.mockResolvedValue({ data: { session: null, user: null }, error: null });
+    await signUp({ email: "student@njit.edu", password: "12345678" });
+    expect(mockSignUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: { emailRedirectTo: "https://priority.example.edu/auth/confirm" },
       }),
     );
   });
@@ -311,6 +323,16 @@ describe("sendPasswordResetEmail", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("sends the reset link to NEXT_PUBLIC_SITE_URL when it's set", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://priority-app.example.com");
+    mockResetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
+    await sendPasswordResetEmail("student@njit.edu");
+    expect(mockResetPasswordForEmail).toHaveBeenCalledWith("student@njit.edu", {
+      redirectTo: "https://priority-app.example.com/reset-password",
+    });
   });
 
   it("sends the link with a redirect back to /reset-password", async () => {
@@ -568,6 +590,21 @@ describe("resendConfirmation", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("resends to NEXT_PUBLIC_SITE_URL when it's set", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://priority.example.edu");
+    mockResend.mockResolvedValue({ error: null });
+    await resendConfirmation("student@njit.edu");
+    expect(mockResend).toHaveBeenCalledWith(
+      expect.objectContaining({ options: { emailRedirectTo: "https://priority.example.edu/auth/confirm" } }),
+    );
+  });
+
+  it("answers not ok instead of throwing when the resend can't even start", async () => {
+    mockResend.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(resendConfirmation("student@njit.edu")).resolves.toEqual({ ok: false });
   });
 
   it("resends with the signup type and the confirm-page redirect", async () => {
@@ -593,6 +630,7 @@ describe("readConfirmationResult", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("treats a session saved from the fragment as a confirmed link", async () => {
@@ -636,6 +674,7 @@ describe("checkSession", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("reports the user for a token our API accepts", async () => {

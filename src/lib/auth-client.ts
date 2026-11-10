@@ -55,8 +55,15 @@ export type AuthResult =
 // #error=…&error_code=… (rejected link), both readable from here.
 export const CONFIRM_EMAIL_PATH = "/auth/confirm";
 
+// Where links in Priority's emails point. NEXT_PUBLIC_SITE_URL, when set, wins over the
+// address this browser is on, so a link opened on a phone works even when the student
+// signed up on a laptop's localhost.
+function appOrigin(): string {
+  return publicEnv.siteUrl ?? window.location.origin;
+}
+
 function emailRedirectTo(): string {
-  return `${window.location.origin}${CONFIRM_EMAIL_PATH}`;
+  return `${appOrigin()}${CONFIRM_EMAIL_PATH}`;
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -172,12 +179,17 @@ export async function logIn({ email, password }: Credentials): Promise<AuthResul
 }
 
 export async function resendConfirmation(email: string): Promise<{ ok: boolean }> {
-  const { error } = await supabase().auth.resend({
-    type: "signup",
-    email: email.trim(),
-    options: { emailRedirectTo: emailRedirectTo() },
-  });
-  return { ok: error === null };
+  try {
+    const { error } = await supabase().auth.resend({
+      type: "signup",
+      email: email.trim(),
+      options: { emailRedirectTo: emailRedirectTo() },
+    });
+    return { ok: error === null };
+  } catch {
+    // Missing settings or no network: the resend button shows its retry message.
+    return { ok: false };
+  }
 }
 
 export type ConfirmationOutcome =
@@ -260,7 +272,7 @@ function isUnreachable(error: { status?: number; name?: string }): boolean {
 export async function sendPasswordResetEmail(email: string): Promise<ResetSendStatus> {
   try {
     const { error } = await supabase().auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${appOrigin()}/reset-password`,
     });
     if (error === null) {
       return "sent";
