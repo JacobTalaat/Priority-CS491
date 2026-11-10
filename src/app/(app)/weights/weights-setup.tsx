@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, ButtonLink, Input, Notice, PageHeader, TextArea } from "@/components/ui";
 import { mappingSummary, unmappedAssignmentIds } from "@/lib/assignment-mapping";
 import { detailText, detailValue, formatContacts } from "@/lib/class-details";
+import { FINAL_NOT_ON_CANVAS_MESSAGE } from "@/lib/final-exam-setup-message";
 import type { GradeSetupPayload } from "@/lib/grade-setup";
 import { getGradeSetupCourses, saveGradeSetup } from "@/lib/grade-setup-client";
 import type { GradeSetupCourse } from "@/lib/grade-setup-client";
@@ -267,9 +268,7 @@ export function confirmProblems(form: FormState, assignments: { id: string }[]):
     finalExamWeight <= 100 &&
     !assignments.some((assignment) => assignment.id === form.finalExamAssignmentId)
   ) {
-    problems.push(
-      "Your final isn't a Canvas assignment, so put its weight in a category (for example Final Exam) and set the final exam weight to 0."
-    );
+    problems.push(FINAL_NOT_ON_CANVAS_MESSAGE);
   }
   const total = categories.reduce(
     (sum, category) => sum + (Number.isFinite(category.weight) ? category.weight : 0),

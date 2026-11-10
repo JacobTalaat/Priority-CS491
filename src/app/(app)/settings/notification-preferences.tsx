@@ -17,8 +17,8 @@ type LoadState =
 type Message = { tone: "success" | "error"; text: string } | null;
 
 const OPTIONS = [
-  { field: "notifyTonight", label: "Tonight reminder", description: "A reminder at your chosen time." },
-  { field: "notifyDueTomorrow", label: "Due tomorrow", description: "A heads-up about work due tomorrow." },
+  { field: "notifyTonight", label: "Tonight", description: "Your top work for the evening, at your reminder time." },
+  { field: "notifyDueTomorrow", label: "Due tomorrow", description: "Work due tomorrow, at your reminder time." },
   { field: "notifyGradePosted", label: "Grade posted", description: "A notification when a new grade is available." },
 ] as const;
 
@@ -84,7 +84,7 @@ export function NotificationPreferences() {
         </h2>
       </div>
       <p className={styles.sectionNote}>
-        Choose which reminders you get. The Tonight reminder time uses New York time.
+        Choose which reminders you get. Reminders use New York time.
       </p>
 
       {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
@@ -115,18 +115,26 @@ export function NotificationPreferences() {
           </fieldset>
 
           <div className={styles.timeField}>
-            <label htmlFor="nightly-reminder-time">Tonight reminder time</label>
+            <label htmlFor="nightly-reminder-time">Reminder time</label>
             <input
               id="nightly-reminder-time"
               name="nightlyReminderTime"
               type="time"
               value={state.values.nightlyReminderTime}
-              disabled={saving || !state.values.notifyTonight}
+              // Both nightly reminders fire at this time, so either one being on
+              // makes it worth editing.
+              disabled={saving || !(state.values.notifyTonight || state.values.notifyDueTomorrow)}
               onChange={(event) => update("nightlyReminderTime", event.target.value)}
             />
           </div>
           <div className={styles.actions}>
-            <Button type="button" onClick={handleSave} loading={saving} disabled={!dirty || saving}>
+            {/* An empty time is invalid for the API, which requires HH:MM. */}
+            <Button
+              type="button"
+              onClick={handleSave}
+              loading={saving}
+              disabled={!dirty || saving || state.values.nightlyReminderTime === ""}
+            >
               Save preferences
             </Button>
           </div>

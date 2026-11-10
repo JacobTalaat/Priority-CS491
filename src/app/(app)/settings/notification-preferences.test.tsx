@@ -124,4 +124,46 @@ describe("NotificationPreferences", () => {
     expect(container.textContent).toContain("Could not save your preferences.");
     expect(gradePosted?.checked).toBe(false);
   });
+
+  it("keeps the reminder time editable while only Due tomorrow is on", async () => {
+    mocks.mockGetPreferences.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { ...preferences, notifyTonight: false },
+    });
+    await renderPanel();
+
+    expect(container.querySelector<HTMLInputElement>('input[name="nightlyReminderTime"]')?.disabled).toBe(false);
+  });
+
+  it("disables the reminder time when both nightly reminders are off", async () => {
+    mocks.mockGetPreferences.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { ...preferences, notifyTonight: false, notifyDueTomorrow: false },
+    });
+    await renderPanel();
+
+    expect(container.querySelector<HTMLInputElement>('input[name="nightlyReminderTime"]')?.disabled).toBe(true);
+  });
+
+  it("keeps Save disabled while the reminder time is empty, even after edits", async () => {
+    mocks.mockGetPreferences.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { ...preferences, nightlyReminderTime: "" },
+    });
+    await renderPanel();
+
+    const saveButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Save preferences"),
+    );
+    expect(saveButton?.disabled).toBe(true);
+
+    const gradePosted = container.querySelector<HTMLInputElement>('input[name="notifyGradePosted"]');
+    await act(async () => {
+      gradePosted?.click();
+    });
+    expect(saveButton?.disabled).toBe(true);
+  });
 });

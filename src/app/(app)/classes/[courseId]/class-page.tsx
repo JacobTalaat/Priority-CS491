@@ -16,6 +16,7 @@ import {
   shareText,
 } from "@/lib/class-page";
 import { describeFinalExamResult } from "@/lib/final-exam-solver";
+import { useShowGrades } from "@/lib/grades-visibility";
 import styles from "./class-page.module.css";
 
 type LoadState =
@@ -94,6 +95,7 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
   const setupHref = `/weights?course=${encodeURIComponent(course.id)}`;
   const eyebrow = [course.courseCode, course.term].filter(Boolean).join(" · ");
   const shares = new Map(grade.ok ? grade.data.shares.map((share) => [share.assignmentId, share]) : []);
+  const [showGrades, toggleShowGrades] = useShowGrades();
 
   return (
     <div className={styles.page}>
@@ -104,9 +106,14 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
         eyebrow={eyebrow || undefined}
         title={course.name}
         actions={
-          <ButtonLink href={setupHref} variant="secondary">
-            Grade setup
-          </ButtonLink>
+          <>
+            <Button variant="secondary" aria-pressed={!showGrades} onClick={toggleShowGrades}>
+              {showGrades ? "Hide grades" : "Show grades"}
+            </Button>
+            <ButtonLink href={setupHref} variant="secondary">
+              Grade setup
+            </ButtonLink>
+          </>
         }
       />
 
@@ -118,7 +125,11 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
             <h2 id="class-grade" className={styles.sectionTitle}>
               Grade
             </h2>
-            {grade.ok ? <GradeOverview grade={grade.data} setupHref={setupHref} /> : <Notice tone="error">{grade.message}</Notice>}
+            {grade.ok ? (
+              <GradeOverview grade={grade.data} setupHref={setupHref} showGrades={showGrades} />
+            ) : (
+              <Notice tone="error">{grade.message}</Notice>
+            )}
           </section>
 
           {grade.ok ? (
@@ -126,7 +137,7 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
               <h2 id="class-final" className={styles.sectionTitle}>
                 Final exam
               </h2>
-              <FinalExamTool finalExam={grade.data.finalExam} setupHref={setupHref} />
+              <FinalExamTool finalExam={grade.data.finalExam} setupHref={setupHref} showGrades={showGrades} />
             </section>
           ) : null}
 
@@ -149,7 +160,8 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
                       key={assignment.id}
                       title={assignment.title}
                       meta={meta}
-                      trailing={scoreText(assignment.grade, assignment.pointsPossible)}
+                      // The score is a grade figure; the due date, category and weight stay.
+                      trailing={showGrades ? scoreText(assignment.grade, assignment.pointsPossible) : "Grade hidden"}
                     />
                   );
                 })}
@@ -171,13 +183,33 @@ export function ClassPageView({ details, grade }: { details: CourseDetailsRespon
   );
 }
 
-function GradeOverview({ grade, setupHref }: { grade: CourseGradeResponse; setupHref: string }) {
+function GradeOverview({
+  grade,
+  setupHref,
+  showGrades,
+}: {
+  grade: CourseGradeResponse;
+  setupHref: string;
+  showGrades: boolean;
+}) {
   const summary = gradeSummary(grade.grade);
   const weighted = grade.engine === "weighted";
+  const calculated = grade.grade.status === "calculated";
   return (
     <>
       <div className={styles.gradeBlock}>
-        <p className={styles.grade}>{summary.headline}</p>
+        {/* The letter rides beside the percentage, the way the Classes cards show it. */}
+        <p className={styles.gradeLine}>
+          {calculated && !showGrades ? (
+            // A note, not a number: it reads at text size, unlike the headline it replaces.
+            <span className={styles.gradeHidden}>Grade hidden</span>
+          ) : (
+            <span className={styles.grade}>{summary.headline}</span>
+          )}
+          {calculated && showGrades && grade.letter !== null ? (
+            <span className={styles.gradeLetter}>{grade.letter}</span>
+          ) : null}
+        </p>
         {summary.detail ? <p className={styles.muted}>{summary.detail}</p> : null}
         <p className={styles.muted}>
           {weighted
@@ -195,7 +227,8 @@ function GradeOverview({ grade, setupHref }: { grade: CourseGradeResponse; setup
             <ListRow
               key={category.category}
               title={category.category}
-              meta={categoryLine(category)}
+              // The weight ("60% of grade") is setup, not a grade figure, so it stays.
+              meta={showGrades ? categoryLine(category) : "Grade hidden"}
               trailing={`${formatPercent(category.weight)} of grade`}
             />
           ))}
@@ -212,7 +245,20 @@ function GradeOverview({ grade, setupHref }: { grade: CourseGradeResponse; setup
   );
 }
 
-function FinalExamTool({ finalExam, setupHref }: { finalExam: CourseGradeResponse["finalExam"]; setupHref: string }) {
+function FinalExamTool({
+  finalExam,
+  setupHref,
+  showGrades,
+}: {
+  finalExam: CourseGradeResponse["finalExam"];
+  setupHref: string;
+  showGrades: boolean;
+}) {
+  // The needed-score rows are grade figures, so the whole tool goes quiet while
+  // grades are hidden.
+  if (!showGrades) {
+    return <p className={styles.muted}>Grade hidden</p>;
+  }
   if (finalExam.status !== "solved" || finalExam.results.length === 0) {
     // Picking the final, or counting it in a category, happens on the grade setup page.
     const fixable = finalExam.status === "no-final" || finalExam.status === "final-not-counted";

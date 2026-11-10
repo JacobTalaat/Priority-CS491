@@ -155,10 +155,6 @@
   gap: 10px;
 }
 
-.rest {
-  margin-top: 8px;
-}
-
 /* The enrollment QR code sits on a plain card like the other details. */
 .qr {
   padding: 12px;

@@ -125,7 +125,7 @@ describe("POST /api/account/two-factor/disable", () => {
     const res = await POST(disableRequest(JSON.stringify({ code: "123456" }), "aal2-token"));
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ disabled: true });
-    expect(mockVerifyStudentTotpCode).toHaveBeenCalledExactlyOnceWith("auth-user-1", "123456");
+    expect(mockVerifyStudentTotpCode).toHaveBeenCalledExactlyOnceWith("aal2-token", "123456");
     expect(mockDeleteAllTotpFactors).toHaveBeenCalledExactlyOnceWith("auth-user-1");
     expect(mockUserUpdateMany).toHaveBeenCalledWith({
       where: { id: "user-row-1" },

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authUserExists, verifyAccessToken } from "@/lib/supabase";
 
-function getBearerToken(request: Request): string | null {
+// Routes that act as the student (a TOTP check against their own session)
+// need the same token this request arrived with.
+export function getBearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
   if (!header) {
     return null;

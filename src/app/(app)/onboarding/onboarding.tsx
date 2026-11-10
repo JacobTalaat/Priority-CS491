@@ -115,7 +115,9 @@ export function Onboarding() {
             ) : null}
             {state.status === "ready" && canvasConnected && state.courses.length > 0 ? (
               <ButtonLink
-                href={`/weights?from=onboarding${nextCourse ? `&course=${encodeURIComponent(nextCourse.id)}` : ""}`}
+                href={`/weights?from=onboarding&course=${encodeURIComponent(
+                  confirmedCourse ? confirmedCourse.id : (nextCourse?.id ?? ""),
+                )}`}
                 variant="secondary"
               >
                 {confirmedCourse ? "Review class setup" : "Confirm a class"}

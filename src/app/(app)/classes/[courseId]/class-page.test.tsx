@@ -1,6 +1,15 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CourseDetailsResponse, CourseGradeResponse } from "@/lib/course-client";
+
+const { mockUseShowGrades } = vi.hoisted(() => ({
+  mockUseShowGrades: vi.fn(),
+}));
+
+vi.mock("@/lib/grades-visibility", () => ({
+  useShowGrades: mockUseShowGrades,
+}));
+
 import { ClassPageView } from "./class-page";
 
 const details: CourseDetailsResponse = {
@@ -55,6 +64,10 @@ const weightedGrade: CourseGradeResponse = {
 };
 
 describe("ClassPageView", () => {
+  beforeEach(() => {
+    mockUseShowGrades.mockReset().mockReturnValue([true, () => {}]);
+  });
+
   it("shows the grade and the breakdown by category", () => {
     const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: true, data: weightedGrade }} />);
     expect(html).toMatch(/<h1[^>]*>Algorithms<\/h1>/);
@@ -159,12 +172,52 @@ describe("ClassPageView", () => {
 
   it("explains how to get the tool when no final is picked, with a link to the setup", () => {
     const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: true, data: weightedGrade }} />);
-    expect(html).toContain("Pick which assignment is the final exam for this class to see what you need on it.");
+    expect(html).toContain("If your final is a Canvas assignment, pick it in the grade setup to see the score you need on it.");
     expect(html).toMatch(/<a[^>]*href="\/weights\?course=c1"[^>]*>Open the grade setup<\/a>/);
   });
 
   it("leaves the final exam section out when the grade can't load", () => {
     const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: false, message: "Boom" }} />);
     expect(html).not.toContain(">Final exam</h2>");
+  });
+
+  it("shows the letter next to the overall percentage when the grade carries one", () => {
+    const html = renderToStaticMarkup(
+      <ClassPageView details={details} grade={{ ok: true, data: { ...weightedGrade, letter: "A-" } }} />,
+    );
+    expect(html).toContain(">90%</span>");
+    expect(html).toContain(">A-</span>");
+  });
+
+  it("hides every grade figure while grades are hidden, keeping the weights", () => {
+    mockUseShowGrades.mockReturnValue([false, () => {}]);
+    const solved: CourseGradeResponse = {
+      ...weightedGrade,
+      letter: "A-",
+      finalExam: {
+        status: "solved",
+        otherWorkPending: true,
+        results: [{ letter: "A", status: "needed", score: 92, percent: 92 }],
+      },
+    };
+    const html = renderToStaticMarkup(<ClassPageView details={details} grade={{ ok: true, data: solved }} />);
+    expect(html).toContain("Grade hidden");
+    // The placeholder reads as a note at text size, not as the big headline number.
+    expect(html).toMatch(/gradeHidden[^"]*">Grade hidden</);
+    expect(html).not.toMatch(/_grade_[0-9a-f]+">Grade hidden</);
+    // The figures: the overall percentage and letter, the per-category numbers,
+    // the needed final scores and each assignment's score.
+    expect(html).not.toContain("90%");
+    expect(html).not.toContain("A-");
+    expect(html).not.toContain("90% · 18 of 20 points");
+    expect(html).not.toContain("You need 92% on the final");
+    expect(html).not.toContain("18 / 20");
+    // Weights and shares are setup, not grades, so they stay.
+    expect(html).toContain("60% of grade");
+    expect(html).toContain("Worth 40% of your grade");
+    // The toggle is offered in the header, next to Grade setup, pressed while hidden.
+    expect(html).toContain("Show grades");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('href="/weights?course=c1"');
   });
 });

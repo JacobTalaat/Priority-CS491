@@ -49,11 +49,33 @@
   gap: 6px;
 }
 
+/* The percentage and the letter sit on one baseline, the way the Classes cards show them. */
+.gradeLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+
 .grade {
   font-size: clamp(36px, 6vw, 48px);
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 1.1;
+}
+
+/* The "Grade hidden" placeholder stands where the headline would, but reads as a
+   note at text size, like the Classes card's placeholder. */
+.gradeHidden {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.gradeLetter {
+  font-size: clamp(28px, 4vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
 }
 
 .details {

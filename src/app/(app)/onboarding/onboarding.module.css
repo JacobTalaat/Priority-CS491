@@ -36,6 +36,22 @@
   background: var(--divider);
   color: var(--accent);
   accent-color: var(--accent);
+  /* accent-color alone leaves Chrome's default bright green fill in place. */
+  appearance: none;
+}
+
+.progress::-webkit-progress-bar {
+  background: var(--divider);
+  border-radius: 999px;
+}
+
+.progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.progress::-moz-progress-bar {
+  background: var(--accent);
 }
 
 .steps {

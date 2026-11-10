@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { FINAL_NOT_ON_CANVAS_MESSAGE } from "@/lib/final-exam-setup-message";
 import { parseGradeSetup } from "@/lib/grade-setup";
 import { prisma } from "@/lib/prisma";
 
@@ -60,10 +61,7 @@ export async function POST(request: Request, context: RouteContext) {
     parsed.data.finalExamWeight > 0 &&
     (typeof finalExamAssignmentId !== "string" || !assignmentIds.has(finalExamAssignmentId))
   ) {
-    return NextResponse.json(
-      { error: "Pick which assignment is the final exam, or set the final exam weight to 0." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: FINAL_NOT_ON_CANVAS_MESSAGE }, { status: 400 });
   }
 
   const confirmedAt = new Date();
