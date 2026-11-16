@@ -112,3 +112,21 @@ xcodebuild -project ios/Priority.xcodeproj -scheme Priority -destination 'platfo
 ```
 
 If the destination name is ambiguous on your machine, use a device id from `xcrun simctl list devices available`.
+
+## Today screen
+
+Once signed in, the app shows the Today list from `GET /api/today`, in the server's order with the same
+reasons, due labels, share badges and letter-cutoff tags as the website (`ios/Priority/TodayItem.swift`
+mirrors `src/lib/today-list.ts`).
+
+- **Swipe left** on a row to mark it done (`POST /api/today/items/{id}/done`). The row leaves at once and
+  an Undo bar stays for 6 seconds; Undo waits for the Done to land, then calls
+  `DELETE /api/today/items/{id}`. Both send `X-Priority-Client: app` and a fresh `X-Priority-Request-Id`.
+- **Pull down** to run Sync now (`POST /api/canvas/sync`), then reload the list.
+- **Tap a row** to open the assignment in Canvas (https links only).
+- **Empty and error states:** "You're all caught up!" when nothing is open, and "You're offline" with a
+  Try again button when there's no connection. A failed reload or sync keeps the list on screen with a
+  notice.
+
+Every API call goes through `AuthModel.request`, which applies the same rules as sign-in: refresh within
+60 seconds of expiry, one refresh and retry on a 401, and sign out only when Supabase refuses the session.

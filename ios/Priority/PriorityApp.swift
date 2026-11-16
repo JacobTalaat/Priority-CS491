@@ -22,7 +22,7 @@ struct PriorityApp: App {
                 case .signedOut:
                     LogInView(model: model)
                 case .signedIn:
-                    ContentView(model: model)
+                    TodayView(auth: model)
                 }
             }
             .task { model.restoreSession() }
