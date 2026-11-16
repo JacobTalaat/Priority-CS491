@@ -19,6 +19,9 @@ import {
 import type { SyllabusSuggestions } from "@/lib/syllabus-client";
 import { SyllabusUpload } from "@/components/syllabus/syllabus-upload";
 import { logEvent } from "@/lib/usage";
+import { NotificationOffer } from "@/components/notifications/notification-offer";
+import { browserPermission, readPromptDismissed, shouldOfferNotifications } from "@/lib/notification-prompt";
+import { findBrowserSubscription } from "@/lib/push-subscribe";
 import styles from "./weights.module.css";
 
 type CategoryField = { name: string; weight: string };
@@ -370,6 +373,8 @@ export function WeightsSetup({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  // The notification offer: only after a class is confirmed for the first time.
+  const [offerNotifications, setOfferNotifications] = useState(false);
 
   const selectedCourse = courses.find((course) => course.id === selectedCourseId) ?? null;
   const hasCanvasWeights = selectedCourse
@@ -587,6 +592,18 @@ export function WeightsSetup({
       tone: "success",
       text: wasConfirmed ? "Your changes are saved." : "Your grade setup is confirmed and saved.",
     });
+    if (!wasConfirmed) {
+      void maybeOfferNotifications();
+    }
+  }
+
+  async function maybeOfferNotifications() {
+    const permission = browserPermission();
+    if (!shouldOfferNotifications({ firstConfirm: true, permission, alreadySubscribed: false, dismissed: readPromptDismissed() })) {
+      return;
+    }
+    const alreadySubscribed = (await findBrowserSubscription()) !== null;
+    setOfferNotifications(!alreadySubscribed);
   }
 
   function startEditing() {
@@ -675,6 +692,8 @@ export function WeightsSetup({
               <Button onClick={() => setManualMode(true)}>Enter weights manually</Button>
             </div>
           ) : null}
+
+          {offerNotifications ? <NotificationOffer onClose={() => setOfferNotifications(false)} /> : null}
 
           {selectedCourse?.gradeSetup && !editing ? (
             <ConfirmedSummary course={selectedCourse} message={message} onEdit={startEditing} />
