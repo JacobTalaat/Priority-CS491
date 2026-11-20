@@ -232,6 +232,37 @@ final class AuthModel: ObservableObject {
         }
     }
 
+    // Every signed-in API call goes through here, with the same rules as the
+    // account check: the 60-second expiry window first, then on a 401 exactly
+    // one refresh and one retry. Only Supabase refusing the session signs the
+    // student out; an outage keeps them signed in and comes back as offline.
+    func request(
+        _ method: String,
+        _ segments: [String],
+        json: Data? = nil,
+        headers: [String: String] = [:]
+    ) async -> APIResponse {
+        guard let apiClient else { return .failed(status: 0, message: configProblem) }
+        guard case .ready(let session) = await sessionOutcomeForRequest() else {
+            await signOut()
+            return .signedOut
+        }
+        let first = await apiClient.send(session, method: method, segments: segments, json: json, headers: headers)
+        guard first == .signedOut else { return first }
+        switch await sharedRefresh() {
+        case .success(let fresh):
+            let retry = await apiClient.send(fresh, method: method, segments: segments, json: json, headers: headers)
+            if retry == .signedOut { await signOut() }
+            return retry
+        case .failure(let failure):
+            if failure.isAuthRejection {
+                await signOut()
+                return .signedOut
+            }
+            return .offline
+        }
+    }
+
     // The in-memory session used when the Keychain could not be updated after
     // a refresh (unknown until relaunch, Supabase rotates tokens so the stored
     // refresh token is dead — flagged for the student but not signed out now).

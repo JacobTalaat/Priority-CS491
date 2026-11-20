@@ -11,7 +11,9 @@ final class APIClient {
     }
 
     private let config: AppConfig
-    private let urlSession: URLSession
+    let urlSession: URLSession
+
+    var apiBaseURL: URL { config.apiBaseURL }
 
     init(config: AppConfig, urlSession: URLSession = URLSession(configuration: .ephemeral)) {
         self.config = config
