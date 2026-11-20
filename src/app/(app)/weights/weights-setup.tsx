@@ -78,9 +78,14 @@ function formForCourse(course: GradeSetupCourse): FormState {
         saved.assignmentMappings.map((mapping) => [mapping.assignmentId, mapping.category]),
       ),
       finalExamWeight: String(saved.finalExamWeight),
-      cutoffs: Object.fromEntries(
-        Object.entries(saved.cutoffs).map(([label, cutoff]) => [label, String(cutoff)]),
-      ),
+      // An auto setup confirmed from Canvas saves no grading scale, so the editor
+      // starts from the same defaults a brand-new manual setup gets.
+      cutoffs:
+        Object.keys(saved.cutoffs).length === 0
+          ? { ...DEFAULT_CUTOFFS }
+          : Object.fromEntries(
+              Object.entries(saved.cutoffs).map(([label, cutoff]) => [label, String(cutoff)]),
+            ),
       instructor: typeof saved.classDetails.instructor === "string" ? saved.classDetails.instructor : "",
       section: typeof saved.classDetails.section === "string" ? saved.classDetails.section : "",
       credits:
@@ -583,7 +588,8 @@ export function WeightsSetup({
     logEvent("setup_confirmed");
     const savedCourse = {
       ...selectedCourse,
-      gradeSetup: { ...payload, confirmedAt: result.data.confirmedAt },
+      // A student save takes ownership, so sync stops managing this setup.
+      gradeSetup: { ...payload, confirmedAt: result.data.confirmedAt, source: "student" as const },
     };
     setCourses((current) => current.map((course) => (course.id === savedCourse.id ? savedCourse : course)));
     setEditing(false);
@@ -943,6 +949,11 @@ export function WeightsSetup({
                 </div>
               ) : null}
 
+              {selectedCourse.gradeSetup?.source === "canvas" ? (
+                <p className={styles.description}>
+                  Saving makes this your own setup. Canvas changes won&apos;t update it after that.
+                </p>
+              ) : null}
               <div className={styles.actions}>
                 <Button
                   type="submit"
@@ -1002,6 +1013,7 @@ function ConfirmedSummary({
   }
   const missing = assignmentsMissingFromSetup(course);
   const confirmedOn = new Date(saved.confirmedAt);
+  const fromCanvas = saved.source === "canvas";
   const cutoffs = Object.entries(saved.cutoffs)
     .sort(([, a], [, b]) => b - a)
     .map(([label, value]) => `${label} ${value}`)
@@ -1010,13 +1022,22 @@ function ConfirmedSummary({
     <section className={styles.canvasWeights} aria-labelledby="confirmed-setup">
       {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
       <div className={styles.formHeading}>
-        <h2 className={styles.sectionTitle} id="confirmed-setup">
-          Confirmed setup
-        </h2>
+        <div className={styles.headingRow}>
+          <h2 className={styles.sectionTitle} id="confirmed-setup">
+            Confirmed setup
+          </h2>
+          {fromCanvas ? (
+            <span className={styles.sourceTag}>From Canvas, edit anytime</span>
+          ) : null}
+        </div>
         <p className={styles.description}>
-          {Number.isNaN(confirmedOn.getTime())
-            ? "Your grade for this class uses these weights."
-            : `Confirmed ${confirmedDateFormatter.format(confirmedOn)}. Your grade for this class uses these weights.`}
+          {fromCanvas
+            ? Number.isNaN(confirmedOn.getTime())
+              ? "Your professor's Canvas weights. Your grade for this class uses them."
+              : `Imported from Canvas ${confirmedDateFormatter.format(confirmedOn)}. Your grade for this class uses them.`
+            : Number.isNaN(confirmedOn.getTime())
+              ? "Your grade for this class uses these weights."
+              : `Confirmed ${confirmedDateFormatter.format(confirmedOn)}. Your grade for this class uses these weights.`}
         </p>
       </div>
       <ul className={styles.weightList} aria-label="Confirmed weights">

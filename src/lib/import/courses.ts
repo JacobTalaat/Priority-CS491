@@ -6,7 +6,13 @@ const COURSES_PATH = "/api/v1/courses?enrollment_state=active&include[]=term&per
 
 type CanvasTerm = { id?: unknown; name?: unknown; start_at?: unknown; end_at?: unknown };
 
-type CanvasCourse = { id?: unknown; name?: unknown; course_code?: unknown; term?: CanvasTerm | null };
+type CanvasCourse = {
+  id?: unknown;
+  name?: unknown;
+  course_code?: unknown;
+  term?: CanvasTerm | null;
+  apply_assignment_group_weights?: unknown;
+};
 
 function parseDate(value: unknown): Date | null {
   if (typeof value !== "string") {
@@ -57,6 +63,7 @@ export async function importCourses(
       courseCode: typeof course.course_code === "string" ? course.course_code : null,
       term: typeof term.name === "string" ? term.name : null,
       termEndsAt: parseDate(term.end_at),
+      applyGroupWeights: course.apply_assignment_group_weights === true,
     };
     const row = await prisma.course.upsert({
       where: { userId_canvasId: { userId, canvasId } },

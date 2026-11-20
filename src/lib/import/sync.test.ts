@@ -14,6 +14,7 @@ const {
   mockImportGrades,
   mockImportCalendarAssignments,
   mockGetCalendarFeedUrl,
+  mockApplyCanvasSetup,
 } = vi.hoisted(() => ({
   mockFindMany: vi.fn(),
   mockUserFindUnique: vi.fn(),
@@ -28,6 +29,7 @@ const {
   mockImportGrades: vi.fn(),
   mockImportCalendarAssignments: vi.fn(),
   mockGetCalendarFeedUrl: vi.fn(),
+  mockApplyCanvasSetup: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -57,6 +59,8 @@ vi.mock("./assignments", () => ({ importAssignments: mockImportAssignments }));
 vi.mock("./grades", () => ({ importGrades: mockImportGrades }));
 
 vi.mock("./calendar-assignments", () => ({ importCalendarAssignments: mockImportCalendarAssignments }));
+
+vi.mock("./canvas-setup", () => ({ applyCanvasSetup: mockApplyCanvasSetup }));
 
 import { CanvasError } from "@/lib/canvas";
 import { CalendarFeedError } from "@/lib/calendar-feed";
@@ -99,6 +103,8 @@ describe("syncUser", () => {
     mockImportCalendarAssignments.mockReset();
     mockGetCalendarFeedUrl.mockReset();
     mockGetCalendarFeedUrl.mockResolvedValue(null);
+    mockApplyCanvasSetup.mockReset();
+    mockApplyCanvasSetup.mockResolvedValue(undefined);
     vi.setSystemTime(new Date(CLOCKS_AT));
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -205,6 +211,38 @@ describe("syncUser", () => {
     expect(mockImportCourses).not.toHaveBeenCalled();
     expect(mockFindMany).not.toHaveBeenCalled();
     expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("applies Canvas's grade setup to each course right after that course's imports", async () => {
+    mockImportCourses.mockResolvedValue({ imported: 2, skipped: 0, courseIds: ["c1", "c2"] });
+    mockFindMany.mockResolvedValue([storedCourse("course-1"), storedCourse("course-2")]);
+    mockImportAssignmentGroups.mockResolvedValue({ imported: 1 });
+    mockImportAssignments.mockResolvedValue({ imported: 1, skipped: 0 });
+    mockImportGrades.mockResolvedValue({ imported: 1, skipped: 0 });
+    await syncUser(USER_ID);
+    expect(mockApplyCanvasSetup).toHaveBeenCalledTimes(2);
+    expect(mockApplyCanvasSetup).toHaveBeenNthCalledWith(1, "course-1");
+    expect(mockApplyCanvasSetup).toHaveBeenLastCalledWith("course-2");
+    // invocationCallOrder is a global counter across all mocks, so these compare
+    // each course's setup call against that course's import chain.
+    const groupsOrder = mockImportAssignmentGroups.mock.invocationCallOrder;
+    const gradesOrder = mockImportGrades.mock.invocationCallOrder;
+    const setupOrder = mockApplyCanvasSetup.mock.invocationCallOrder;
+    // course-1: setup comes after course-1's grades import and before
+    // course-2's assignment groups.
+    expect(setupOrder[0]).toBeGreaterThan(gradesOrder[0]);
+    expect(setupOrder[0]).toBeLessThan(groupsOrder[1]);
+    // course-2: setup comes after course-2's grades import, the last import.
+    expect(setupOrder[1]).toBeGreaterThan(gradesOrder[1]);
+    expect(setupOrder[1]).toBeGreaterThan(groupsOrder[1]);
+  });
+
+  it("skips the Canvas setup step entirely on the calendar-feed path", async () => {
+    mockGetCanvasToken.mockResolvedValue(null);
+    mockGetCalendarFeedUrl.mockResolvedValue("https://canvas.example.edu/feed.ics");
+    mockImportCalendarAssignments.mockResolvedValue({ imported: 2, skipped: 0, courses: 1 });
+    await syncUser(USER_ID);
+    expect(mockApplyCanvasSetup).not.toHaveBeenCalled();
   });
 
   it("uses the saved calendar feed when Canvas credentials are unavailable", async () => {

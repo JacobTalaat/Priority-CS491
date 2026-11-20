@@ -28,11 +28,15 @@ function group(
   id: number,
   name: string,
   groupWeight: number | undefined,
-  position = 1
+  position = 1,
+  rules?: Record<string, unknown>
 ): Record<string, unknown> {
   const g: Record<string, unknown> = { id, name, position };
   if (groupWeight !== undefined) {
     g.group_weight = groupWeight;
+  }
+  if (rules !== undefined) {
+    g.rules = rules;
   }
   return g;
 }
@@ -66,6 +70,7 @@ describe("importAssignmentGroups", () => {
       name: "Project",
       groupWeight: 25,
       position: 8,
+      hasDropRules: false,
     });
   });
 
@@ -105,7 +110,56 @@ describe("importAssignmentGroups", () => {
       name: "Academic Engagement: Fall 2026",
       groupWeight: 0,
       position: 1,
+      hasDropRules: false,
     });
+  });
+
+  it("stores hasDropRules false when the group has no rules or an empty rules object", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          group(1, "No rules", 50),
+          group(2, "Empty rules", 50, 2, {}),
+        ]),
+        { status: 200 }
+      )
+    ));
+    await importAssignmentGroups({ baseUrl: BASE_URL, token: TOKEN }, COURSE);
+    const stored = mockUpsert.mock.calls.map((call) => call[0].update.hasDropRules);
+    expect(stored).toEqual([false, false]);
+  });
+
+  it("stores hasDropRules true for a positive drop_lowest or drop_highest", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          group(1, "Drops lowest", 50, 1, { drop_lowest: 1, never_drop: [7] }),
+          group(2, "Drops highest", 50, 2, { drop_highest: 2 }),
+        ]),
+        { status: 200 }
+      )
+    ));
+    await importAssignmentGroups({ baseUrl: BASE_URL, token: TOKEN }, COURSE);
+    const stored = mockUpsert.mock.calls.map((call) => call[0].update.hasDropRules);
+    expect(stored).toEqual([true, true]);
+  });
+
+  it("stores hasDropRules false for a zero or non-number drop count", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          group(1, "Zero drop", 50, 1, { drop_lowest: 0 }),
+          group(2, "Text count", 50, 2, { drop_highest: "2" }),
+          group(3, "Null count", 50, 3, { drop_lowest: null }),
+          // Deliberately not an object: Canvas glitched, nothing drops.
+          group(4, "Malformed rules", 50, 4, "drop lowest" as unknown as Record<string, unknown>),
+        ]),
+        { status: 200 }
+      )
+    ));
+    await importAssignmentGroups({ baseUrl: BASE_URL, token: TOKEN }, COURSE);
+    const stored = mockUpsert.mock.calls.map((call) => call[0].update.hasDropRules);
+    expect(stored).toEqual([false, false, false, false]);
   });
 
   it("consumes two mocked pages, requesting per_page=100", async () => {

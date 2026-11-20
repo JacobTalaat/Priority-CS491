@@ -165,7 +165,22 @@ const confirmedCourse: GradeSetupCourse = {
       finalExamAssignmentId: "a2",
     },
     confirmedAt: "2026-10-20T16:00:00.000Z",
+    source: "student",
     unsupportedRules: [],
+  },
+};
+
+const canvasConfirmedCourse: GradeSetupCourse = {
+  ...confirmedCourse,
+  id: "c-canvas-confirmed",
+  name: "Data Structures",
+  gradeSetup: {
+    ...confirmedCourse.gradeSetup!,
+    // Like the real thing: sync saves no grading scale and no class details.
+    cutoffs: {},
+    classDetails: {},
+    confirmedAt: "2026-11-14T16:00:00.000Z",
+    source: "canvas",
   },
 };
 
@@ -706,6 +721,64 @@ describe("editing a confirmed setup", () => {
     expect(html).toContain("Cutoffs: A 90 · B 80");
     expect(html).toMatch(/<button[^>]*>Edit setup<\/button>/);
     expect(html).not.toContain("<form");
+  });
+
+  it("a student-confirmed summary shows no Canvas label", () => {
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[confirmedCourse]} />);
+    expect(html).toContain("Confirmed Oct 20, 2026.");
+    expect(html).not.toContain("From Canvas, edit anytime");
+    expect(html).not.toContain("Imported from Canvas");
+  });
+
+  it("a Canvas-confirmed summary shows the From Canvas label and description", () => {
+    const html = renderToStaticMarkup(<WeightsSetup initialCourses={[canvasConfirmedCourse]} />);
+    expect(html).toContain("From Canvas, edit anytime");
+    expect(html).toContain("Imported from Canvas Nov 14, 2026. Your grade for this class uses them.");
+    expect(html).not.toContain("Confirmed Nov 14, 2026.");
+    // The auto setup asserts no grading scale, so the summary shows no cutoffs line.
+    expect(html).not.toContain("Cutoffs:");
+    expect(html).toMatch(/<h2[^>]*>Confirmed setup<\/h2>/);
+    expect(html).toMatch(/<button[^>]*>Edit setup<\/button>/);
+  });
+
+  it("editing a Canvas setup with no saved cutoffs starts from the default grading scale", async () => {
+    await withMounted(<WeightsSetup initialCourses={[canvasConfirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      expect(inputLabelled(container, "A").value).toBe("90");
+      expect(inputLabelled(container, "B").value).toBe("80");
+      expect(inputLabelled(container, "F").value).toBe("0");
+    });
+  });
+
+  it("the ownership note shows only while editing a Canvas setup", async () => {
+    await withMounted(<WeightsSetup initialCourses={[canvasConfirmedCourse]} />, async (container) => {
+      expect(container.textContent).not.toContain("Saving makes this your own setup.");
+      await click(buttonNamed(container, "Edit setup"));
+      expect(container.textContent).toContain(
+        "Saving makes this your own setup. Canvas changes won't update it after that."
+      );
+    });
+    await withMounted(<WeightsSetup initialCourses={[confirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      expect(container.textContent).not.toContain("Saving makes this your own setup.");
+    });
+    await withMounted(<WeightsSetup initialCourses={[course]} />, async (container) => {
+      expect(container.textContent).not.toContain("Saving makes this your own setup.");
+    });
+  });
+
+  it("editing a Canvas-confirmed setup saves it as the student's own", async () => {
+    mockSaveGradeSetup.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { confirmed: true, courseId: "c-canvas-confirmed", confirmedAt: "2026-11-15T16:00:00.000Z" },
+    });
+    await withMounted(<WeightsSetup initialCourses={[canvasConfirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      await click(buttonNamed(container, "Save changes"));
+      expect(container.textContent).not.toContain("From Canvas, edit anytime");
+      expect(container.textContent).toContain("Confirmed Nov 15, 2026.");
+    });
   });
 
   it("warns when assignments were added after confirming", () => {

@@ -7,7 +7,21 @@ type CanvasAssignmentGroup = {
   name?: unknown;
   group_weight?: unknown;
   position?: unknown;
+  rules?: unknown;
 };
+
+// Only a positive count drops work: a 0 or a non-number drops nothing, and
+// never_drop lists are ignored because they remove nothing from the average.
+function hasDropRules(rules: unknown): boolean {
+  if (typeof rules !== "object" || rules === null) {
+    return false;
+  }
+  const { drop_lowest, drop_highest } = rules as { drop_lowest?: unknown; drop_highest?: unknown };
+  return (
+    (typeof drop_lowest === "number" && drop_lowest > 0) ||
+    (typeof drop_highest === "number" && drop_highest > 0)
+  );
+}
 
 // Courses rarely have more than a handful of groups, so a lower bar than assignments.
 const EMPTY_GROUP_LISTING_DELETE_GUARD = 5;
@@ -33,6 +47,7 @@ export async function importAssignmentGroups(
       name: group.name,
       groupWeight: typeof group.group_weight === "number" ? group.group_weight : null,
       position: typeof group.position === "number" ? group.position : null,
+      hasDropRules: hasDropRules(group.rules),
     };
     await prisma.assignmentGroup.upsert({
       where: { courseId_canvasId: { courseId: course.id, canvasId } },

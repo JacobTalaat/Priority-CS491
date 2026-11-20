@@ -2,6 +2,7 @@ import { CanvasError } from "@/lib/canvas";
 import { getCanvasStatus, getCanvasToken } from "@/lib/canvas-credentials";
 import { getCalendarFeedUrl } from "@/lib/calendar-feed-credentials";
 import { prisma } from "@/lib/prisma";
+import { applyCanvasSetup } from "./canvas-setup";
 import { importAssignmentGroups } from "./assignment-groups";
 import { importAssignments } from "./assignments";
 import { importCalendarAssignments } from "./calendar-assignments";
@@ -146,6 +147,7 @@ export async function syncUser(userId: string): Promise<SyncResult> {
       assignments += importedAssignments.imported;
       const importedGrades = await importGrades(credentials, course);
       grades += importedGrades.imported;
+      await applyCanvasSetup(course.id);
     }
     const lastSyncedAt = new Date();
     await prisma.user.update({ where: { id: userId }, data: { lastSyncedAt } });

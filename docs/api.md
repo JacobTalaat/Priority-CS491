@@ -1273,7 +1273,7 @@ curl -i -X POST http://localhost:3000/api/canvas/sync \
 
 ### `POST /api/courses/[courseId]/grade-setup`
 
-Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, every assignment in the course must map to exactly one category, and a final exam weight above 0 requires picking which assignment is the final exam (`classDetails.finalExamAssignmentId` set to one of the course's assignment IDs). Repeating the request replaces the saved setup.
+Saves and confirms a student's grading setup for one of their current courses. Category weights and the final exam weight must total 100, every assignment in the course must map to exactly one category, and a final exam weight above 0 requires picking which assignment is the final exam (`classDetails.finalExamAssignmentId` set to one of the course's assignment IDs). Repeating the request replaces the saved setup. The saved setup is recorded as the student's own (`source` `"student"`), which takes ownership back from the Canvas sync: a setup the sync confirmed from the professor's Canvas weights is no longer rewritten or removed by later syncs.
 
 - **Method**: `POST`
 - **Path**: `/api/courses/[courseId]/grade-setup`
@@ -1538,7 +1538,7 @@ curl -i -X DELETE "http://localhost:3000/api/courses/course-id/grades?assignment
 
 ### `GET /api/courses/grade-setups`
 
-Returns the authenticated student's current courses, their Canvas assignment-group weights and assignments, and any saved confirmed grade setup. Courses are included whether or not the Canvas token is currently connected.
+Returns the authenticated student's current courses, their Canvas assignment-group weights and assignments, and any saved confirmed grade setup. Courses are included whether or not the Canvas token is currently connected. A saved setup's `source` says where it came from: `"canvas"` means the sync confirmed the professor's Canvas weights automatically, and `"student"` means the student confirmed it by hand on the Weights page.
 
 - **Method**: `GET`
 - **Path**: `/api/courses/grade-setups`
@@ -1572,7 +1572,16 @@ curl -i http://localhost:3000/api/courses/grade-setups \
           "assignmentGroup": { "name": "Homework", "groupWeight": 30 }
         }
       ],
-      "gradeSetup": null
+      "gradeSetup": {
+        "categories": [{ "name": "Homework", "weight": 30 }],
+        "assignmentMappings": [{ "assignmentId": "assignment-id", "category": "Homework" }],
+        "finalExamWeight": 0,
+        "cutoffs": { "A": 90 },
+        "classDetails": { "instructor": "Professor Example" },
+        "unsupportedRules": [],
+        "source": "canvas",
+        "confirmedAt": "2026-11-20T12:00:00.000Z"
+      }
     }
   ]
 }
