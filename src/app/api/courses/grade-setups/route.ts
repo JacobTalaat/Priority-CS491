@@ -33,6 +33,7 @@ export async function GET(request: Request) {
           cutoffs: true,
           classDetails: true,
           unsupportedRules: true,
+          source: true,
           confirmedAt: true,
         },
       },

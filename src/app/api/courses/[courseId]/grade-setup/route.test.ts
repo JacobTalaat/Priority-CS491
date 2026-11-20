@@ -93,6 +93,7 @@ describe("POST /api/courses/[courseId]/grade-setup", () => {
       where: { courseId: "course-1" },
       create: expect.objectContaining({
         courseId: "course-1",
+        source: "student",
         categories: SETUP.categories,
         assignmentMappings: SETUP.assignmentMappings,
         finalExamWeight: 20,
@@ -101,6 +102,7 @@ describe("POST /api/courses/[courseId]/grade-setup", () => {
         confirmedAt: expect.any(Date),
       }),
       update: expect.objectContaining({
+        source: "student",
         categories: SETUP.categories,
         assignmentMappings: SETUP.assignmentMappings,
         finalExamWeight: 20,
@@ -109,6 +111,14 @@ describe("POST /api/courses/[courseId]/grade-setup", () => {
         confirmedAt: expect.any(Date),
       }),
     });
+  });
+
+  it("a student save takes ownership even over a setup sync wrote from Canvas", async () => {
+    const response = await POST(request(), context);
+    expect(response.status).toBe(200);
+    const [upsertArgs] = mockGradeSetupUpsert.mock.calls;
+    expect(upsertArgs[0].create.source).toBe("student");
+    expect(upsertArgs[0].update.source).toBe("student");
   });
 
   it("keeps saved rules when the body omits the unsupportedRules field", async () => {

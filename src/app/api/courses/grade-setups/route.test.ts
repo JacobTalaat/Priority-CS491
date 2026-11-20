@@ -91,6 +91,7 @@ describe("GET /api/courses/grade-setups", () => {
             cutoffs: true,
             classDetails: true,
             unsupportedRules: true,
+            source: true,
             confirmedAt: true,
           },
         },

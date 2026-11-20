@@ -58,6 +58,7 @@ model Course {
   term         String?
   termEndsAt   DateTime?
   isCurrent    Boolean   @default(false)
+  applyGroupWeights Boolean @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -79,6 +80,7 @@ model CourseGradeSetup {
   cutoffs            Json
   classDetails       Json
   unsupportedRules   Json     @default("[]")
+  source             String   @default("student")
   confirmedAt        DateTime @default(now())
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -107,6 +109,7 @@ model AssignmentGroup {
   name        String
   groupWeight Float?
   position    Int?
+  hasDropRules Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -71,8 +71,9 @@ export async function POST(request: Request, context: RouteContext) {
   const { unsupportedRules, ...setupFields } = parsed.data;
   await prisma.courseGradeSetup.upsert({
     where: { courseId: course.id },
-    create: { courseId: course.id, ...setupFields, unsupportedRules: unsupportedRules ?? [], confirmedAt },
+    create: { courseId: course.id, source: "student", ...setupFields, unsupportedRules: unsupportedRules ?? [], confirmedAt },
     update: {
+      source: "student",
       ...setupFields,
       confirmedAt,
       ...(unsupportedRules === undefined ? {} : { unsupportedRules }),

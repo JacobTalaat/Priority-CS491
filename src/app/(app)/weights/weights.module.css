@@ -48,6 +48,23 @@
   gap: 8px;
 }
 
+.headingRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* A small tag next to a section title, styled like the settings badges. */
+.sourceTag {
+  padding: 4px 10px;
+  border: 1px solid var(--divider);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .sectionTitle {
   font-size: 20px;
   font-weight: 600;

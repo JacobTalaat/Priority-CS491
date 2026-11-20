@@ -13,7 +13,14 @@ export type GradeSetupCourse = {
     title: string;
     assignmentGroup: { name: string; groupWeight: number | null } | null;
   }[];
-  gradeSetup: (GradeSetupPayload & { confirmedAt: string }) | null;
+  gradeSetup:
+    | (GradeSetupPayload & {
+        confirmedAt: string;
+        // "canvas" means sync confirmed the professor's Canvas weights; "student" means
+        // the student saved it by hand. An edit from either source saves as "student".
+        source: "canvas" | "student";
+      })
+    | null;
 };
 
 export function getGradeSetupCourses() {

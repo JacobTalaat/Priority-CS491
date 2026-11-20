@@ -36,13 +36,16 @@ const TERMS = [
   { id: 380, name: "Fall 2026", start_at: "2026-08-18T04:00:00Z", end_at: "2028-12-22T05:00:00Z", courseCount: 4 },
 ] as const;
 
-function course(id: number, name: string, termId: number) {
+function course(id: number, name: string, termId: number, options: { applyGroupWeights?: boolean } = {}) {
   const term = TERMS.find((t) => t.id === termId)!;
   return {
     id,
     name,
     course_code: `CS-${id}`,
     term: { id: term.id, name: term.name, start_at: term.start_at, end_at: term.end_at },
+    ...(options.applyGroupWeights === undefined
+      ? {}
+      : { apply_assignment_group_weights: options.applyGroupWeights }),
   };
 }
 
@@ -172,6 +175,7 @@ describe("importCourses", () => {
       courseCode: "CS-42",
       term: "Fall 2026",
       termEndsAt: new Date("2028-12-22T05:00:00Z"),
+      applyGroupWeights: false,
       isCurrent: true,
     });
     expect(args.update).toEqual({
@@ -179,8 +183,27 @@ describe("importCourses", () => {
       courseCode: "CS-42",
       term: "Fall 2026",
       termEndsAt: new Date("2028-12-22T05:00:00Z"),
+      applyGroupWeights: false,
       isCurrent: true,
     });
+  });
+
+  it("stores apply_assignment_group_weights as a boolean on create and update", async () => {
+    vi.stubGlobal("fetch", singlePage([course(42, "Weighted", 380, { applyGroupWeights: true })]));
+    await importCourses(USER_ID);
+    expect(mockUpsert.mock.calls[0][0].create.applyGroupWeights).toBe(true);
+    expect(mockUpsert.mock.calls[0][0].update.applyGroupWeights).toBe(true);
+  });
+
+  it("accepts the flag only when Canvas sends the boolean true, not strings or other types", async () => {
+    const flagged = course(42, "Weighted", 380);
+    vi.stubGlobal("fetch", singlePage([
+      { ...flagged, id: 42, apply_assignment_group_weights: "true" },
+      { ...flagged, id: 43, apply_assignment_group_weights: 1 },
+    ]));
+    await importCourses(USER_ID);
+    const stored = mockUpsert.mock.calls.map((call) => call[0].create.applyGroupWeights);
+    expect(stored).toEqual([false, false]);
   });
 
   it("running twice issues identical upserts and creates no second row", async () => {
