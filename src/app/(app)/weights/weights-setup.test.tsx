@@ -785,3 +785,82 @@ describe("editing a confirmed setup", () => {
     });
   });
 });
+
+describe("notification offer after confirming", () => {
+  const savedOk = {
+    ok: true,
+    status: 200,
+    data: { confirmed: true, courseId: "c-canvas", confirmedAt: "2026-11-16T16:00:00.000Z" },
+  };
+
+  function setPermission(permission: NotificationPermission) {
+    window.Notification = { permission, requestPermission: vi.fn() } as unknown as typeof Notification;
+    window.PushManager = class {} as unknown as typeof PushManager;
+    Object.defineProperty(window.navigator, "serviceWorker", {
+      configurable: true,
+      value: { getRegistration: vi.fn().mockResolvedValue(undefined) },
+    });
+  }
+
+  beforeEach(() => {
+    mockSaveGradeSetup.mockReset();
+    mockUploadProps.mockReset();
+    window.localStorage.clear();
+    setPermission("default");
+  });
+
+  async function confirmCanvasCourse(container: HTMLElement) {
+    await click(buttonNamed(container, "Enter weights manually"));
+    await click(buttonNamed(container, "Confirm and save"));
+  }
+
+  it("does not offer notifications before any class is confirmed", async () => {
+    await withMounted(<WeightsSetup initialCourses={[canvasCourse]} />, async (container) => {
+      expect(container.textContent).not.toContain("Get a reminder before work is due?");
+    });
+  });
+
+  it("offers notifications right after the first confirm", async () => {
+    mockSaveGradeSetup.mockResolvedValue(savedOk);
+    await withMounted(<WeightsSetup initialCourses={[canvasCourse]} />, async (container) => {
+      await confirmCanvasCourse(container);
+      expect(container.textContent).toContain("Get a reminder before work is due?");
+      expect(buttonNamed(container, "Turn on notifications")).toBeTruthy();
+      // The browser's own prompt waits for the student's click.
+      expect(window.Notification.requestPermission).not.toHaveBeenCalled();
+    });
+  });
+
+  it("Not now hides the offer and remembers it", async () => {
+    mockSaveGradeSetup.mockResolvedValue(savedOk);
+    await withMounted(<WeightsSetup initialCourses={[canvasCourse]} />, async (container) => {
+      await confirmCanvasCourse(container);
+      await click(buttonNamed(container, "Not now"));
+      expect(container.textContent).not.toContain("Get a reminder before work is due?");
+      expect(window.localStorage.getItem("priority-notification-prompt-dismissed")).toBe("1");
+    });
+  });
+
+  it("does not offer after a dismissal, an edit, or once permission was answered", async () => {
+    mockSaveGradeSetup.mockResolvedValue(savedOk);
+    window.localStorage.setItem("priority-notification-prompt-dismissed", "1");
+    await withMounted(<WeightsSetup initialCourses={[canvasCourse]} />, async (container) => {
+      await confirmCanvasCourse(container);
+      expect(container.textContent).not.toContain("Get a reminder before work is due?");
+    });
+
+    window.localStorage.clear();
+    setPermission("denied");
+    await withMounted(<WeightsSetup initialCourses={[canvasCourse]} />, async (container) => {
+      await confirmCanvasCourse(container);
+      expect(container.textContent).not.toContain("Get a reminder before work is due?");
+    });
+
+    setPermission("default");
+    await withMounted(<WeightsSetup initialCourses={[confirmedCourse]} />, async (container) => {
+      await click(buttonNamed(container, "Edit setup"));
+      await click(buttonNamed(container, "Save changes"));
+      expect(container.textContent).not.toContain("Get a reminder before work is due?");
+    });
+  });
+});
