@@ -7,6 +7,7 @@ export type NotificationPreferences = {
 };
 
 export type GradePostedInput = {
+  courseId: string;
   assignmentTitle: string;
   courseName: string;
   score: number;
@@ -216,7 +217,7 @@ export function gradePostedMessage(input: GradePostedInput): NotificationMessage
     kind: "grade-posted",
     title: "Grade posted",
     body: bounded(`Grade posted: ${title}${suffix}`),
-    url: "/classes",
+    url: `/classes/${encodeURIComponent(input.courseId)}`,
   };
 }
 

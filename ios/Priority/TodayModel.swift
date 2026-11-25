@@ -115,9 +115,10 @@ final class TodayModel: ObservableObject {
     private let api: any TodayAPI
     private let undoSeconds: Double
     private var generatedAt = ""
-    // Rows marked done whose Done hasn't been undone. Every list response is
+    // Rows marked done whose Done hasn't saved yet. Every list response is
     // filtered through this, so a reload that started before the Done saved
-    // can't bring the row back.
+    // can't bring the row back. Once it saves the server's list decides, so an
+    // item un-done on the website shows up again.
     private var hidden = Set<String>()
     private var pendingDone: [String: Task<APIResponse, Never>] = [:]
     private var undoTimer: Task<Void, Never>?
@@ -135,7 +136,9 @@ final class TodayModel: ObservableObject {
         let generation = loadGeneration
         if items.isEmpty, phase != .ready { phase = .loading }
         let response = await api.today()
-        guard generation == loadGeneration else { return }
+        // A cancelled request comes back as "offline" but says nothing about the
+        // network; the next appearance loads again.
+        guard generation == loadGeneration, !Task.isCancelled else { return }
         apply(response)
     }
 
@@ -210,6 +213,9 @@ final class TodayModel: ObservableObject {
             guard pendingDone[item.assignmentId] == request else { return }
             pendingDone[item.assignmentId] = nil
             if case .ok = result {
+                // load() drops any reload still in flight, so every list applied
+                // from here on was read after the Done saved.
+                hidden.remove(item.assignmentId)
                 await load()
                 return
             }
@@ -224,13 +230,20 @@ final class TodayModel: ObservableObject {
         guard let offer = undoOffer else { return }
         clearUndo()
         notice = nil
+        // A reload from before this undo would take the row away again.
+        loadGeneration += 1
         let item = offer.item
         putBack(item, at: offer.index)
         let request = pendingDone[item.assignmentId]
         pendingDone[item.assignmentId] = nil
-        // Wait for the Done to land first: an undo that reached the server
-        // before it would leave the item done.
-        if let request, case .ok = await request.value {
+        // Wait for a Done still in flight: an undo that reached the server before
+        // it would leave the item done. With none in flight the Done has already
+        // saved, because a failed one takes the Undo offer away with it.
+        var doneSaved = true
+        if let request {
+            if case .ok = await request.value {} else { doneSaved = false }
+        }
+        if doneSaved {
             let result = await api.undo(item.assignmentId, requestId: UUID().uuidString)
             if result == .signedOut { return }
             if case .ok = result {} else {

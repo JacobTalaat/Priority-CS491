@@ -5,6 +5,7 @@ import SwiftUI
 // Colors match the website's theme tokens in src/app/globals.css.
 struct TodayView: View {
     @ObservedObject var auth: AuthModel
+    @ObservedObject var router: AppRouter
     @StateObject private var model: TodayModel
     @Environment(\.openURL) private var openURL
 
@@ -14,16 +15,10 @@ struct TodayView: View {
     static let danger = Color(red: 242 / 255, green: 112 / 255, blue: 102 / 255)
     static let warning = Color(red: 232 / 255, green: 178 / 255, blue: 92 / 255)
 
-    init(auth: AuthModel, model: TodayModel? = nil) {
+    init(auth: AuthModel, router: AppRouter, model: TodayModel? = nil) {
         self.auth = auth
+        self.router = router
         _model = StateObject(wrappedValue: model ?? TodayModel(api: LiveTodayAPI(auth: auth)))
-    }
-
-    private var version: String {
-        let info = Bundle.main.infoDictionary
-        let marketing = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "Version \(marketing) (\(build))"
     }
 
     var body: some View {
@@ -33,29 +28,10 @@ struct TodayView: View {
                 .toolbar {
                     // The brand mark sits in the same row as the account
                     // button, filling the space above the title.
-                    ToolbarItem(placement: .topBarLeading) {
-                        HStack(spacing: 8) {
-                            Text("P.")
-                                .font(.system(size: 13, weight: .heavy))
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 26, height: 26)
-                                .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor, lineWidth: 1))
-                            Text("PRIORITY")
-                                .font(.system(size: 12, weight: .semibold))
-                                .tracking(2)
-                                .foregroundStyle(.white)
-                        }
-                        .fixedSize()
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Priority")
-                        .accessibilityAddTraits(.isHeader)
-                    }
+                    BrandToolbarItem()
                     ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Text(version)
-                            Button("Log out", role: .destructive) {
-                                Task { await auth.signOut() }
-                            }
+                        Button {
+                            router.tab = .account
                         } label: {
                             Image(systemName: "person.crop.circle")
                                 .foregroundStyle(Self.secondary)
@@ -70,9 +46,8 @@ struct TodayView: View {
                 }
                 .animation(.default, value: model.undoOffer)
         }
-        .tint(.accentColor)
-        .preferredColorScheme(.dark)
-        .task { await model.load() }
+        // Runs on every appearance and again when a notification opens Today.
+        .task(id: router.todayVisit) { await model.load() }
     }
 
     // The overlays sit on a List even when it's empty, so pull to refresh
@@ -91,7 +66,9 @@ struct TodayView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Self.background)
-        .refreshable { await model.refresh() }
+        // SwiftUI can cancel the refresh task when the list redraws; the
+        // unstructured task keeps the sync going.
+        .refreshable { await Task { await model.refresh() }.value }
         .overlay { overlay }
     }
 
@@ -187,6 +164,29 @@ struct TodayView: View {
     }
 }
 
+// The logo in the row above the large title.
+struct BrandToolbarItem: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            HStack(spacing: 8) {
+                Text("P.")
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 26, height: 26)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor, lineWidth: 1))
+                Text("PRIORITY")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(2)
+                    .foregroundStyle(.white)
+            }
+            .fixedSize()
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Priority")
+            .accessibilityAddTraits(.isHeader)
+        }
+    }
+}
+
 // Title, course, due date and the reason stay visible, so the list reads at a
 // glance the way the website's rows do.
 struct TodayRow: View {
@@ -256,5 +256,5 @@ struct TodayRow: View {
 }
 
 #Preview {
-    TodayView(auth: AuthModel())
+    TodayView(auth: AuthModel(), router: AppRouter())
 }
