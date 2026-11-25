@@ -181,6 +181,32 @@ final class TodayModelTests: XCTestCase {
         XCTAssertNil(model.undoOffer)
     }
 
+    // The usual case: the Done saved seconds ago, so nothing is pending.
+    func testUndoAfterTheDoneSavedIsSentToTheServer() async {
+        let fake = TodayAPIFake()
+        let model = await loaded(fake, ["a", "b"])
+        fake.todayResponses = [todayJSON(["b"]), todayJSON(["a", "b"])]
+        model.markDone(model.items[0])
+        await settle()
+        XCTAssertEqual(model.items.map(\.assignmentId), ["b"])
+        await model.undo()
+        XCTAssertEqual(fake.calls.filter { $0.hasPrefix("undo") }, ["undo a"])
+        XCTAssertEqual(model.items.map(\.assignmentId), ["a", "b"])
+        XCTAssertNil(model.notice)
+    }
+
+    // Un-doing an item on the website brings it back here too.
+    func testAnItemUnDoneOnTheWebsiteShowsAgain() async {
+        let fake = TodayAPIFake()
+        let model = await loaded(fake, ["a", "b"])
+        fake.todayResponses = [todayJSON(["b"]), todayJSON(["a", "b"])]
+        model.markDone(model.items[0])
+        await settle()
+        XCTAssertEqual(model.items.map(\.assignmentId), ["b"])
+        await model.load()
+        XCTAssertEqual(model.items.map(\.assignmentId), ["a", "b"])
+    }
+
     func testUndoOfADoneThatFailedSkipsTheServerUndo() async {
         let fake = TodayAPIFake()
         fake.holdDone = true
