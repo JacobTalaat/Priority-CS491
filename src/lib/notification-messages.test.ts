@@ -258,42 +258,49 @@ describe("dueTomorrowMessage", () => {
 describe("gradePostedMessage", () => {
   it("formats a whole-number score with its points possible", () => {
     expect(
-      gradePostedMessage({ assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18, pointsPossible: 20 }),
+      gradePostedMessage({ courseId: "course-1", assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18, pointsPossible: 20 }),
     ).toEqual({
       kind: "grade-posted",
       title: "Grade posted",
       body: "Grade posted: Problem Set 4 (CS 341) — 18/20.",
-      url: "/classes",
+      url: "/classes/course-1",
     });
+  });
+
+  it("opens the class the grade is in, with the id encoded", () => {
+    expect(
+      gradePostedMessage({ courseId: "a/b c", assignmentTitle: "Lab", courseName: "CS 101", score: 9, pointsPossible: 10 }).url,
+    ).toBe("/classes/a%2Fb%20c");
   });
 
   it("keeps decimal scores without adding trailing zeros", () => {
     expect(
-      gradePostedMessage({ assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18.5, pointsPossible: 20 }).body,
+      gradePostedMessage({ courseId: "course-1", assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18.5, pointsPossible: 20 }).body,
     ).toBe("Grade posted: Problem Set 4 (CS 341) — 18.5/20.");
     expect(
-      gradePostedMessage({ assignmentTitle: "Quiz 2", courseName: "CS 341", score: 20, pointsPossible: 20 }).body,
+      gradePostedMessage({ courseId: "course-1", assignmentTitle: "Quiz 2", courseName: "CS 341", score: 20, pointsPossible: 20 }).body,
     ).toBe("Grade posted: Quiz 2 (CS 341) — 20/20.");
   });
 
   it("shows just the score when points possible is not a positive number", () => {
     expect(
-      gradePostedMessage({ assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18, pointsPossible: null }).body,
+      gradePostedMessage({ courseId: "course-1", assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18, pointsPossible: null }).body,
     ).toBe("Grade posted: Problem Set 4 (CS 341) — 18.");
     expect(
-      gradePostedMessage({ assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18, pointsPossible: 0 }).body,
+      gradePostedMessage({ courseId: "course-1", assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18, pointsPossible: 0 }).body,
     ).toBe("Grade posted: Problem Set 4 (CS 341) — 18.");
   });
 
   it("still prints the score clause for a finite score", () => {
     expect(
-      gradePostedMessage({ assignmentTitle: "Lab", courseName: "CS 101", score: 9, pointsPossible: 10 }).body,
+      gradePostedMessage({ courseId: "course-1", assignmentTitle: "Lab", courseName: "CS 101", score: 9, pointsPossible: 10 }).body,
     ).toBe("Grade posted: Lab (CS 101) — 9/10.");
   });
 
   it("leaves the score clause out entirely when the score is not finite", () => {
     for (const score of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       const body = gradePostedMessage({
+        courseId: "course-1",
         assignmentTitle: "Lab",
         courseName: "CS 101",
         score,
@@ -307,6 +314,7 @@ describe("gradePostedMessage", () => {
 
   it("truncates a very long assignment title with an ellipsis", () => {
     const message = gradePostedMessage({
+      courseId: "course-1",
       assignmentTitle:
         "Extra credit reflection about the entire history of computational theory and every single proof covered this semester including optional readings",
       courseName: "CS 341",
@@ -335,7 +343,7 @@ describe("messagesFor", () => {
     dueAt: new Date("2026-10-15T11:00:00-04:00"),
     share: 5,
   });
-  const gradePosted = { assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18, pointsPossible: 20 };
+  const gradePosted = { courseId: "course-1", assignmentTitle: "Problem Set 4", courseName: "CS 341", score: 18, pointsPossible: 20 };
   const inputs = { ranked: ranked([tomorrow, secondTomorrow]), now: NOW, gradePosted };
 
   it("builds all three messages when every toggle is on", () => {
@@ -442,6 +450,7 @@ describe("course names are capped before titles are fitted", () => {
   it("leaves a course name of exactly 40 code points untouched", () => {
     const name40 = letters.slice(0, 40);
     const message = gradePostedMessage({
+      courseId: "course-1",
       assignmentTitle: "Problem Set 4",
       courseName: name40,
       score: 18,
@@ -454,6 +463,7 @@ describe("course names are capped before titles are fitted", () => {
   it("caps a 41-code-point course name at 40 code points plus an ellipsis", () => {
     const name41 = `${letters.slice(0, 41)}`; // A..z plus one more distinct letter
     const message = gradePostedMessage({
+      courseId: "course-1",
       assignmentTitle: "Problem Set 4",
       courseName: name41,
       score: 18,
@@ -513,6 +523,7 @@ describe("course names are capped before titles are fitted", () => {
     const dueSingle = dueTomorrowMessage(ranked([one]), NOW);
     const dueSeveral = dueTomorrowMessage(ranked([one, two, three]), NOW);
     const grade = gradePostedMessage({
+      courseId: "course-1",
       assignmentTitle: "Problem Set 4",
       courseName: longCourse,
       score: 18,
@@ -572,6 +583,7 @@ describe("emoji titles are never cut through a surrogate pair", () => {
   it("truncates the Grade posted body of an emoji title whole and under the limit", () => {
     for (const assignmentTitle of emojiTitles) {
       const message = gradePostedMessage({
+        courseId: "course-1",
         assignmentTitle,
         courseName: "CS 341",
         score: 18,
@@ -631,7 +643,7 @@ describe("message numbers never show a floating-point tail", () => {
 
   it("shows a computed score to at most two decimals", () => {
     expect(
-      gradePostedMessage({ assignmentTitle: "Quiz 2", courseName: "CS 341", score: 55 / 3, pointsPossible: 20 }).body,
+      gradePostedMessage({ courseId: "course-1", assignmentTitle: "Quiz 2", courseName: "CS 341", score: 55 / 3, pointsPossible: 20 }).body,
     ).toBe("Grade posted: Quiz 2 (CS 341) — 18.33/20.");
   });
 });

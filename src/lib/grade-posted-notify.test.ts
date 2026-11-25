@@ -33,7 +33,7 @@ type EventRow = {
   id: string;
   score: number;
   postedAt: Date;
-  assignment: { title: string; pointsPossible: number; course: { name: string } };
+  assignment: { title: string; pointsPossible: number; course: { id: string; name: string } };
 };
 
 function event(
@@ -44,7 +44,7 @@ function event(
     id,
     score: 8,
     postedAt: new Date(NOW.getTime() - 60_000),
-    assignment: { title: "Lab", pointsPossible: 10, course: { name: "CS 101" } },
+    assignment: { title: "Lab", pointsPossible: 10, course: { id: "course-1", name: "CS 101" } },
   };
   return {
     ...base,
@@ -86,7 +86,7 @@ describe("deliverGradePostedNotifications", () => {
           select: {
             title: true,
             pointsPossible: true,
-            course: { select: { name: true } },
+            course: { select: { id: true, name: true } },
           },
         },
       },
@@ -145,6 +145,7 @@ describe("deliverGradePostedNotifications", () => {
     expect(mockSendToUser).toHaveBeenCalledTimes(1);
     expect(mockSendToUser.mock.calls[0][1]).toEqual(
       gradePostedMessage({
+        courseId: "course-1",
         assignmentTitle: "Lab",
         courseName: "CS 101",
         score: 8,
@@ -182,6 +183,7 @@ describe("deliverGradePostedNotifications", () => {
     expect(mockSendToUser.mock.calls.map((call) => call[1])).toEqual(
       events.slice(0, 3).map((row) =>
         gradePostedMessage({
+          courseId: "course-1",
           assignmentTitle: "Lab",
           courseName: "CS 101",
           score: row.score,

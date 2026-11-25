@@ -130,3 +130,24 @@ mirrors `src/lib/today-list.ts`).
 
 Every API call goes through `AuthModel.request`, which applies the same rules as sign-in: refresh within
 60 seconds of expiry, one refresh and retry on a 401, and sign out only when Supabase refuses the session.
+
+## Notifications
+
+The app opens the right screen from a tapped notification. A push carries the same `kind` and `url`
+the website's pushes do, at the top level of the payload next to `aps`:
+
+```json
+{ "aps": { "alert": { "title": "Grade posted", "body": "..." } }, "kind": "grade-posted", "url": "/classes/<course id>" }
+```
+
+| `url` | Opens |
+| --- | --- |
+| `/today` | Today, reloaded (Tonight and Due tomorrow) |
+| `/classes/<course id>` | That class (Grade posted) |
+| `/classes` | The class list |
+
+Anything else falls back to `kind`. Try one in the Simulator, once the app has notification permission:
+
+```bash
+xcrun simctl push booted com.prioritycapstone.Priority payload.json
+```

@@ -31,7 +31,7 @@ export async function deliverGradePostedNotifications(
         select: {
           title: true,
           pointsPossible: true,
-          course: { select: { name: true } },
+          course: { select: { id: true, name: true } },
         },
       },
     },
@@ -54,6 +54,7 @@ export async function deliverGradePostedNotifications(
       sendToUser(
         userId,
         gradePostedMessage({
+          courseId: event.assignment.course.id,
           assignmentTitle: event.assignment.title,
           courseName: event.assignment.course.name,
           score: event.score,

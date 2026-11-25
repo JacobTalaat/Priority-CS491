@@ -40,6 +40,8 @@ final class AuthModel: ObservableObject {
     @Published var password = ""
 
     private let config: AppConfig?
+    // The website is served from the same place as the API.
+    var websiteURL: URL? { config?.apiBaseURL }
     private let tokenStore: TokenStoring
     private let authClient: (any AuthFetching)?
     private let apiClient: APIClient?
@@ -163,10 +165,10 @@ final class AuthModel: ObservableObject {
         }
     }
 
+    // The token is cleared before Supabase is told, so logging out works at
+    // once even with no internet.
     func signOut() async {
-        if let session = tokenStore.readSession() {
-            await authClient?.revoke(session)
-        }
+        let session = reloadSession()
         do {
             try tokenStore.deleteSession()
             pendingDelete = false
@@ -180,6 +182,9 @@ final class AuthModel: ObservableObject {
         password = ""
         storageFallback = nil
         state = .signedOut
+        if let session {
+            await authClient?.revoke(session)
+        }
     }
 
     // Checks the 60-second window before every API request.
