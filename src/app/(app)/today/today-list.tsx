@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { AskMyClasses } from "@/components/ask/ask-my-classes";
 import { Button, ButtonLink, Input, Notice, PageHeader } from "@/components/ui";
 import { getToday, markDone, undoItem } from "@/lib/today-client";
 import type { TodayItem, TodayResponse } from "@/lib/today-client";
@@ -431,6 +432,7 @@ export function TodayList() {
           </button>
         </div>
       ) : null}
+      <AskMyClasses />
     </>
   );
 }
