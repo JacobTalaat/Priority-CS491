@@ -33,6 +33,22 @@ final class APIClient {
         return (id, email)
     }
 
+    static func parseCanvasSyncStatus(_ data: Data) -> CanvasSyncStatus? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let value = object["lastSyncedAt"] else { return nil }
+        guard !(value is NSNull) else { return CanvasSyncStatus(lastSyncedAt: nil) }
+        guard let rawDate = value as? String else { return nil }
+
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let date = fractionalFormatter.date(from: rawDate) ?? formatter.date(from: rawDate) else {
+            return nil
+        }
+        return CanvasSyncStatus(lastSyncedAt: date)
+    }
+
     func me(_ session: AuthSession) async -> MeAttempt {
         guard let url = Self.meURL(apiBase: config.apiBaseURL) else { return .unreachable }
         var request = URLRequest(url: url)
@@ -56,4 +72,8 @@ final class APIClient {
             return .unreachable
         }
     }
+}
+
+struct CanvasSyncStatus: Equatable {
+    let lastSyncedAt: Date?
 }

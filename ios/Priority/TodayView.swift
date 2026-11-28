@@ -52,6 +52,11 @@ struct TodayView: View {
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
+                            Text(
+                                auth.accountEmail
+                                    ?? (auth.isLoadingAccountDetails ? "Loading account…" : "Email unavailable")
+                            )
+                            Text(lastSyncedLabel)
                             Text(version)
                             Button("Log out", role: .destructive) {
                                 Task { await auth.signOut() }
@@ -72,7 +77,20 @@ struct TodayView: View {
         }
         .tint(.accentColor)
         .preferredColorScheme(.dark)
-        .task { await model.load() }
+        .task {
+            async let accountDetails = auth.loadAccountDetails()
+            await model.load()
+            await accountDetails
+        }
+    }
+
+    private var lastSyncedLabel: String {
+        if auth.isLoadingAccountDetails && !auth.didLoadLastSyncedAt {
+            return "Last synced: Loading…"
+        }
+        guard auth.didLoadLastSyncedAt else { return "Last synced: Unavailable" }
+        guard let lastSyncedAt = auth.lastSyncedAt else { return "Last synced: Never" }
+        return "Last synced: \(RelativeDateTimeFormatter().localizedString(for: lastSyncedAt, relativeTo: Date()))"
     }
 
     // The overlays sit on a List even when it's empty, so pull to refresh
@@ -91,7 +109,10 @@ struct TodayView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Self.background)
-        .refreshable { await model.refresh() }
+        .refreshable {
+            await model.refresh()
+            await auth.loadAccountDetails()
+        }
         .overlay { overlay }
     }
 

@@ -163,4 +163,50 @@ final class AuthModelTests: XCTestCase {
         XCTAssertEqual(model.state, .signedIn)
         XCTAssertNil(model.errorText)
     }
+
+    func testAccountDetailsLoadEmailAndLastSyncedTime() async {
+        let store = StoreFake()
+        store.seed(session())
+        let model = makeModel(store: store)
+        model.restoreSession()
+        PolicyURLProtocol.set(200, forPath: mePath, json: #"{"id":"u1","email":"student@school.edu"}"#)
+        PolicyURLProtocol.set(
+            200,
+            forPath: "/api/canvas/sync",
+            json: #"{"lastSyncedAt":"2026-10-07T19:00:00.000Z"}"#
+        )
+
+        await model.loadAccountDetails()
+
+        let expectedFormatter = ISO8601DateFormatter()
+        expectedFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        XCTAssertEqual(model.accountEmail, "student@school.edu")
+        XCTAssertEqual(model.lastSyncedAt, expectedFormatter.date(from: "2026-10-07T19:00:00.000Z"))
+        XCTAssertTrue(model.didLoadLastSyncedAt)
+        XCTAssertEqual(PolicyURLProtocol.calls(toPath: mePath), 1)
+        XCTAssertEqual(PolicyURLProtocol.calls(toPath: "/api/canvas/sync"), 1)
+    }
+
+    func testSignOutClearsAccountDetailsAndKeychainSession() async {
+        let store = StoreFake()
+        store.seed(session())
+        let model = makeModel(store: store)
+        model.restoreSession()
+        PolicyURLProtocol.set(200, forPath: mePath, json: #"{"id":"u1","email":"student@school.edu"}"#)
+        PolicyURLProtocol.set(
+            200,
+            forPath: "/api/canvas/sync",
+            json: #"{"lastSyncedAt":"2026-10-07T19:00:00.000Z"}"#
+        )
+        await model.loadAccountDetails()
+        XCTAssertNotNil(model.lastSyncedAt)
+
+        await model.signOut()
+
+        XCTAssertNil(store.readSession())
+        XCTAssertNil(model.accountEmail)
+        XCTAssertNil(model.lastSyncedAt)
+        XCTAssertFalse(model.didLoadLastSyncedAt)
+        XCTAssertEqual(model.state, .signedOut)
+    }
 }

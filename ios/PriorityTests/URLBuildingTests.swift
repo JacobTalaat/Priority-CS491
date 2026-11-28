@@ -30,6 +30,22 @@ final class URLBuildingTests: XCTestCase {
         XCTAssertNil(APIClient.parseMe(Data("{}".utf8)))
         XCTAssertNil(APIClient.parseMe(Data("nope".utf8)))
     }
+
+    func testParseCanvasSyncStatusAcceptsTimestampAndNeverSynced() {
+        let timestamp = "2026-10-07T19:00:00.000Z"
+        let expectedFormatter = ISO8601DateFormatter()
+        expectedFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let parsed = APIClient.parseCanvasSyncStatus(
+            Data(#"{"lastSyncedAt":"\#(timestamp)"}"#.utf8)
+        )
+        XCTAssertEqual(
+            parsed?.lastSyncedAt,
+            expectedFormatter.date(from: timestamp)
+        )
+        XCTAssertEqual(APIClient.parseCanvasSyncStatus(Data(#"{"lastSyncedAt":null}"#.utf8))?.lastSyncedAt, nil)
+        XCTAssertNil(APIClient.parseCanvasSyncStatus(Data("{}".utf8)))
+        XCTAssertNil(APIClient.parseCanvasSyncStatus(Data(#"{"lastSyncedAt":"invalid"}"#.utf8)))
+    }
 }
 
 extension URLBuildingTests {

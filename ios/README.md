@@ -124,6 +124,7 @@ mirrors `src/lib/today-list.ts`).
   `DELETE /api/today/items/{id}`. Both send `X-Priority-Client: app` and a fresh `X-Priority-Request-Id`.
 - **Pull down** to run Sync now (`POST /api/canvas/sync`), then reload the list.
 - **Tap a row** to open the assignment in Canvas (https links only).
+- **Account menu** shows the signed-in email and relative time of the last Canvas sync, and lets the student log out. It gets account identity from `GET /api/auth/me` and sync time from `GET /api/canvas/sync`; no prior sync is shown as "Never".
 - **Empty and error states:** "You're all caught up!" when nothing is open, and "You're offline" with a
   Try again button when there's no connection. A failed reload or sync keeps the list on screen with a
   notice.

@@ -36,6 +36,10 @@ final class AuthModel: ObservableObject {
     @Published private(set) var errorText: String?
     @Published private(set) var configProblem: String?
     @Published private(set) var isSigningIn = false
+    @Published private(set) var accountEmail: String?
+    @Published private(set) var lastSyncedAt: Date?
+    @Published private(set) var didLoadLastSyncedAt = false
+    @Published private(set) var isLoadingAccountDetails = false
     @Published var email = ""
     @Published var password = ""
 
@@ -129,6 +133,9 @@ final class AuthModel: ObservableObject {
         guard let authClient, let apiClient else { return }
         // Only reachable from the log-in screen; never from the restoring beat.
         if state == .restoring { state = .signedOut }
+        accountEmail = nil
+        lastSyncedAt = nil
+        didLoadLastSyncedAt = false
         isSigningIn = true
         errorText = nil
         defer { isSigningIn = false }
@@ -178,8 +185,28 @@ final class AuthModel: ObservableObject {
             errorText = AuthErrors.signOutStorageMessage
         }
         password = ""
+        accountEmail = nil
+        lastSyncedAt = nil
+        didLoadLastSyncedAt = false
         storageFallback = nil
         state = .signedOut
+    }
+
+    func loadAccountDetails() async {
+        guard state == .signedIn, !isLoadingAccountDetails else { return }
+        isLoadingAccountDetails = true
+        defer { isLoadingAccountDetails = false }
+
+        if case .ok(let data) = await request("GET", ["api", "auth", "me"]),
+           let account = APIClient.parseMe(data) {
+            accountEmail = account.email
+        }
+        guard state == .signedIn else { return }
+        if case .ok(let data) = await request("GET", ["api", "canvas", "sync"]),
+           let status = APIClient.parseCanvasSyncStatus(data) {
+            lastSyncedAt = status.lastSyncedAt
+            didLoadLastSyncedAt = true
+        }
     }
 
     // Checks the 60-second window before every API request.
@@ -211,7 +238,8 @@ final class AuthModel: ObservableObject {
         case .ready(let session):
             let attempt = await apiClient.me(session)
             switch attempt {
-            case .ok:
+            case .ok(let email):
+                accountEmail = email
                 return .confirmed
             case .unreachable:
                 return .unreachable
@@ -221,7 +249,9 @@ final class AuthModel: ObservableObject {
                 switch await sharedRefresh() {
                 case .success(let fresh):
                     switch await apiClient.me(fresh) {
-                    case .ok: return .confirmed
+                    case .ok(let email):
+                        accountEmail = email
+                        return .confirmed
                     case .unauthorized: return .signedOut
                     case .unreachable: return .unreachable
                     }
