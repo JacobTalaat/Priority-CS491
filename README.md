@@ -149,6 +149,10 @@ Use the shared [cross-platform test plan](docs/test-plan.md) for API, website, a
 - `npm test` — run the test suite with Vitest
 - `npm run db:migrate` — create and apply Prisma migrations
 
+## Product comparison
+
+See the [high-level comparison of Priority with other student tools](docs/tool-comparison.md).
+
 ## Team process
 
 Report defects with the shared [Jira bug template](docs/bug-template-and-definition-of-done.md#jira-bug-template), and check a story against the team's [Definition of Done](docs/bug-template-and-definition-of-done.md#definition-of-done--agreed-by-the-team) before asking for review.
