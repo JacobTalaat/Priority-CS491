@@ -72,6 +72,17 @@ async function loadCoursesAndGrades({ setState, setGrades }: LoadTargets): Promi
     return;
   }
   setGrades({});
+  if (result.data.courses.every((course) => course.grade !== undefined)) {
+    setGrades(
+      Object.fromEntries(
+        result.data.courses.map((course) => [
+          course.id,
+          course.grade ? cardGradeFromResponse(course.grade) : { status: "unavailable" as const },
+        ]),
+      ),
+    );
+    return;
+  }
   // One request per class, settled together: a failing request only marks its
   // own card as unavailable rather than losing the whole list's grades.
   const entries = await Promise.all(

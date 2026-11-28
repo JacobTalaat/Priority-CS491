@@ -14,6 +14,15 @@ import { ClassPageView } from "./class-page";
 
 const details: CourseDetailsResponse = {
   course: { id: "c1", name: "Algorithms", courseCode: "CS 341", term: "Fall 2026", termEndsAt: null },
+  grade: {
+    setupConfirmed: true,
+    engine: "weighted",
+    letter: null,
+    grade: { status: "calculated", percentage: 90 },
+    breakdown: [],
+    finalExam: { status: "no-final" },
+    shares: [],
+  },
   details: {
     instructor: "Dr. Ruiz",
     section: null,

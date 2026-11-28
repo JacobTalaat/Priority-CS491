@@ -40,11 +40,20 @@ export async function loadOpenWork(userId: string, now: Date): Promise<RankedIte
     select: openWorkCourseSelect,
   });
 
-  // The student's whole state in one query, never one per item. Done stays
-  // done until undone — even without a grade from Canvas; a skip only hides
-  // the item for the New York day it was skipped on.
-  const states = await prisma.itemState.findMany({ where: { userId } });
   const nyToday = nyDayOf(now);
+  const assignmentIds = courses.flatMap((course) => course.assignments.map((assignment) => assignment.id));
+  // Only current assignments can affect this list. Keep the one-query state
+  // lookup narrow instead of loading every historical state for the student.
+  const states = assignmentIds.length === 0
+    ? []
+    : await prisma.itemState.findMany({
+        where: {
+          userId,
+          assignmentId: { in: assignmentIds },
+          OR: [{ status: "done" }, { status: "skipped", skippedDay: nyToday }],
+        },
+        select: { assignmentId: true, status: true, skippedDay: true },
+      });
   const doneIds = new Set<string>();
   const skippedTodayIds = new Set<string>();
   for (const state of states) {
@@ -68,10 +77,8 @@ export async function loadOpenWork(userId: string, now: Date): Promise<RankedIte
       pointsPossible: assignment.pointsPossible,
       grade: assignment.grade,
     }));
-    const shares = new Map(
-      assignmentShares(setup, assignments).map((entry) => [entry.assignmentId, entry.share]),
-    );
-    collectBoundaries(setup, assignments, shares, boundariesByAssignmentId);
+    const shares = new Map(assignmentShares(setup, assignments).map((entry) => [entry.assignmentId, entry.share]));
+    const candidateAssignmentIds = new Set<string>();
 
     for (const assignment of course.assignments) {
       const score = assignment.grade?.score;
@@ -98,7 +105,10 @@ export async function loadOpenWork(userId: string, now: Date): Promise<RankedIte
         hours: null,
         graded,
       });
+      candidateAssignmentIds.add(assignment.id);
     }
+
+    collectBoundaries(setup, assignments, shares, boundariesByAssignmentId, candidateAssignmentIds);
   }
 
   // The flag is merged after ranking: it describes risk, not urgency, so it
@@ -125,6 +135,7 @@ function collectBoundaries(
   assignments: readonly { id: string; pointsPossible: number; grade: { score: number | null } | null }[],
   sharesById: Map<string, number | null>,
   out: Map<string, LetterBoundary | null>,
+  candidateAssignmentIds: ReadonlySet<string>,
 ): void {
   const gradeOf = (rows: typeof assignments) => calculateCourseGrade(setup, rows).grade;
   const grade = gradeOf(assignments);
@@ -141,7 +152,7 @@ function collectBoundaries(
     return result.status === "calculated" ? result.percentage : null;
   };
   for (const [assignmentId, share] of sharesById) {
-    if (typeof share !== "number" || !Number.isFinite(share) || share <= 0) {
+    if (!candidateAssignmentIds.has(assignmentId) || typeof share !== "number" || !Number.isFinite(share) || share <= 0) {
       continue;
     }
     const boundary = letterBoundary(grade.percentage, setup.cutoffs);

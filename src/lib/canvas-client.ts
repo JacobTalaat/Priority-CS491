@@ -1,6 +1,7 @@
 import { apiRequest } from "./api-client";
 import type { ApiResult } from "./api-client";
 import { getToken } from "./session";
+import type { CourseGradeData } from "./course-grade-data";
 
 // The API defaults to canvas.instructure.com, so the website sends NJIT's address unless
 // the student changes it.
@@ -22,6 +23,7 @@ export type ImportedCourse = {
   courseCode: string | null;
   term: string | null;
   termEndsAt: string | null;
+  grade?: CourseGradeData;
 };
 
 export type ImportedCoursesResponse = {

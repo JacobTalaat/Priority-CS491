@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, unauthorized } from "@/lib/auth";
+import { calculateCourseGradeData } from "@/lib/course-grade-data";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -64,7 +65,17 @@ export async function GET(request: Request, context: RouteContext) {
       courseCode: true,
       term: true,
       termEndsAt: true,
-      gradeSetup: { select: { classDetails: true, confirmedAt: true } },
+      gradeSetup: {
+        select: {
+          categories: true,
+          assignmentMappings: true,
+          finalExamWeight: true,
+          cutoffs: true,
+          classDetails: true,
+          unsupportedRules: true,
+          confirmedAt: true,
+        },
+      },
       assignments: {
         select: {
           id: true,
@@ -84,6 +95,12 @@ export async function GET(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Current course not found." }, { status: 404 });
   }
 
+  const assignments = course.assignments.map((assignment) => ({
+    id: assignment.id,
+    pointsPossible: assignment.pointsPossible,
+    grade: assignment.grade,
+  }));
+
   return NextResponse.json({
     course: {
       id: course.id,
@@ -93,6 +110,7 @@ export async function GET(request: Request, context: RouteContext) {
       termEndsAt: course.termEndsAt,
     },
     details: readDetails(course.gradeSetup),
+    grade: calculateCourseGradeData(course.gradeSetup, assignments),
     assignments: course.assignments.map((assignment) => ({
       id: assignment.id,
       title: assignment.title,

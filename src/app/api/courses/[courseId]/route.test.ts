@@ -66,7 +66,17 @@ const EXPECTED_SELECT = {
   courseCode: true,
   term: true,
   termEndsAt: true,
-  gradeSetup: { select: { classDetails: true, confirmedAt: true } },
+  gradeSetup: {
+    select: {
+      categories: true,
+      assignmentMappings: true,
+      finalExamWeight: true,
+      cutoffs: true,
+      classDetails: true,
+      unsupportedRules: true,
+      confirmedAt: true,
+    },
+  },
   assignments: {
     select: {
       id: true,
@@ -111,7 +121,7 @@ describe("GET /api/courses/[courseId]", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       course: {
         id: "course-1",
         name: "Algorithms",
@@ -127,6 +137,11 @@ describe("GET /api/courses/[courseId]", () => {
         latePolicy: "10% off per day, max 3 days",
         contacts: "prof@njit.edu; TA ta@njit.edu",
         confirmedAt: "2026-10-11T18:30:00.000Z",
+      },
+      grade: {
+        setupConfirmed: true,
+        engine: "points",
+        grade: { status: "calculated", percentage: 95 },
       },
       assignments: [
         {

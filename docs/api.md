@@ -979,7 +979,7 @@ curl -i -X POST http://localhost:3000/api/canvas/token/test \
 
 ### `GET /api/canvas/courses`
 
-Returns the current-term courses imported for the authenticated student. Courses are returned only while Canvas is connected.
+Returns the current-term courses imported for the authenticated student. Courses are returned only while Canvas is connected. Each course includes its grade calculation so the Classes list can render grades without issuing a separate grade request per course; the `grade` object has the same shape as the response from `GET /api/courses/[courseId]/grade`.
 
 - **Method**: `GET`
 - **Path**: `/api/canvas/courses`
@@ -1696,7 +1696,7 @@ A `null` weight or field means the syllabus did not state it — never zero. The
 
 ### `GET /api/courses/[courseId]`
 
-Returns one of the student's current courses with its saved class details and its assignments. The grades are the raw stored scores (no course percentages or category breakdown here). The assignments are ordered by due date with undated last. The `officeHours`, `latePolicy` and `contacts` are read from the saved class details and are null until captured.
+Returns one of the student's current courses with its saved class details, grade calculation, and assignments. The response includes the same calculated grade, breakdown, final-exam result, and assignment shares as `GET /api/courses/[courseId]/grade`, so a class page can load its details and grade with one request. The assignments are ordered by due date with undated last. The `officeHours`, `latePolicy` and `contacts` are read from the saved class details and are null until captured.
 
 - **Method**: `GET`
 - **Path**: `/api/courses/[courseId]`

@@ -627,13 +627,26 @@ describe("loadOpenWork hides done and skipped items", () => {
     mockItemStateFindMany.mockReset().mockResolvedValue([]);
   });
 
-  it("loads the item states in one extra query, not one per item", async () => {
+  it("loads only current assignment states that can affect this list", async () => {
     mockCourseFindMany.mockResolvedValue([course("a", "b", "c", "d")]);
 
     await loadOpenWork("user-1", NOW);
 
     expect(mockItemStateFindMany).toHaveBeenCalledTimes(1);
-    expect(mockItemStateFindMany).toHaveBeenCalledWith({ where: { userId: "user-1" } });
+    expect(mockItemStateFindMany).toHaveBeenCalledWith({
+      where: {
+        userId: "user-1",
+        assignmentId: { in: ["a", "b", "c", "d"] },
+        OR: [{ status: "done" }, { status: "skipped", skippedDay: "2026-10-14" }],
+      },
+      select: { assignmentId: true, status: true, skippedDay: true },
+    });
+  });
+
+  it("skips the state query when there are no current assignments", async () => {
+    await loadOpenWork("user-1", NOW);
+
+    expect(mockItemStateFindMany).not.toHaveBeenCalled();
   });
 
   it("leaves out an item the student marked done, even before a grade lands", async () => {

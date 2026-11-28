@@ -1,6 +1,7 @@
 import { apiRequest } from "./api-client";
 import { getToken } from "./session";
 import type { FinalExamResult } from "./final-exam-solver";
+import type { CourseGradeData } from "./course-grade-data";
 import type { CategoryBreakdown } from "./grade-engine";
 import type { AssignmentShare } from "./grade-share";
 import type { WeightedGradeResult } from "./weighted-grade";
@@ -23,6 +24,7 @@ export type CourseDetailsResponse = {
     contacts: string | null;
     confirmedAt: string | null;
   };
+  grade: CourseGradeData;
   assignments: {
     id: string;
     title: string;

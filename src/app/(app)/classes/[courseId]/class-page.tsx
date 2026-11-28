@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button, ButtonLink, List, ListRow, Notice, PageHeader } from "@/components/ui";
-import { getCourseDetails, getCourseGrade } from "@/lib/course-client";
+import { getCourseDetails } from "@/lib/course-client";
 import type { CourseDetailsResponse, CourseGradeResponse } from "@/lib/course-client";
 import {
   categoryLine,
@@ -30,14 +30,14 @@ type LoadState =
 type GradeState = { ok: true; data: CourseGradeResponse } | { ok: false; message: string };
 
 async function loadClass(courseId: string): Promise<LoadState> {
-  const [details, grade] = await Promise.all([getCourseDetails(courseId), getCourseGrade(courseId)]);
+  const details = await getCourseDetails(courseId);
   if (!details.ok) {
     return details.status === 404 ? { status: "not-found" } : { status: "error", message: details.error };
   }
   return {
     status: "ready",
     details: details.data,
-    grade: grade.ok ? { ok: true, data: grade.data } : { ok: false, message: grade.error },
+    grade: { ok: true, data: details.data.grade },
   };
 }
 

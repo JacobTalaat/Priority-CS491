@@ -49,6 +49,11 @@ function gradeResponse(overrides: Partial<CourseGradeResponse> = {}): CourseGrad
   };
 }
 
+const connectedWithGrades: ImportedCoursesResponse = {
+  connected: true,
+  courses: courses.map((course) => ({ ...course, grade: gradeResponse() })),
+};
+
 function cards(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll("li")];
 }
@@ -129,6 +134,15 @@ describe("ClassesList grid", () => {
       expect(links[1]!.textContent).toContain("Databases");
       expect(links[0]!.textContent).toContain("CS-341 · Fall 2026");
       expect(links[1]!.textContent).toContain("CS-331 · Fall 2026");
+    });
+  });
+
+  it("uses grades included with the course list without fetching each grade separately", async () => {
+    mockGetImportedCourses.mockResolvedValue({ ok: true, status: 200, data: connectedWithGrades });
+    await withMounted(<ClassesList />, async (container) => {
+      await waitFor(() => cardsLoaded(container));
+      expect(mockGetCourseGrade).not.toHaveBeenCalled();
+      expect(container.textContent).toContain("91.4%");
     });
   });
 

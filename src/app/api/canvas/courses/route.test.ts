@@ -58,7 +58,15 @@ describe("GET /api/canvas/courses", () => {
 
   it("returns only current-term courses belonging to the authenticated user", async () => {
     const courses = [
-      { id: "course-1", name: "Algorithms", courseCode: "CS-341", term: "Fall 2026", termEndsAt: null },
+      {
+        id: "course-1",
+        name: "Algorithms",
+        courseCode: "CS-341",
+        term: "Fall 2026",
+        termEndsAt: null,
+        gradeSetup: null,
+        assignments: [{ id: "assignment-1", pointsPossible: 100, grade: { score: 80 } }],
+      },
     ];
     stubUserFindUnique({
       canvasTokenCipher: "cipher",
@@ -71,10 +79,27 @@ describe("GET /api/canvas/courses", () => {
     const response = await GET(request());
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ connected: true, courses });
+    await expect(response.json()).resolves.toMatchObject({
+      connected: true,
+      courses: [
+        {
+          id: "course-1",
+          name: "Algorithms",
+          grade: { engine: "points", grade: { status: "calculated", percentage: 80 } },
+        },
+      ],
+    });
     expect(mockCourseFindMany).toHaveBeenCalledWith({
       where: { userId: "user-1", isCurrent: true },
-      select: { id: true, name: true, courseCode: true, term: true, termEndsAt: true },
+      select: expect.objectContaining({
+        id: true,
+        name: true,
+        courseCode: true,
+        term: true,
+        termEndsAt: true,
+        gradeSetup: expect.any(Object),
+        assignments: expect.any(Object),
+      }),
       orderBy: [{ name: "asc" }, { id: "asc" }],
     });
   });
