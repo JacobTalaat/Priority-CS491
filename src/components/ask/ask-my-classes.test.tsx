@@ -50,4 +50,43 @@ describe("AskMyClasses", () => {
     expect(mockAskClasses).toHaveBeenCalledExactlyOnceWith(EXAMPLE_QUESTIONS[0]);
     expect(container.textContent).toContain("Priority couldn't find that in your syllabus or Canvas data.");
   });
+
+  it("displays the answer with its course, source title, and verified quote", async () => {
+    mockAskClasses.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        found: true,
+        answer: "Homework 3 is due Friday.",
+        sources: [
+          {
+            kind: "assignment",
+            courseId: "course-1",
+            courseName: "Data Structures",
+            source: { assignmentId: "assignment-3", title: "Homework 3", htmlUrl: null },
+            quote: "Homework 3 is due Friday at 11:59 PM.",
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      root.render(<AskMyClasses />);
+    });
+
+    const example = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === EXAMPLE_QUESTIONS[0],
+    );
+    if (!example) {
+      throw new Error("Expected the first example question button");
+    }
+
+    await act(async () => {
+      example.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Homework 3 is due Friday.");
+    expect(container.textContent).toContain("Data Structures · Homework 3");
+    expect(container.textContent).toContain("Homework 3 is due Friday at 11:59 PM.");
+  });
 });
