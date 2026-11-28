@@ -8,6 +8,7 @@ export const TABS: readonly Tab[] = [
   { href: "/classes", label: "Classes" },
   { href: "/weights", label: "Weights" },
   { href: "/settings", label: "Settings" },
+  { href: "/help", label: "Help" },
 ];
 
 // A tab stays active on its own nested pages, e.g. /classes/42 keeps Classes lit.

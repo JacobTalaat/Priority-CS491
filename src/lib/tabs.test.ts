@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { TABS, isTabActive } from "./tabs";
 
 describe("TABS", () => {
-  it("lists the four tabs in order", () => {
-    expect(TABS.map((tab) => tab.label)).toEqual(["Today", "Classes", "Weights", "Settings"]);
+  it("lists the five tabs in order", () => {
+    expect(TABS.map((tab) => tab.label)).toEqual(["Today", "Classes", "Weights", "Settings", "Help"]);
   });
 });
 

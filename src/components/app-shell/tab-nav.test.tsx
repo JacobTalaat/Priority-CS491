@@ -16,7 +16,7 @@ function activeLinks(html: string) {
 describe("TabNav", () => {
   it("renders a link for each tab", () => {
     const html = renderToStaticMarkup(<TabNav />);
-    for (const href of ["/today", "/classes", "/weights", "/settings"]) {
+    for (const href of ["/today", "/classes", "/weights", "/settings", "/help"]) {
       expect(html).toContain(`href="${href}"`);
     }
   });
