@@ -4,7 +4,7 @@ Priority tracker built with Next.js, Prisma, and PostgreSQL.
 
 ## Prerequisites
 
-- Node.js LTS
+- Node.js 22 or newer
 - PostgreSQL, either installed locally or provided by a hosted database service
 
 ## Setup
@@ -58,6 +58,10 @@ Real values live only in `.env` on each laptop and in the server's own environme
 
 - `DATABASE_URL` — PostgreSQL connection string the running app uses. On Supabase, the pooler on port 6543.
 - `DIRECT_URL` — optional session connection used only by migrations. On Supabase, the session pooler on port 5432. Falls back to `DATABASE_URL` when unset.
+- `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL, used by the browser and server.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — Supabase publishable key. This key is safe to expose in the browser; it is not a secret.
+- `SUPABASE_SECRET_KEY` — server-only Supabase secret key, used to delete the Auth account when a student deletes their Priority account. Never expose it to the browser.
+- `NEXT_PUBLIC_SITE_URL` — optional deployed app origin used for confirmation and password-reset links. Set it in production and allow-list its `/auth/confirm` and `/reset-password` URLs in Supabase Auth.
 - `CANVAS_TOKEN_ENCRYPTION_KEY` — base64 key that decodes to exactly 32 bytes (AES-256), used to encrypt Canvas tokens. Generate one with:
 
   ```bash
@@ -81,6 +85,11 @@ Real values live only in `.env` on each laptop and in the server's own environme
   ```
 
 - `AI_TIMEOUT_MS` — optional per-request timeout in milliseconds, defaults to `60000`. Keep it below the hosting platform's request time limit.
+- `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` — matching web-push keys. Generate the pair with `npx web-push generate-vapid-keys`; keep the private key server-side.
+- `VAPID_SUBJECT` — contact URL for web push, formatted as `mailto:you@example.com` or an `https://` URL.
+- `CRON_SECRET` — server-only secret of at least 32 characters used to authorize scheduled jobs. Generate one with `openssl rand -base64 32`. A scheduler should call `GET /api/jobs/daily-sync` and `GET /api/jobs/nightly` every 15 minutes with this bearer token.
+
+All variables other than `DIRECT_URL`, `CANVAS_BASE_URL`, `NEXT_PUBLIC_SITE_URL`, `AI_REASONING`, and `AI_TIMEOUT_MS` are required by the corresponding server features. Keep secrets in the local `.env` or the hosting provider's secret environment settings, never in source control.
 
 ## Check that it works
 
@@ -148,6 +157,44 @@ Use the shared [cross-platform test plan](docs/test-plan.md) for API, website, a
 - `npm run typecheck` — type-check the project with TypeScript
 - `npm test` — run the test suite with Vitest
 - `npm run db:migrate` — create and apply Prisma migrations
+
+## Tests
+
+Run the test suite and project checks with:
+
+```bash
+npm test
+npm run lint
+npm run typecheck
+```
+
+The API documentation consistency check can also be run on its own:
+
+```bash
+npm test -- src/app/api/api-doc.test.ts
+```
+
+## Deploy
+
+The repository does not configure a specific hosting provider. Deploy it to a Node.js host that supports Next.js 16 and Node.js 22 or newer, and use a hosted PostgreSQL database.
+
+1. Configure the production environment variables from the list above in the hosting provider. Use the production database for `DATABASE_URL` and a session-capable connection for `DIRECT_URL` so migrations can take Prisma's advisory locks. Set `NEXT_PUBLIC_SITE_URL` to the public HTTPS origin.
+2. Before accepting real accounts, configure Supabase Auth to require email confirmation, use asymmetric JWT signing keys, and allow-list `<origin>/auth/confirm` and `<origin>/reset-password` in Redirect URLs.
+3. Apply checked-in migrations as a release step, before routing traffic to the new version:
+
+   ```bash
+   npx prisma migrate deploy
+   ```
+
+4. Build and run the production app with the package scripts:
+
+   ```bash
+   npm run build
+   npm run start
+   ```
+
+5. Check `GET /api/health`. It should return `status: "ok"`; confirm `emailConfirmationRequired` is `true` before real students sign up.
+6. Configure a scheduler to call `GET /api/jobs/daily-sync` and `GET /api/jobs/nightly` every 15 minutes, passing `Authorization: Bearer <CRON_SECRET>`. The repository does not provision this scheduler; see the scheduler notes in `.env.example`.
 
 ## Team process
 
