@@ -2028,9 +2028,56 @@ curl -i http://localhost:3000/api/courses/course-id/grade \
 }
 ```
 
+### `GET /api/assignments/[assignmentId]/plan`
+
+Returns the saved steps for one of the student's assignments in a current course, or `null` when no plan has been saved yet.
+
+- **Method**: `GET`
+- **Path**: `/api/assignments/[assignmentId]/plan`
+
+**Request**
+
+No body.
+
+**Response**
+
+`200` — saved plan, including the last update time:
+
+```json
+{
+  "plan": {
+    "steps": [
+      { "title": "Skim the project brief", "minutes": 15 },
+      { "title": "Draft the outline", "minutes": 45 },
+      { "title": "Review and submit", "minutes": 20 }
+    ],
+    "totalMinutes": 80,
+    "updatedAt": "2026-10-19T03:59:00.000Z"
+  }
+}
+```
+
+When no plan has been saved, `plan` is `null`.
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not belong to a current course of this student:
+
+```json
+{
+  "error": "Assignment not found."
+}
+```
+
 ### `POST /api/assignments/[assignmentId]/plan`
 
-Asks the AI to break one of the student's current-course assignments into 3 to 7 concrete steps with minute estimates, so tonight can start instead of being spent staring at the work. Nothing about the plan is saved; ask again any time. The due date in the prompt is rendered in `America/New_York` campus time.
+Asks the AI to break one of the student's current-course assignments into 3 to 7 concrete steps with minute estimates. Generated steps are not saved until the student reviews and saves them with `PUT`. The due date in the prompt is rendered in `America/New_York` campus time.
 
 - **Method**: `POST`
 - **Path**: `/api/assignments/[assignmentId]/plan`
@@ -2108,6 +2155,67 @@ curl -i -X POST http://localhost:3000/api/assignments/assignment-id/plan \
 ```json
 {
   "error": "Priority couldn't turn this assignment into steps right now. Try again in a little while."
+}
+```
+
+### `PUT /api/assignments/[assignmentId]/plan`
+
+Creates or replaces the student's saved steps for one of their assignments in a current course. Plans contain 3 to 7 steps; each title is 1 to 120 characters and each duration is an integer from 5 to 240 minutes.
+
+- **Method**: `PUT`
+- **Path**: `/api/assignments/[assignmentId]/plan`
+
+**Request**
+
+```json
+{
+  "steps": [
+    { "title": "Skim the project brief", "minutes": 15 },
+    { "title": "Draft the outline", "minutes": 45 },
+    { "title": "Review and submit", "minutes": 20 }
+  ]
+}
+```
+
+**Response**
+
+`200` — saved plan with its total duration and update time:
+
+```json
+{
+  "plan": {
+    "steps": [
+      { "title": "Skim the project brief", "minutes": 15 },
+      { "title": "Draft the outline", "minutes": 45 },
+      { "title": "Review and submit", "minutes": 20 }
+    ],
+    "totalMinutes": 80,
+    "updatedAt": "2026-10-19T03:59:00.000Z"
+  }
+}
+```
+
+`400` — steps are missing, malformed, or outside the documented bounds:
+
+```json
+{
+  "error": "Send 3 to 7 steps; each needs a title up to 120 characters and 5 to 240 minutes."
+}
+```
+
+`401` — no valid app session:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+`404` — the assignment does not belong to a current course of this student:
+
+```json
+{
+  "error": "Assignment not found."
 }
 ```
 

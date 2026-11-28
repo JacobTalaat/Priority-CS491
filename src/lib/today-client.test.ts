@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getToday, markDone, undoItem } from "./today-client";
+import {
+  generateAssignmentPlan,
+  getAssignmentPlan,
+  getToday,
+  markDone,
+  saveAssignmentPlan,
+  undoItem,
+} from "./today-client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -37,6 +44,40 @@ describe("today list client", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(requests[0]).toBe("/api/today");
+  });
+
+  it("loads the saved plan for a specific assignment", async () => {
+    const { fetchMock } = stubFetch();
+
+    await getAssignmentPlan("a 1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/assignments/a%201/plan",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("generates a plan using tonight's available hours", async () => {
+    const { fetchMock } = stubFetch();
+
+    await generateAssignmentPlan("a1", 2.5);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/assignments/a1/plan",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ hoursAvailable: 2.5 }) }),
+    );
+  });
+
+  it("saves edited plan steps", async () => {
+    const { fetchMock } = stubFetch();
+    const steps = [{ title: "Read the brief", minutes: 15 }];
+
+    await saveAssignmentPlan("a1", steps);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/assignments/a1/plan",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ steps }) }),
+    );
   });
 
   it("marks done with the item position and request identity", async () => {

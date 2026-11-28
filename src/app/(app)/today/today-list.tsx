@@ -3,8 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Button, ButtonLink, Input, Notice, PageHeader } from "@/components/ui";
-import { getToday, markDone, undoItem } from "@/lib/today-client";
-import type { TodayItem, TodayResponse } from "@/lib/today-client";
+import {
+  generateAssignmentPlan,
+  getAssignmentPlan,
+  getToday,
+  markDone,
+  saveAssignmentPlan,
+  undoItem,
+} from "@/lib/today-client";
+import type { PlanStep, TodayItem, TodayResponse } from "@/lib/today-client";
 import { isValidTodayHours, readTodayHours, saveTodayHours } from "@/lib/today-hours";
 import { boundaryTag, dueLabel, shareLabel } from "@/lib/today-list";
 import styles from "./today.module.css";
@@ -419,7 +426,11 @@ export function TodayList() {
               </Button>
             </section>
           ) : state.data.items.length === 0 && planStale ? null : (
-            <TodayItems items={state.data.items} onDone={handleDone} />
+            <TodayItems
+              items={state.data.items}
+              onDone={handleDone}
+              hoursAvailable={state.data.hoursFilter?.hours}
+            />
           )}
         </>
       ) : null}
@@ -438,10 +449,12 @@ export function TodayList() {
 export function TodayItems({
   items,
   onDone,
+  hoursAvailable,
   now,
 }: {
   items: TodayItem[];
   onDone?: (item: TodayItem, index: number) => void;
+  hoursAvailable?: number | null;
   // Fixed in tests so "today" and "tomorrow" don't depend on the clock.
   now?: Date;
 }) {
@@ -504,6 +517,7 @@ export function TodayItems({
                   ) : null}
                 </div>
               </details>
+              <PlanPanel item={item} hoursAvailable={hoursAvailable} />
             </div>
             <div className={styles.side}>
               {share ? (
@@ -527,5 +541,162 @@ export function TodayItems({
         );
       })}
     </ol>
+  );
+}
+
+function PlanPanel({ item, hoursAvailable }: { item: TodayItem; hoursAvailable?: number | null }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [steps, setSteps] = useState<PlanStep[]>([]);
+  const [saved, setSaved] = useState(false);
+  const panelId = `plan-${item.assignmentId}`;
+
+  async function openPlan() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (steps.length > 0) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const existing = await getAssignmentPlan(item.assignmentId);
+    if (!existing.ok) {
+      setError(existing.error);
+      setLoading(false);
+      return;
+    }
+    if (existing.data.plan) {
+      setSteps(existing.data.plan.steps);
+      setSaved(true);
+      setLoading(false);
+      return;
+    }
+
+    const generated = await generateAssignmentPlan(item.assignmentId, hoursAvailable);
+    if (!generated.ok) {
+      setError(generated.error);
+    } else {
+      setSteps(generated.data.steps);
+      setSaved(false);
+    }
+    setLoading(false);
+  }
+
+  async function savePlan() {
+    setSaving(true);
+    setError(null);
+    const result = await saveAssignmentPlan(item.assignmentId, steps);
+    if (!result.ok) {
+      setError(result.error);
+    } else {
+      setSteps(result.data.plan.steps);
+      setSaved(true);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <section className={styles.plan}>
+      <button
+        type="button"
+        className={styles.planToggle}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => void openPlan()}
+      >
+        {open ? "Hide plan" : "Plan"}
+      </button>
+      {open ? (
+        <div id={panelId} className={styles.planEditor}>
+          {loading ? <p className={styles.status} role="status">Creating your plan…</p> : null}
+          {error ? <p className={styles.planError} role="alert">{error}</p> : null}
+          {!loading && steps.length > 0 ? (
+            <>
+              <ol className={styles.steps}>
+                {steps.map((step, index) => (
+                  <li key={index} className={styles.step}>
+                    <label>
+                      Step {index + 1}
+                      <input
+                        aria-label={`Step ${index + 1} title`}
+                        type="text"
+                        maxLength={120}
+                        value={step.title}
+                        onChange={(event) => {
+                          const title = event.target.value;
+                          setSteps((current) => current.map((entry, stepIndex) =>
+                            stepIndex === index ? { ...entry, title } : entry,
+                          ));
+                          setSaved(false);
+                        }}
+                      />
+                    </label>
+                    <label>
+                      Minutes
+                      <input
+                        aria-label={`Step ${index + 1} minutes`}
+                        type="number"
+                        min={5}
+                        max={240}
+                        step={1}
+                        value={step.minutes}
+                        onChange={(event) => {
+                          const minutes = Number(event.target.value);
+                          setSteps((current) => current.map((entry, stepIndex) =>
+                            stepIndex === index ? { ...entry, minutes } : entry,
+                          ));
+                          setSaved(false);
+                        }}
+                      />
+                    </label>
+                    {steps.length > 3 ? (
+                      <button
+                        type="button"
+                        className={styles.stepRemove}
+                        aria-label={`Remove step ${index + 1}`}
+                        onClick={() => {
+                          setSteps((current) => current.filter((_, stepIndex) => stepIndex !== index));
+                          setSaved(false);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+              <div className={styles.planActions}>
+                {steps.length < 7 ? (
+                  <button
+                    type="button"
+                    className={styles.planToggle}
+                    onClick={() => {
+                      setSteps((current) => [...current, { title: "", minutes: 5 }]);
+                      setSaved(false);
+                    }}
+                  >
+                    Add step
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={styles.planSave}
+                  disabled={saving}
+                  onClick={() => void savePlan()}
+                >
+                  {saving ? "Saving…" : saved ? "Saved" : "Save steps"}
+                </button>
+              </div>
+              {saved ? <p className={styles.status} role="status">Plan saved.</p> : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }

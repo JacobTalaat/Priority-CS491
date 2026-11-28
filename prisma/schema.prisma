@@ -136,9 +136,19 @@ model Assignment {
   gradePostedEvents GradePostedEvent[]
   states          ItemState[]
   events          ItemEvent[]
+  plan            AssignmentPlan?
 
   @@unique([courseId, canvasId])
   @@index([courseId, dueAt])
+}
+
+model AssignmentPlan {
+  assignmentId String   @id
+  steps        Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 }
 
 model Grade {

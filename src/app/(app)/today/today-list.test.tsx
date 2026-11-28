@@ -4,14 +4,27 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetToday, mockReadTodayHours, mockSaveTodayHours } = vi.hoisted(() => ({
+const {
+  mockGetToday,
+  mockGetAssignmentPlan,
+  mockGenerateAssignmentPlan,
+  mockSaveAssignmentPlan,
+  mockReadTodayHours,
+  mockSaveTodayHours,
+} = vi.hoisted(() => ({
   mockGetToday: vi.fn(),
+  mockGetAssignmentPlan: vi.fn(),
+  mockGenerateAssignmentPlan: vi.fn(),
+  mockSaveAssignmentPlan: vi.fn(),
   mockReadTodayHours: vi.fn(),
   mockSaveTodayHours: vi.fn(),
 }));
 
 vi.mock("@/lib/today-client", () => ({
   getToday: mockGetToday,
+  getAssignmentPlan: mockGetAssignmentPlan,
+  generateAssignmentPlan: mockGenerateAssignmentPlan,
+  saveAssignmentPlan: mockSaveAssignmentPlan,
   markDone: vi.fn(),
   undoItem: vi.fn(),
 }));
@@ -71,6 +84,7 @@ describe("TodayItems", () => {
     expect(html).toContain(">4%<");
     expect(html).toContain("Weight share");
     expect(html).toContain("of grade");
+    expect(html.match(/>Plan<\/button>/g)).toHaveLength(2);
   });
 
   it("keeps course, due date and the boundary flag visible without opening the row", () => {
@@ -135,6 +149,34 @@ describe("TodayItems", () => {
 describe("TodayList", () => {
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    mockGetAssignmentPlan.mockReset().mockResolvedValue({ ok: true, status: 200, data: { plan: null } });
+    mockGenerateAssignmentPlan.mockReset().mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        steps: [
+          { title: "Skim the brief", minutes: 15 },
+          { title: "Draft an outline", minutes: 45 },
+          { title: "Review the work", minutes: 20 },
+        ],
+        totalMinutes: 80,
+      },
+    });
+    mockSaveAssignmentPlan.mockReset().mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        plan: {
+          steps: [
+            { title: "Start with the rubric", minutes: 15 },
+            { title: "Draft an outline", minutes: 45 },
+            { title: "Review the work", minutes: 20 },
+          ],
+          totalMinutes: 80,
+          updatedAt: GENERATED_AT,
+        },
+      },
+    });
     mockReadTodayHours.mockReset().mockReturnValue({ ok: true, hours: null });
     mockSaveTodayHours.mockReset().mockReturnValue(true);
     mockGetToday.mockReset().mockResolvedValue({
@@ -172,6 +214,40 @@ describe("TodayList", () => {
       },
     };
   }
+
+  it("loads, edits, and saves steps from a row's Plan button", async () => {
+    const view = await renderLoadedList();
+    const planButton = Array.from(view.container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Plan",
+    );
+    expect(planButton).toBeDefined();
+    await act(async () => {
+      planButton?.click();
+    });
+    expect(mockGetAssignmentPlan).toHaveBeenCalledWith("a1");
+    expect(mockGenerateAssignmentPlan).toHaveBeenCalledWith("a1", undefined);
+    const titleInput = view.container.querySelector<HTMLInputElement>('[aria-label="Step 1 title"]');
+    expect(titleInput).not.toBeNull();
+    expect(titleInput?.value).toBe("Skim the brief");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(titleInput, "Start with the rubric");
+      titleInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const saveButton = Array.from(view.container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Save steps",
+    );
+    await act(async () => {
+      saveButton?.click();
+    });
+    expect(mockSaveAssignmentPlan).toHaveBeenCalledWith("a1", [
+      { title: "Start with the rubric", minutes: 15 },
+      { title: "Draft an outline", minutes: 45 },
+      { title: "Review the work", minutes: 20 },
+    ]);
+    expect(view.container.textContent).toContain("Plan saved.");
+    await view.unmount();
+  });
 
   it("shows a nothing-fits state, not the caught-up state, when the budget leaves open work off the list", async () => {
     mockGetToday.mockResolvedValue({

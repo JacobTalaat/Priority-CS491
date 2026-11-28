@@ -27,9 +27,37 @@ export type TodayResponse = {
   hoursFilter: { hours: number; plannedHours: number; unestimatedCount: number; skippedCount: number } | null;
 };
 
+export type PlanStep = { title: string; minutes: number };
+export type SavedAssignmentPlan = { steps: PlanStep[]; totalMinutes: number; updatedAt: string };
+
 export function getToday(hours?: number | null) {
   const query = hours === undefined || hours === null ? "" : `?hours=${encodeURIComponent(String(hours))}`;
   return apiRequest<TodayResponse>(`/api/today${query}`, { token: getToken() });
+}
+
+export function getAssignmentPlan(assignmentId: string) {
+  return apiRequest<{ plan: SavedAssignmentPlan | null }>(
+    `/api/assignments/${encodeURIComponent(assignmentId)}/plan`,
+    { token: getToken() },
+  );
+}
+
+export function generateAssignmentPlan(assignmentId: string, hoursAvailable?: number | null) {
+  return apiRequest<{ steps: PlanStep[]; totalMinutes: number }>(
+    `/api/assignments/${encodeURIComponent(assignmentId)}/plan`,
+    {
+      method: "POST",
+      token: getToken(),
+      ...(hoursAvailable === undefined || hoursAvailable === null ? {} : { body: { hoursAvailable } }),
+    },
+  );
+}
+
+export function saveAssignmentPlan(assignmentId: string, steps: PlanStep[]) {
+  return apiRequest<{ plan: SavedAssignmentPlan }>(
+    `/api/assignments/${encodeURIComponent(assignmentId)}/plan`,
+    { method: "PUT", token: getToken(), body: { steps } },
+  );
 }
 
 // What the student was looking at when they tapped, for the study's event log.
