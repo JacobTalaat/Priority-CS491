@@ -1,0 +1,108 @@
+.page {
+  min-height: 100vh;
+  padding: 0 var(--page-gutter) 64px;
+}
+
+.header {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.wordmark {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
+.back {
+  color: var(--secondary);
+  font-size: 14px;
+}
+
+.back:hover,
+.policy a:hover {
+  color: var(--accent);
+}
+
+.policy {
+  display: grid;
+  width: min(100%, 760px);
+  gap: 28px;
+  margin: 64px auto 0;
+}
+
+.eyebrow {
+  margin-bottom: -20px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.policy h1 {
+  font-size: clamp(32px, 5vw, 48px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.updated,
+.disclaimer {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.intro {
+  color: var(--secondary);
+  font-size: 16px;
+}
+
+.policy section {
+  display: grid;
+  gap: 12px;
+}
+
+.policy h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.policy p,
+.policy li {
+  color: var(--secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.policy ul {
+  display: grid;
+  gap: 10px;
+  padding-left: 22px;
+}
+
+.policy strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.policy a:not(.back) {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.policy .disclaimer {
+  padding-top: 20px;
+  border-top: 1px solid var(--divider);
+}
+
+@media (max-width: 720px) {
+  .policy {
+    margin-top: 40px;
+  }
+}

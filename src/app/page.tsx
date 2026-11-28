@@ -285,7 +285,7 @@ export default function Home() {
                 <div className={styles.metaRow}>
                   <span className={styles.microLabel}>Privacy</span>
                   <span className={styles.metaValue}>
-                    <span className={styles.todo}>[ADD PRIVACY POLICY]</span>
+                    <Link href="/privacy">Read our privacy policy</Link>
                   </span>
                 </div>
               </div>
@@ -314,7 +314,9 @@ export default function Home() {
 
       <footer className={styles.footer}>
         <span className={styles.microLabel}>Priority · NJIT Capstone</span>
-        <span className={styles.microLabel}>Imports Canvas. Stores your token encrypted.</span>
+        <span className={styles.microLabel}>
+          Imports Canvas. Stores your token encrypted. <Link href="/privacy">Privacy</Link>
+        </span>
       </footer>
     </div>
   );
