@@ -61,6 +61,15 @@ describe("NotificationPreferences", () => {
     await renderPanel();
 
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
+    for (const [name, label] of [
+      ["notifyTonight", "Tonight"],
+      ["notifyDueTomorrow", "Due tomorrow"],
+      ["notifyGradePosted", "Grade posted"],
+    ]) {
+      const checkbox = container.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+      expect(checkbox?.closest("label")?.textContent).toContain(label);
+    }
+    expect(container.querySelector('label[for="nightly-reminder-time"]')?.textContent).toBe("Reminder time");
     expect(container.querySelector<HTMLInputElement>('input[name="notifyTonight"]')?.checked).toBe(true);
     expect(container.querySelector<HTMLInputElement>('input[name="notifyDueTomorrow"]')?.checked).toBe(true);
     expect(container.querySelector<HTMLInputElement>('input[name="notifyGradePosted"]')?.checked).toBe(true);

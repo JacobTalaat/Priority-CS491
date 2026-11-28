@@ -55,9 +55,10 @@ const steps = [
 export default function Home() {
   return (
     <div className={styles.page}>
+      <a className="skipLink" href="#main-content">Skip to main content</a>
       <header className={styles.bar}>
         <span className={styles.wordmark}>Priority</span>
-        <nav className={styles.nav}>
+        <nav className={styles.nav} aria-label="Main">
           <div className={styles.navJumps}>
             <a href="#how">How it works ↓</a>
             <a href="#imports">Imports ↓</a>
@@ -72,7 +73,7 @@ export default function Home() {
         </nav>
       </header>
 
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <section className={styles.hero}>
           <div className={`${styles.labelRow} ${styles.up} ${styles.u1}`}>
             <span className={styles.microLabel}>NJIT Capstone · Priority</span>

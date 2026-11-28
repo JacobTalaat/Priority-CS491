@@ -26,7 +26,10 @@ describe("SyllabusUpload", () => {
   });
 
   it("has a labeled PDF-only file field", () => {
-    expect(html).toMatch(/<label[^>]*>Syllabus PDF<\/label>/);
+    const field = html.match(/<input[^>]*type="file"[^>]*>/)?.[0] ?? "";
+    const id = field.match(/\bid="([^"]+)"/)?.[1];
+    expect(id).toBeDefined();
+    expect(html).toMatch(new RegExp(`<label[^>]*for="${id}"[^>]*>Syllabus PDF<\\/label>`));
     expect(html).toContain('accept="application/pdf,.pdf"');
   });
 

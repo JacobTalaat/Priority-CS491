@@ -344,6 +344,7 @@ describe("final exam picker", () => {
 
   it("offers every assignment, plus none, and starts on none for a new setup", () => {
     const html = renderToStaticMarkup(<WeightsSetup initialCourses={[course]} />);
+    expect(html).toMatch(/<label[^>]*for="weight-course"[^>]*>Class<\/label>/);
     expect(html).toMatch(/<label[^>]*for="final-exam-assignment"[^>]*>Final exam<\/label>/);
     expect(html).toContain('<option value="" selected="">Not on Canvas, or no final exam</option>');
     expect(html).toContain('<option value="a1">Homework 1</option>');
